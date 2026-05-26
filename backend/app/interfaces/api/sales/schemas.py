@@ -18,7 +18,7 @@ class ClientCreateRequest(BaseModel):
     phone: Optional[str] = Field(None, max_length=20, description="Phone number")
     address: Optional[str] = Field(None, max_length=500, description="Address")
     gst_number: Optional[str] = Field(None, max_length=50, description="GST number")
-    credit_limit: Optional[Decimal] = Field(None, decimal_places=4, description="Credit limit")
+    credit_limit: Optional[Decimal] = Field(None, description="Credit limit")
     payment_terms_days: int = Field(0, ge=0, le=365, description="Payment terms in days")
 
 
@@ -29,7 +29,7 @@ class ClientUpdateRequest(BaseModel):
     phone: Optional[str] = Field(None, max_length=20)
     address: Optional[str] = Field(None, max_length=500)
     gst_number: Optional[str] = Field(None, max_length=50)
-    credit_limit: Optional[Decimal] = Field(None, decimal_places=4)
+    credit_limit: Optional[Decimal] = Field(None)
     payment_terms_days: Optional[int] = Field(None, ge=0, le=365)
 
 
@@ -77,7 +77,7 @@ class PriceListLineRequest(BaseModel):
     """Request to add/update pricing line."""
     product_id: UUID
     product_type: str = Field(..., pattern="^(variant|finished_product)$")
-    unit_price: Decimal = Field(..., decimal_places=4, gt=0)
+    unit_price: Decimal = Field(..., gt=0)
 
 
 class PriceListRequest(BaseModel):
@@ -129,8 +129,8 @@ class SalesOrderLineCreateRequest(BaseModel):
     product_id: UUID
     product_type: str = Field(..., pattern="^(variant|finished_product)$")
     uom_id: UUID
-    quantity: Decimal = Field(..., decimal_places=4, gt=0)
-    tax_rate: Decimal = Field(0, decimal_places=2, ge=0, le=100)
+    quantity: Decimal = Field(..., gt=0)
+    tax_rate: Decimal = Field(0, ge=0, le=100)
 
 
 class SalesOrderLineResponse(BaseModel):
@@ -247,7 +247,7 @@ class SalesOrderListResponse(BaseModel):
 
 class ApplyDiscountRequest(BaseModel):
     """Request to apply discount to order."""
-    discount_amount: Decimal = Field(..., decimal_places=4, ge=0)
+    discount_amount: Decimal = Field(..., ge=0)
 
 
 class ConfirmOrderRequest(BaseModel):
