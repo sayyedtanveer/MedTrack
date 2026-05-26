@@ -7,7 +7,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "operational_hardening_consumption"
+revision = "op_hard_consumption"
 down_revision = "operational_hardening_wo_status"
 branch_labels = None
 depends_on = None

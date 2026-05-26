@@ -127,13 +127,19 @@ def create_application() -> FastAPI:
     # ── Exception handlers ─────────────────────────────
     from backend.app.domain.shared.exceptions.domain_exception import DomainException
     
+    _AUTH_CODES = {"INVALID_TOKEN", "TOKEN_EXPIRED", "AUTH_REQUIRED", "UNAUTHORIZED"}
+
     @app.exception_handler(DomainException)
     async def domain_exception_handler(request, exc: DomainException):
-        """Convert domain exceptions to HTTP 401 responses"""
-        return JSONResponse(
-            status_code=401,
-            content={"detail": str(exc.message)},
-        )
+        """Convert domain exceptions to appropriate HTTP responses.
+
+        Auth-specific codes → 401.
+        All other domain rule violations → 422 (business logic failure,
+        not an auth problem — prevents spurious frontend logouts).
+        """
+        if exc.code in _AUTH_CODES:
+            return JSONResponse(status_code=401, content={"detail": exc.message})
+        return JSONResponse(status_code=422, content={"detail": exc.message, "code": exc.code})
 
     # ── Health check ──────────────────────────────────
     @app.get("/health", tags=["Health"])

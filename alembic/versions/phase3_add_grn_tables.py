@@ -15,7 +15,7 @@ import sqlalchemy as sa
 revision: str = 'phase3_add_grn_tables'
 down_revision = 'phase4_work_orders'
 branch_labels = None
-depends_on = None
+depends_on = 'sc_foundation'
 
 
 def upgrade() -> None:
