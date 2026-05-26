@@ -1,0 +1,22 @@
+modules = ["python-3.12", "nodejs-20", "web"]
+[agent]
+expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+ENVIRONMENT = "development"
+APP_NAME = "MedTrack ERP"
+APP_VERSION = "0.1.0"
+DEBUG = "true"
+LOG_LEVEL = "INFO"
+CORS_ORIGINS = "*"
+UPLOAD_DIR = "./uploads"
+MAX_UPLOAD_SIZE_MB = "10"
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_MINUTES = "60"
+JWT_REFRESH_EXPIRY_DAYS = "7"
