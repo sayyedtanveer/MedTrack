@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Save } from "lucide-react"
 import { operationsService, CreateOperationInput } from "@/services/operations.service"
+import { workstationsService } from "@/services/workstations.service"
 import { usePermissions } from "@/hooks/usePermissions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,7 +29,7 @@ export default function OperationFormPage() {
   // Load workstations for selection
   const { data: workstations = [] } = useQuery({
     queryKey: ["workstations"],
-    queryFn: operationsService.listWorkstations,
+    queryFn: workstationsService.listWorkstations,
     staleTime: 60_000,
   })
 
@@ -47,8 +48,12 @@ export default function OperationFormPage() {
         setName(op.name)
         setDescription(op.description ?? "")
         setWorkstationId(op.workstation_id ?? "")
-        setSetupTime(op.setup_time)
-        setRunTime(op.run_time)
+        if (op.setup_time !== undefined) {
+          setSetupTime(op.setup_time)
+        }
+        if (op.run_time !== undefined) {
+          setRunTime(op.run_time)
+        }
       }
     }
   }, [operations, id, isNew])
@@ -61,9 +66,9 @@ export default function OperationFormPage() {
       const payload: CreateOperationInput = {
         name: name.trim(),
         description: description.trim() || undefined,
-        workstation_id: workstationId,
-        setup_time: setupTime,
-        run_time: runTime,
+        workstation_id: workstationId || undefined,
+        setup_time: setupTime || undefined,
+        run_time: runTime || undefined,
       }
       if (isNew) {
         return operationsService.createOperation(payload)

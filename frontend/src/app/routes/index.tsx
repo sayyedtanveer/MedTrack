@@ -8,6 +8,7 @@ import { usersRoutes } from "@/modules/users/routes"
 import { bomRoutes } from "@/modules/bom/routes"
 import { productRoutes } from "@/modules/products/routes"
 import { operationsRoutes } from "@/modules/operations/routes"
+import { manufacturingRoutes } from "@/modules/manufacturing/routes"
 import { salesRoutes } from "@/modules/sales/routes"
 import { workOrderRoutes } from "@/modules/work-orders/routes"
 import { shopFloorRoutes } from "@/modules/shop-floor/routes"
@@ -89,6 +90,7 @@ export const router = createBrowserRouter([
           ...bomRoutes,
           ...productRoutes,
           ...operationsRoutes,
+          ...manufacturingRoutes,
           ...salesRoutes,
           ...workOrderRoutes,
           ...shopFloorRoutes,

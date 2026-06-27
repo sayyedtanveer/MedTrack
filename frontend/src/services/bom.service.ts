@@ -150,12 +150,12 @@ export const bomService = {
   // ── Workstations & Operations ──────────────────────────────────────────────
 
   async getWorkstations(): Promise<Workstation[]> {
-    const { data } = await apiClient.get("/workstations");
+    const { data } = await apiClient.get("/workstations/");
     return data;
   },
 
   async getOperations(): Promise<Operation[]> {
-    const { data } = await apiClient.get("/operations");
+    const { data } = await apiClient.get("/operations/");
     return data;
   },
 

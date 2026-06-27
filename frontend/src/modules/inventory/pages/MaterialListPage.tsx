@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { materialService } from "@/services/material.service"
 import { Material } from "@/types/material.types"
 import { DataTable } from "@/components/shared/DataTable"
@@ -17,6 +17,7 @@ import { StockOperationDrawer } from "../components/StockOperationDrawer"
 
 export default function MaterialListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const [searchQuery, setSearchQuery] = useState("")
   const { canWrite } = usePermissions()
   const navigate = useNavigate()
   
@@ -32,8 +33,12 @@ export default function MaterialListPage() {
   }
 
   const { data: materialsData, isLoading: isFetchingMaterials } = useQuery({
-    queryKey: ["materials"],
-    queryFn: () => materialService.getMaterials({ page: 1, page_size: 100 }),
+    queryKey: ["materials", searchQuery],
+    queryFn: () => materialService.getMaterials({ 
+      page: 1, 
+      page_size: 100,
+      query: searchQuery || undefined,
+    }),
   })
 
   const { data: categories, isLoading: isFetchingCategories } = useQuery({
@@ -133,6 +138,19 @@ export default function MaterialListPage() {
         action={actionButtons}
       />
 
+      {/* Search Input */}
+      <div className="flex gap-2">
+        <div className="flex-1 max-w-md">
+          <input
+            type="text"
+            placeholder="Search by code or name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-3 py-2 border border-input rounded-md bg-background text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
+        </div>
+      </div>
+
       {isLoading ? (
         <TableSkeleton rows={8} />
       ) : (
@@ -140,9 +158,7 @@ export default function MaterialListPage() {
           <div className="hidden md:block">
             <DataTable 
               columns={columns} 
-              data={items} 
-              searchKey="name" 
-              searchPlaceholder="Search materials by name or code..."
+              data={items}
             />
           </div>
           <div className="md:hidden grid gap-4 grid-cols-1 sm:grid-cols-2">

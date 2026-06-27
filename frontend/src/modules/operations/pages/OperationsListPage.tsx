@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, Pencil, Trash2, Search, Clock, Wrench } from "lucide-react"
 import { operationsService } from "@/services/operations.service"
+import { workstationsService } from "@/services/workstations.service"
 import { usePermissions } from "@/hooks/usePermissions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,7 +28,7 @@ export default function OperationsListPage() {
 
   const { data: workstations = [] } = useQuery({
     queryKey: ["workstations"],
-    queryFn: operationsService.listWorkstations,
+    queryFn: workstationsService.listWorkstations,
     staleTime: 60_000,
   })
 

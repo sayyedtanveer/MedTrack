@@ -14,7 +14,8 @@ from backend.app.interfaces.api.v1.routes.batch_and_serial import router as batc
 from backend.app.interfaces.api.v1.routes.products import router as products_router
 from backend.app.interfaces.api.v1.routes.boms import router as boms_router
 from backend.app.interfaces.api.v1.workstations import router as workstations_router
-from backend.app.interfaces.api.v1.operations import router as operations_router
+from backend.app.interfaces.api.v1.operations import router as bom_operations_router
+from backend.app.interfaces.api.v1.routes.operations import router as manufacturing_operations_router
 from backend.app.interfaces.api.sales import router as sales_router
 from backend.app.interfaces.api.v1.routes.work_orders import router as work_orders_router
 from backend.app.interfaces.api.v1.routes.supply_chain import router as supply_chain_router
@@ -58,7 +59,8 @@ api_v1_router.include_router(batch_and_serial_router)
 api_v1_router.include_router(products_router)
 api_v1_router.include_router(boms_router)
 api_v1_router.include_router(workstations_router)
-api_v1_router.include_router(operations_router)
+api_v1_router.include_router(bom_operations_router)
+api_v1_router.include_router(manufacturing_operations_router)
 api_v1_router.include_router(sales_router)
 api_v1_router.include_router(work_orders_router)
 api_v1_router.include_router(supply_chain_router)

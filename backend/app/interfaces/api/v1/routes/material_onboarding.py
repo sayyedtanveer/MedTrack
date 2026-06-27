@@ -309,7 +309,7 @@ async def validate_session(
     container = get_container(request)
     existing_codes: Dict[str, Dict[str, Any]] = {}
     try:
-        async with container.db_session_factory() as db:
+        async with container.session_factory() as db:
             result = await db.execute(
                 select(
                     MaterialModel.code,
@@ -438,13 +438,14 @@ async def execute_session(
     if not body.dry_run:
         container = get_container(request)
 
-        # Fetch UOM and category lookups
+        # Fetch UOM and category lookups, auto-create missing, and create materials all in ONE atomic transaction
         uom_map: Dict[str, uuid.UUID] = {}
         cat_map: Dict[str, uuid.UUID] = {}
         existing_map: Dict[str, MaterialModel] = {}
 
         try:
-            async with container.db_session_factory() as db:
+            async with container.session_factory() as db:
+                # Phase 1: Load existing master data
                 uom_result = await db.execute(
                     select(UnitOfMeasureModel.code, UnitOfMeasureModel.id).where(
                         UnitOfMeasureModel.tenant_id == tenant_id,
@@ -477,7 +478,7 @@ async def execute_session(
                     if name_key:
                         existing_map[name_key] = mat
 
-                # Auto-create missing UOMs following project standard pattern
+                # Phase 2: Auto-create missing UOMs (SAME TRANSACTION)
                 for row in actionable:
                     data = row["data"]
                     uom_code = str(data.get("uom", "")).strip().upper()
@@ -496,7 +497,7 @@ async def execute_session(
                         db.add(new_uom)
                         uom_map[uom_code] = new_uom.id
 
-                # Auto-create missing categories following project standard pattern
+                # Phase 3: Auto-create missing categories (SAME TRANSACTION)
                 for row in actionable:
                     data = row["data"]
                     cat_name = str(data.get("material_category", "")).strip().upper()
@@ -515,110 +516,118 @@ async def execute_session(
                         db.add(new_cat)
                         cat_map[cat_name] = new_cat.id
                 
+                # Flush master data to prepare IDs
                 await db.flush()
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Failed to auto-create master data: {exc}")
 
-        async with container.db_session_factory() as db:
-            for row in actionable:
+                # Phase 4: Create/Update materials (SAME TRANSACTION, after master data flushed)
+                for row in actionable:
+                    try:
+                        data = row["data"]
+                        name = str(data.get("material_name", "")).strip()
+                        item_code = str(data.get("item_code", "")).strip()
+                        uom_code = str(data.get("uom", "")).strip().upper()
+                        cat_name = str(data.get("material_category", "")).strip().upper()
+
+                        uom_id = uom_map.get(uom_code)
+                        cat_id = cat_map.get(cat_name)
+
+                        def _f(key: str) -> str | None:
+                            val = data.get(key, "").strip()
+                            return val if val else None
+
+                        def _bool_val(val: str) -> bool:
+                            return str(val).lower() in ("true", "1", "yes")
+
+                        def _float_f(key: str) -> float | None:
+                            try:
+                                val = float(data.get(key, 0) or 0)
+                                return val if val > 0 else None
+                            except (TypeError, ValueError):
+                                return None
+
+                        def _int_f(key: str) -> int | None:
+                            try:
+                                val = int(data.get(key, 0) or 0)
+                                return val if val > 0 else None
+                            except (TypeError, ValueError):
+                                return None
+
+                        existing = existing_map.get(item_code.upper()) or existing_map.get(name.upper())
+                        if not existing:
+                            # Create
+                            mat = MaterialModel(
+                                id=uuid.uuid4(),
+                                tenant_id=tenant_id,
+                                code=item_code,
+                                name=name,
+                                base_unit_id=uom_id,
+                                category_id=cat_id,
+                                is_batch_tracked=_bool_val(data.get("batch_tracking_enabled", "false")),
+                                is_serialized=_bool_val(data.get("traceability_enabled", "false")),
+                                qc_required_flag=_bool_val(data.get("qc_required", "false")),
+                                reorder_level=_float_f("reorder_level"),
+                                safety_stock=_float_f("min_stock"),
+                                lead_time_days=_int_f("lead_time"),
+                                length_uom=_f("length_uom"),
+                                current_cost=0,
+                                current_stock=0,
+                                reserved_stock=0,
+                                is_active=True,
+                                is_deleted=False,
+                                created_by=user_id,
+                                updated_by=user_id,
+                            )
+                            db.add(mat)
+                            created += 1
+                        else:
+                            # Update
+                            if session["protected_confirmed"]:
+                                material_type = _f("material_type")
+                                if material_type:
+                                    existing.material_type = material_type
+                                existing.is_batch_tracked = _bool_val(data.get("batch_tracking_enabled", str(existing.is_batch_tracked)))
+                                existing.is_serialized = _bool_val(data.get("traceability_enabled", str(existing.is_serialized)))
+                                base_unit = uom_id or existing.base_unit_id
+                                if base_unit:
+                                    existing.base_unit_id = base_unit
+                            category = cat_id or existing.category_id
+                            if category:
+                                existing.category_id = category
+                            reorder = _float_f("reorder_level")
+                            if reorder:
+                                existing.reorder_level = reorder
+                            safety = _float_f("min_stock")
+                            if safety:
+                                existing.safety_stock = safety
+                            lead = _int_f("lead_time")
+                            if lead:
+                                existing.lead_time_days = lead
+                            length = _f("length_uom")
+                            if length:
+                                existing.length_uom = length
+                            existing.updated_by = user_id
+                            updated += 1
+                    except Exception as exc:
+                        errors += 1
+                        error_messages.append(f"Row {row['row_number']}: {exc}")
+
+                skipped = len(rows) - len(actionable)
+
+                # Single atomic commit for entire transaction
                 try:
-                    data = row["data"]
-                    name = str(data.get("material_name", "")).strip()
-                    item_code = str(data.get("item_code", "")).strip()
-                    uom_code = str(data.get("uom", "")).strip().upper()
-                    cat_name = str(data.get("material_category", "")).strip().upper()
-
-                    uom_id = uom_map.get(uom_code)
-                    cat_id = cat_map.get(cat_name)
-
-                    def _f(key: str) -> str | None:
-                        val = data.get(key, "").strip()
-                        return val if val else None
-
-                    def _bool_val(val: str) -> bool:
-                        return str(val).lower() in ("true", "1", "yes")
-
-                    def _float_f(key: str) -> float | None:
-                        try:
-                            val = float(data.get(key, 0) or 0)
-                            return val if val > 0 else None
-                        except (TypeError, ValueError):
-                            return None
-
-                    def _int_f(key: str) -> int | None:
-                        try:
-                            val = int(data.get(key, 0) or 0)
-                            return val if val > 0 else None
-                        except (TypeError, ValueError):
-                            return None
-
-                    existing = existing_map.get(item_code.upper()) or existing_map.get(name.upper())
-                    if not existing:
-                        # Create
-                        mat = MaterialModel(
-                            id=uuid.uuid4(),
-                            tenant_id=tenant_id,
-                            code=item_code,
-                            name=name,
-                            base_unit_id=uom_id,
-                            category_id=cat_id,
-                            is_batch_tracked=_bool_val(data.get("batch_tracking_enabled", "false")),
-                            is_serialized=_bool_val(data.get("traceability_enabled", "false")),
-                            qc_required_flag=_bool_val(data.get("qc_required", "false")),
-                            reorder_level=_float_f("reorder_level"),
-                            safety_stock=_float_f("min_stock"),
-                            lead_time_days=_int_f("lead_time"),
-                            length_uom=_f("length_uom"),
-                            current_cost=0,
-                            current_stock=0,
-                            reserved_stock=0,
-                            is_active=True,
-                            is_deleted=False,
-                            created_by=user_id,
-                            updated_by=user_id,
-                        )
-                        db.add(mat)
-                        created += 1
-                    else:
-                        # Update
-                        if session["protected_confirmed"]:
-                            material_type = _f("material_type")
-                            if material_type:
-                                existing.material_type = material_type
-                            existing.is_batch_tracked = _bool_val(data.get("batch_tracking_enabled", str(existing.is_batch_tracked)))
-                            existing.is_serialized = _bool_val(data.get("traceability_enabled", str(existing.is_serialized)))
-                            base_unit = uom_id or existing.base_unit_id
-                            if base_unit:
-                                existing.base_unit_id = base_unit
-                        category = cat_id or existing.category_id
-                        if category:
-                            existing.category_id = category
-                        reorder = _float_f("reorder_level")
-                        if reorder:
-                            existing.reorder_level = reorder
-                        safety = _float_f("min_stock")
-                        if safety:
-                            existing.safety_stock = safety
-                        lead = _int_f("lead_time")
-                        if lead:
-                            existing.lead_time_days = lead
-                        length = _f("length_uom")
-                        if length:
-                            existing.length_uom = length
-                        existing.updated_by = user_id
-                        updated += 1
+                    await db.commit()
                 except Exception as exc:
-                    errors += 1
-                    error_messages.append(f"Row {row['row_number']}: {exc}")
+                    await db.rollback()
+                    raise HTTPException(status_code=500, detail=f"Commit failed: {exc}")
 
-            skipped = len(rows) - len(actionable)
-            try:
-                await db.commit()
-            except Exception as exc:
-                await db.rollback()
-                raise HTTPException(status_code=500, detail=f"Commit failed: {exc}")
-
-        _sessions.pop(session_id, None)
+        except HTTPException:
+            # Re-raise HTTP exceptions (already formatted)
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Onboarding execution failed: {str(exc)}")
+        finally:
+            # Clean up session after execution (success or failure)
+            _sessions.pop(session_id, None)
     else:
         # Dry run: just count
         created = sum(1 for r in actionable if r["classification"] == "new")
@@ -673,7 +682,7 @@ async def update_row(
     existing_codes: Dict[str, Dict[str, Any]] = {}
     try:
         container = get_container(request)
-        async with container.db_session_factory() as db:
+        async with container.session_factory() as db:
             result = await db.execute(
                 select(
                     MaterialModel.code, MaterialModel.item_code, MaterialModel.name,

@@ -24,21 +24,28 @@ async def get_current_user_payload(
     from backend.app.infrastructure.logging.logger import get_logger
     logger = get_logger(__name__)
     
+    # If HTTPBearer doesn't find credentials, try to extract directly from header
     if not credentials:
-        logger.warning(
-            "Authentication failed: No credentials provided",
-            extra={
-                "path": request.url.path,
-                "method": request.method,
-                "has_auth_header": "authorization" in (k.lower() for k in request.headers.keys()),
-                "all_headers": {k: (v[:20] + "..." if len(v) > 20 else v) for k, v in request.headers.items()},
-            }
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No authentication token provided. Please include an Authorization header with a valid Bearer token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        else:
+            logger.warning(
+                "Authentication failed: No credentials provided",
+                extra={
+                    "path": request.url.path,
+                    "method": request.method,
+                    "has_auth_header": "authorization" in (k.lower() for k in request.headers.keys()),
+                    "all_headers": {k: (v[:20] + "..." if len(v) > 20 else v) for k, v in request.headers.items()},
+                }
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No authentication token provided. Please include an Authorization header with a valid Bearer token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
     container = get_container(request)
     try:
         payload = container.jwt_handler.decode_token(credentials.credentials)

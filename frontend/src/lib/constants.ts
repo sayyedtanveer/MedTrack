@@ -16,6 +16,7 @@ import {
   Truck,
   ShieldAlert,
   History,
+  Wrench,
   LucideIcon,
 } from "lucide-react"
 import { UserRole, getRolesForModule } from "@/lib/roles.config"
@@ -61,6 +62,14 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/manufacturing",
     icon: Factory,
     roles: getRolesForModule("manufacturing"),
+    children: [
+      {
+        title: "Operations Master",
+        href: "/operations",
+        icon: Wrench,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
+      },
+    ],
   },
   {
     title: "Inventory",

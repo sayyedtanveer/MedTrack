@@ -51,6 +51,21 @@ async def list_workstations(
         workstations = await handlers._workstation_repo.list_workstations(tenant_id)
     return workstations
 
+@router.get("/{workstation_id}", response_model=WorkstationResponse)
+async def get_workstation(
+    workstation_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    container = get_container(request)
+    async with container.session_factory() as session:
+        uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        workstation = await handlers._workstation_repo.get_by_id(workstation_id, tenant_id)
+        if not workstation:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workstation not found")
+    return workstation
+
 @router.put("/{workstation_id}", response_model=WorkstationResponse)
 async def update_workstation(
     workstation_id: uuid.UUID,
