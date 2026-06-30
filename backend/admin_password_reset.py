@@ -22,12 +22,11 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.config import settings
-from backend.app.infrastructure.persistence.models.user_model import User
 from backend.app.infrastructure.security.password_hasher import BcryptPasswordHasher
 
 
@@ -41,8 +40,9 @@ class AdminPasswordReset:
 
     async def init_db(self):
         """Initialize database connection."""
+        database_url = settings.async_database_url or settings.database_url
         self.engine = create_async_engine(
-            settings.database_url,
+            database_url,
             echo=False,
             future=True,
         )
@@ -52,12 +52,17 @@ class AdminPasswordReset:
             expire_on_commit=False
         )
 
-    async def find_user_by_email(self, email: str) -> Optional[User]:
+    async def find_user_by_email(self, email: str) -> Optional[dict]:
         """Find a user by email."""
         async with self.async_session() as session:
-            stmt = select(User).where(User.email == email)
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+            result = await session.execute(
+                text("SELECT id, email FROM users WHERE email = :email"),
+                {"email": email},
+            )
+            row = result.fetchone()
+            if not row:
+                return None
+            return {"id": row[0], "email": row[1]}
 
     async def reset_password(self, email: str, new_password: str) -> bool:
         """Reset user password and return success status."""
@@ -70,12 +75,14 @@ class AdminPasswordReset:
             # Hash the new password
             hashed_password = self.hasher.hash(new_password)
 
-            # Update in database
+            # Update in database directly
             async with self.async_session() as session:
-                stmt = select(User).where(User.email == email)
-                result = await session.execute(stmt)
-                db_user = result.scalar_one()
-                db_user.hashed_password = hashed_password
+                await session.execute(
+                    text(
+                        "UPDATE users SET hashed_password = :hashed_password, updated_at = NOW() WHERE email = :email"
+                    ),
+                    {"hashed_password": hashed_password, "email": email},
+                )
                 await session.commit()
 
             print(f"✅ SUCCESS: Password reset for {email}")

@@ -4,6 +4,7 @@ import { useAuthStore } from "@/app/store/authStore"
 // Default to `/api/v1` when `VITE_API_URL` is not provided in development.
 // This keeps calls like `/inventory/...` routed to the backend via the dev proxy.
 const DEFAULT_API_BASE = import.meta.env.VITE_API_URL ?? "/api/v1"
+const DEBUG_ONBOARDING_ENDPOINT = "/inventory/material-onboarding/sessions"
 
 export const apiClient = axios.create({
   baseURL: DEFAULT_API_BASE,
@@ -139,24 +140,23 @@ apiClient.interceptors.request.use(
       })
     }
 
-    // Ensure headers is always a mutable plain object
-    const headers: Record<string, string> = {
-      ...(config.headers ? (config.headers as Record<string, string>) : {}),
-    }
+    // Ensure headers is always a mutable Axios-compatible object and attach auth/tenant data
+    const existingHeaders = config.headers ?? {}
+    const headers = new axios.AxiosHeaders(existingHeaders as any)
 
     // Add tenant ID header for multi-tenant support
     if (tenant_id) {
-      headers["X-Tenant-ID"] = tenant_id
+      headers.set("X-Tenant-ID", tenant_id)
     }
 
     if (config.data instanceof FormData) {
       // For FormData, remove the default JSON content-type so browser can set proper multipart boundary
-      delete headers["Content-Type"]
+      headers.delete("Content-Type")
     }
 
     // Always set Authorization header in final form (after FormData header adjustments)
     if (token) {
-      headers["Authorization"] = `Bearer ${token}`
+      headers.set("Authorization", `Bearer ${token}`)
     }
 
     // When sending FormData, remove the default Content-Type so the browser
@@ -164,8 +164,10 @@ apiClient.interceptors.request.use(
     // If Content-Type is left as "application/json" Axios will not override
     // it and the backend multipart parser will reject the body.
     if (config.data instanceof FormData) {
-      delete config.headers["Content-Type"]
+      headers.delete("Content-Type")
     }
+
+    config.headers = headers
 
     // Remove empty/null query parameters to prevent backend validation errors
     if (config.params) {

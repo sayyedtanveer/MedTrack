@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
-revision = 'phase1_operational_workflow_states'
+revision = 'p1_op_wf_states'
 down_revision = 'phase4_work_orders'
 branch_labels = None
 depends_on = None

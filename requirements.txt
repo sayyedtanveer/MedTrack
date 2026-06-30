@@ -21,6 +21,7 @@ qrcode[pil]==7.4.2
 # File handling
 aiofiles==23.2.1
 python-multipart==0.0.9
+openpyxl==3.1.2
 
 # Document generation
 weasyprint==60.2
