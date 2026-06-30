@@ -11,10 +11,10 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "phase7_document_generation_system"
+revision = "p7_doc_gen_system"
 down_revision = "phase6_item_code_system"
 branch_labels = None
-depends_on = None
+depends_on = 'sc_foundation'
 
 
 def upgrade() -> None:

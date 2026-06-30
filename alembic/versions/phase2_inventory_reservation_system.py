@@ -14,8 +14,8 @@ from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
-revision = 'phase2_inventory_reservation_system'
-down_revision = 'phase1_operational_workflow_states'
+revision = 'p2_inv_reservation'
+down_revision = 'p1_op_wf_states'
 branch_labels = None
 depends_on = None
 

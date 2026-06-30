@@ -119,9 +119,7 @@ export function extractErrorMessage(error: AxiosError<any>): string {
   return error.response.statusText || "An error occurred"
 }
 
-const DEBUG_ONBOARDING_ENDPOINT = "/inventory/material-onboarding/sessions"
-
-// Request interceptor: attach token and clean up params
+// Request interceptor: attach token, clear Content-Type for FormData, and clean up params
 apiClient.interceptors.request.use(
   (config) => {
     const { token, tenant_id } = useAuthStore.getState()
@@ -161,7 +159,13 @@ apiClient.interceptors.request.use(
       headers["Authorization"] = `Bearer ${token}`
     }
 
-    config.headers = headers as any
+    // When sending FormData, remove the default Content-Type so the browser
+    // sets multipart/form-data with the correct boundary automatically.
+    // If Content-Type is left as "application/json" Axios will not override
+    // it and the backend multipart parser will reject the body.
+    if (config.data instanceof FormData) {
+      delete config.headers["Content-Type"]
+    }
 
     // Remove empty/null query parameters to prevent backend validation errors
     if (config.params) {

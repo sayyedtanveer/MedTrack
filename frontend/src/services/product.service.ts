@@ -132,6 +132,27 @@ export const productService = {
     return data;
   },
 
+  async uploadTemplateImage(templateId: string, file: File): Promise<{ message: string; image_id: string }> {
+    const formData = new FormData()
+    formData.append("file", file)
+    const { data } = await apiClient.post(
+      `/products/templates/${templateId}/images`,
+      formData
+    )
+    return data
+  },
+
+  async uploadVariantImage(templateId: string, variantId: string, file: File): Promise<{ message: string; image_id: string }> {
+    const formData = new FormData()
+    formData.append("file", file)
+    const { data } = await apiClient.post(
+      `/products/variants/${variantId}/images`,
+      formData,
+      { params: { template_id: templateId } }
+    )
+    return data
+  },
+
   async getImportTemplate(templateId: string): Promise<VariantImportTemplate> {
     const { data } = await apiClient.get(`/products/templates/${templateId}/variants/import-template`);
     return data;

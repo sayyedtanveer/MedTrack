@@ -1,0 +1,275 @@
+You are a senior FastAPI, React, JWT authentication, and enterprise ERP architect.
+
+We are experiencing intermittent/consistent 401 Unauthorized errors during raw material file upload workflows in MedTrack ERP.
+
+Before implementing any new onboarding features, perform a COMPLETE end-to-end authentication and upload pipeline audit.
+
+DO NOT immediately patch code.
+
+FIRST investigate and document the root cause.
+
+---
+
+# OBJECTIVE
+
+Identify exactly why raw-material upload requests return 401 Unauthorized.
+
+Determine whether the failure occurs in:
+
+* frontend request generation
+* auth context
+* token storage
+* axios/fetch interceptors
+* JWT refresh flow
+* tenant resolution
+* backend auth middleware
+* upload endpoint permissions
+* RBAC checks
+* dependency injection
+* background-job creation
+* multipart/form-data handling
+
+---
+
+# INVESTIGATION REQUIREMENTS
+
+Trace the ENTIRE upload flow:
+
+UI Upload Button
+→ Upload Service
+→ API Client
+→ Request Interceptor
+→ Authorization Header
+→ JWT Validation
+→ Tenant Resolution
+→ RBAC Validation
+→ Upload Endpoint
+→ Processing Service
+
+Document every step.
+
+---
+
+# PHASE 1 — FRONTEND AUTH AUDIT
+
+Audit:
+
+* upload page/component
+* upload service
+* API hooks
+* react-query hooks
+* axios instances
+* fetch wrappers
+* request interceptors
+* auth provider
+* auth context
+* token persistence
+
+Verify:
+
+* Authorization header exists
+* Bearer token attached
+* tenant context attached
+* token not stale
+* token not removed during multipart upload
+
+Check whether:
+
+multipart/form-data requests bypass auth interceptors.
+
+This is a common source of upload-only 401 errors.
+
+---
+
+# PHASE 2 — NETWORK REQUEST AUDIT
+
+Capture and document:
+
+Working API request
+vs
+Failing upload request
+
+Compare:
+
+* URL
+* Method
+* Headers
+* Authorization
+* Content-Type
+* Tenant headers
+* Cookies
+* Request payload
+
+Identify exactly what differs.
+
+---
+
+# PHASE 3 — JWT AUDIT
+
+Audit JWT generation and validation.
+
+Verify token contains:
+
+* sub
+* tid
+* role
+* permissions
+
+Verify:
+
+tid claim is present and valid UUID.
+
+Check:
+
+* token expiration
+* refresh flow
+* refresh timing
+* upload request timing
+
+Determine whether upload uses an expired token.
+
+---
+
+# PHASE 4 — BACKEND AUTH CHAIN AUDIT
+
+Trace upload endpoint dependencies.
+
+Identify:
+
+* Depends(...)
+* get_current_user()
+* get_current_tenant()
+* RBAC checks
+* permission decorators
+
+Document exact dependency chain.
+
+Determine where 401 is thrown.
+
+Provide:
+
+file
+class
+function
+line number
+
+for actual failure point.
+
+---
+
+# PHASE 5 — TENANT RESOLUTION AUDIT
+
+Audit:
+
+* tenant extraction
+* tenant middleware
+* JWT tenant claim usage
+* upload endpoint tenant requirements
+
+Verify:
+
+tenant_id correctly resolves for upload requests.
+
+Check for:
+
+* missing tid
+* invalid UUID parsing
+* tenant mismatch
+* null tenant context
+
+---
+
+# PHASE 6 — RBAC AUDIT
+
+Determine required permission for upload.
+
+Verify logged-in role has:
+
+* material create
+* material update
+* import permission
+* admin privileges
+
+Identify any permission mismatch.
+
+---
+
+# PHASE 7 — MULTIPART FILE AUDIT
+
+Audit upload endpoint signature.
+
+Verify:
+
+UploadFile handling
+multipart parser
+dependency injection
+
+Check whether:
+
+Authorization header survives multipart requests.
+
+Common failure:
+
+multipart request rebuilt manually and auth headers lost.
+
+---
+
+# PHASE 8 — BACKGROUND JOB AUDIT
+
+If upload creates async/background jobs:
+
+verify:
+
+* auth context propagation
+* tenant propagation
+* user propagation
+
+Ensure upload authentication succeeds before job creation.
+
+---
+
+# PHASE 9 — ERROR TRACEABILITY
+
+For every 401 found:
+
+Provide:
+
+* endpoint
+* request
+* root cause
+* affected code
+* recommended fix
+
+Do NOT provide generic guesses.
+
+Provide actual code references.
+
+---
+
+# REQUIRED OUTPUT
+
+Produce:
+
+1. Root Cause Summary
+2. Authentication Flow Diagram
+3. Exact Failure Point
+4. Code Locations
+5. Recommended Fix
+6. Regression Risks
+7. Validation Checklist
+
+---
+
+# IMPORTANT
+
+Do NOT redesign authentication.
+
+Do NOT rewrite JWT architecture.
+
+Do NOT rewrite RBAC.
+
+Do NOT implement onboarding features yet.
+
+First fully diagnose and fix the upload 401 issue using the existing MedTrack architecture.
+
+Only after upload succeeds reliably should onboarding enhancements continue.

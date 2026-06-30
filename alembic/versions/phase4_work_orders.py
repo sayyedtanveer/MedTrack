@@ -20,7 +20,7 @@ from sqlalchemy.dialects import postgresql
 revision = 'phase4_work_orders'
 down_revision = '7a8b9c0d_add_sales_module'
 branch_labels = None
-depends_on = None
+depends_on = 'bf11eecd68b9'
 
 
 def upgrade() -> None:

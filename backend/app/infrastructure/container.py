@@ -71,7 +71,7 @@ class Container:
         Called once at application startup.
         """
         # Database
-        engine = create_engine(settings.database_url)
+        engine = create_engine(settings.async_database_url)
         session_factory = create_session_factory(engine)
 
         # Security

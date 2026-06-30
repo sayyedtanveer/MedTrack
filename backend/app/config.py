@@ -23,8 +23,37 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # ── Database ─────────────────────────────────
-    database_url: str
+    database_url: str = ""
     database_sync_url: str = ""  # Used only by Alembic
+
+    # Replit provides PG* env vars; construct URLs from them if DATABASE_URL not set
+    pghost: str = ""
+    pgport: str = "5432"
+    pguser: str = ""
+    pgpassword: str = ""
+    pgdatabase: str = ""
+
+    @property
+    def async_database_url(self) -> str:
+        """Return asyncpg-compatible URL, constructing from PG* vars if needed."""
+        url = self.database_url
+        if not url and self.pghost:
+            url = f"postgresql://{self.pguser}:{self.pgpassword}@{self.pghost}:{self.pgport}/{self.pgdatabase}?sslmode=disable"
+        # Convert sync postgres:// to asyncpg driver
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
+        # asyncpg uses ssl=disable, not sslmode=disable
+        url = url.replace("sslmode=disable", "ssl=disable")
+        return url
+
+    @property
+    def sync_database_url(self) -> str:
+        """Return sync psycopg2-compatible URL."""
+        # Prefer the Replit-injected DATABASE_URL (already a sync URL)
+        url = self.database_url
+        if not url and self.pghost:
+            url = f"postgresql://{self.pguser}:{self.pgpassword}@{self.pghost}:{self.pgport}/{self.pgdatabase}?sslmode=disable"
+        url = url.replace("postgresql+asyncpg://", "postgresql://")
+        return url
 
     # ── JWT ──────────────────────────────────────
     jwt_secret_key: str
@@ -59,9 +88,7 @@ class Settings(BaseSettings):
     @property
     def database_sync_url_computed(self) -> str:
         """Return explicit sync URL or derive from async URL."""
-        if self.database_sync_url:
-            return self.database_sync_url
-        return self.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        return self.sync_database_url
 
 
 @lru_cache

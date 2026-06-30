@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 
 revision = "shop_floor_execution_metrics"
-down_revision = "sprint1_operational_hardening_merge"
+down_revision = "s1_op_hard_merge"
 branch_labels = None
 depends_on = None
 

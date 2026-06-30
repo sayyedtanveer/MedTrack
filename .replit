@@ -1,0 +1,71 @@
+modules = ["python-3.12", "nodejs-20", "web", "postgresql-16"]
+[agent]
+expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+ENVIRONMENT = "development"
+APP_NAME = "MedTrack ERP"
+APP_VERSION = "0.1.0"
+DEBUG = "true"
+LOG_LEVEL = "INFO"
+CORS_ORIGINS = "*"
+UPLOAD_DIR = "./uploads"
+MAX_UPLOAD_SIZE_MB = "10"
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_MINUTES = "60"
+JWT_REFRESH_EXPIRY_DAYS = "7"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend API"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd frontend && npm run dev"
+waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Backend API"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -m uvicorn backend.app.main:app --host localhost --port 8000 --reload"
+waitForPort = 8000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+exposeLocalhost = true
