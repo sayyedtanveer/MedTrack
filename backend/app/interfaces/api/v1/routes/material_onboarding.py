@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import uuid
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -16,6 +17,8 @@ from sqlalchemy import select
 from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.models.unit_of_measure_model import UnitOfMeasureModel
 from backend.app.infrastructure.persistence.models.material_category_model import MaterialCategoryModel
+from backend.app.infrastructure.persistence.models.inventory_transaction_model import InventoryTransactionModel
+from backend.app.application.inventory.services.item_code_service import ItemCodeService
 from backend.app.interfaces.api.v1.dependencies.auth import (
     get_container,
     get_current_tenant_id,
@@ -35,6 +38,7 @@ RAW_MATERIAL_COLUMNS = [
     "min_stock", "max_stock", "reorder_level", "reorder_quantity", "barcode", "traceability_enabled",
     "qc_required", "approved_supplier", "supplier_item_code", "purchase_uom", "lead_time", "moq",
     "length_uom", "cuttable_inventory", "remaining_quantity_tracking", "decimal_precision", "reusable_remainder",
+    "opening_stock",
 ]
 
 # Fields that are considered protected (changing them on an existing material requires confirmation)
@@ -152,6 +156,30 @@ def _validate_row(
             except ValueError:
                 issues.append({"field": field, "severity": "error", "message": f"{field} must be a number"})
 
+    # Opening stock validation: numeric, >= 0, max 999,999,999.99
+    opening_stock_val = str(data.get("opening_stock", "")).strip()
+    if opening_stock_val:
+        try:
+            opening_stock_num = float(opening_stock_val.replace(",", ""))
+            if opening_stock_num < 0:
+                issues.append({
+                    "field": "opening_stock",
+                    "severity": "error",
+                    "message": "opening_stock must be a non-negative number",
+                })
+            elif opening_stock_num > 999_999_999.99:
+                issues.append({
+                    "field": "opening_stock",
+                    "severity": "error",
+                    "message": "opening_stock must not exceed 999,999,999.99",
+                })
+        except ValueError:
+            issues.append({
+                "field": "opening_stock",
+                "severity": "error",
+                "message": "opening_stock must be a non-negative number",
+            })
+
     # Determine classification and protected changes
     lookup_key = item_code.upper() if item_code else name.upper()
     existing = existing_codes.get(lookup_key)
@@ -231,6 +259,7 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
         "10", "500", "20", "50", "", "false",
         "false", "", "", "", "7", "",
         "", "", "", "2", "",
+        "100",
     ])
     buf.seek(0)
     return StreamingResponse(
@@ -520,6 +549,9 @@ async def execute_session(
                 await db.flush()
 
                 # Phase 4: Create/Update materials (SAME TRANSACTION, after master data flushed)
+                item_code_service = ItemCodeService(db)
+                logger = logging.getLogger(__name__)
+
                 for row in actionable:
                     try:
                         data = row["data"]
@@ -555,10 +587,63 @@ async def execute_session(
                         existing = existing_map.get(item_code.upper()) or existing_map.get(name.upper())
                         if not existing:
                             # Create
+                            # Parse opening_stock for new materials
+                            opening_stock_raw = str(data.get("opening_stock", "")).strip()
+                            opening_stock_value: float = 0
+                            if opening_stock_raw:
+                                try:
+                                    opening_stock_value = float(opening_stock_raw.replace(",", ""))
+                                    if opening_stock_value < 0:
+                                        opening_stock_value = 0
+                                except (ValueError, TypeError):
+                                    opening_stock_value = 0
+
+                            # Determine material_type for prefix resolution
+                            material_type = str(data.get("material_type", "raw")).strip().lower() or "raw"
+
+                            # Generate item code using Number Series Engine (Req 7.3, 14.2)
+                            generated_code = ""
+                            if item_code:
+                                # CSV contains an item_code — respect manual_override policy
+                                try:
+                                    result = await item_code_service.validate_manual_code_with_policy(
+                                        tenant_id=tenant_id,
+                                        entity_type="material",
+                                        code=item_code,
+                                        user_is_admin=False,  # Bulk upload doesn't assume admin
+                                        sub_type=material_type,
+                                        entity_name=name,
+                                        user_id=user_id,
+                                    )
+                                    generated_code = result.code
+                                except ValueError as code_err:
+                                    # If manual code is rejected (e.g. duplicate, format error),
+                                    # log warning and auto-generate instead
+                                    logger.warning(
+                                        "Manual code '%s' rejected for row %d: %s. Auto-generating.",
+                                        item_code, row["row_number"], code_err,
+                                    )
+                                    generated_code = await item_code_service.generate_for_entity(
+                                        tenant_id=tenant_id,
+                                        entity_type="material",
+                                        sub_type=material_type,
+                                        entity_name=name,
+                                        user_id=user_id,
+                                    )
+                            else:
+                                # No item_code in CSV — auto-generate using Number Series Engine
+                                generated_code = await item_code_service.generate_for_entity(
+                                    tenant_id=tenant_id,
+                                    entity_type="material",
+                                    sub_type=material_type,
+                                    entity_name=name,
+                                    user_id=user_id,
+                                )
+
                             mat = MaterialModel(
                                 id=uuid.uuid4(),
                                 tenant_id=tenant_id,
-                                code=item_code,
+                                code=generated_code,
                                 name=name,
                                 base_unit_id=uom_id,
                                 category_id=cat_id,
@@ -570,14 +655,32 @@ async def execute_session(
                                 lead_time_days=_int_f("lead_time"),
                                 length_uom=_f("length_uom"),
                                 current_cost=0,
-                                current_stock=0,
+                                current_stock=opening_stock_value,
                                 reserved_stock=0,
                                 is_active=True,
                                 is_deleted=False,
                                 created_by=user_id,
                                 updated_by=user_id,
+                                code_locked=True,
                             )
                             db.add(mat)
+
+                            # If opening_stock > 0, create a Stock In transaction
+                            if opening_stock_value > 0:
+                                tx = InventoryTransactionModel(
+                                    id=uuid.uuid4(),
+                                    tenant_id=tenant_id,
+                                    material_id=mat.id,
+                                    transaction_type="in",
+                                    quantity=opening_stock_value,
+                                    reference_type="onboarding_opening_balance",
+                                    remarks="Opening balance via onboarding import",
+                                    created_by=user_id,
+                                    created_at=datetime.now(timezone.utc),
+                                    updated_at=datetime.now(timezone.utc),
+                                )
+                                db.add(tx)
+
                             created += 1
                         else:
                             # Update

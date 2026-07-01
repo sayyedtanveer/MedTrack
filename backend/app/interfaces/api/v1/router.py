@@ -40,6 +40,7 @@ from backend.app.interfaces.api.v1.routes.workflow import router as workflow_rou
 from backend.app.interfaces.api.v1.routes.delivery_dashboard import router as delivery_dashboard_router
 from backend.app.interfaces.api.v1.routes.analytics import router as analytics_router
 from backend.app.interfaces.api.v1.routes.material_onboarding import router as material_onboarding_router
+from backend.app.interfaces.api.v1.routes.number_series import router as number_series_router
 from backend.app.infrastructure.persistence.models import material_consumption_model as _material_consumption_model
 from backend.app.infrastructure.persistence.models import pick_list_model as _pick_list_model
 
@@ -80,6 +81,7 @@ api_v1_router.include_router(workflow_router)
 api_v1_router.include_router(delivery_dashboard_router)
 api_v1_router.include_router(analytics_router)
 api_v1_router.include_router(material_onboarding_router)
+api_v1_router.include_router(number_series_router)
 
 
 # --- Dynamic Module Registration ---

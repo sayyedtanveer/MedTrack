@@ -22,6 +22,7 @@ class ReferenceType(str, Enum):
     PURCHASE_ORDER = "purchase_order"
     SALES_ORDER = "sales_order"
     WORK_ORDER = "work_order"
+    OPENING_BALANCE = "opening_balance"
 
 
 class InventoryTransaction(BaseEntity):

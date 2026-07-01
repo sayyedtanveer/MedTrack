@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
@@ -24,9 +25,12 @@ from backend.app.infrastructure.persistence.repositories.transaction_repository 
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
 from backend.app.infrastructure.persistence.models.inventory_management_models import StockLedgerModel
 from backend.app.application.inventory.services.item_code_service import ItemCodeService
+from backend.app.application.inventory.services.low_stock_checker import LowStockChecker
 from backend.app.application.manufacturing.services.inventory_service import InventoryService
 from datetime import datetime
 from datetime import timezone
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -143,6 +147,7 @@ class CreateMaterialHandler:
                 location_id=cmd.location_id,
                 is_batch_tracked=cmd.is_batch_tracked,
                 is_serialized=cmd.is_serialized,
+                opening_stock=cmd.opening_stock,
             )
 
         # at this point category_id must be non-null
@@ -151,20 +156,35 @@ class CreateMaterialHandler:
             raise ValueError("Category is required for item code generation.")
 
         if self._item_code_service is not None:
-            normalized_code = (
-                await self._item_code_service.validate_manual_code(
+            if cmd.code:
+                normalized_code = await self._item_code_service.validate_manual_code(
                     tenant_id=cmd.tenant_id,
                     code=cmd.code,
                     target="material",
                 )
-                if cmd.code
-                else await self._item_code_service.generate(
+            else:
+                # Check if a Number Series config already exists for this tenant.
+                # If so, use the new generate_for_entity() method with entity_name.
+                # If not, fall back to legacy generate() for backward compatibility (Req 14.2).
+                existing_config = await self._item_code_service._try_load_config(
                     tenant_id=cmd.tenant_id,
-                    item_type=normalized_type.value,
-                    category_id=category_id,
-                    target="material",
+                    entity_type="material",
                 )
-            )
+                if existing_config is not None:
+                    normalized_code = await self._item_code_service.generate_for_entity(
+                        tenant_id=cmd.tenant_id,
+                        entity_type="material",
+                        sub_type=normalized_type.value,
+                        entity_name=normalized_name,
+                        user_id=cmd.created_by,
+                    )
+                else:
+                    normalized_code = await self._item_code_service.generate(
+                        tenant_id=cmd.tenant_id,
+                        item_type=normalized_type.value,
+                        category_id=category_id,
+                        target="material",
+                    )
         else:
             normalized_code = Material.normalize_code(cmd.code or "")
 
@@ -175,6 +195,7 @@ class CreateMaterialHandler:
                 f"{normalized_type.value.title()} material name '{normalized_name}' already exists in this tenant."
             )
 
+        # code_locked=True ensures code immutability after assignment (Req 9.1)
         material = Material(
             tenant_id=cmd.tenant_id,
             code=normalized_code,
@@ -187,8 +208,28 @@ class CreateMaterialHandler:
             location_id=cmd.location_id,
             is_batch_tracked=cmd.is_batch_tracked,
             is_serialized=cmd.is_serialized,
+            code_locked=True,
         )
         await self._repo.save(material)
+
+        # Opening stock: if provided and > 0, increase stock and record transaction atomically
+        opening_stock = cmd.opening_stock
+        if opening_stock is not None and opening_stock > Decimal("0"):
+            material.increase_stock(opening_stock)
+            await self._repo.save(material)
+
+            tx = InventoryTransaction(
+                tenant_id=cmd.tenant_id,
+                material_id=material.id,
+                transaction_type=TransactionType.IN,
+                quantity=opening_stock,
+                reference_type=ReferenceType.OPENING_BALANCE,
+                remarks="Opening balance",
+                created_by=cmd.created_by,
+            )
+            tx_repo = TransactionRepository(self._uow.session)
+            await tx_repo.save(tx)
+
         await self._uow.commit()
         return _to_result(material)
 
@@ -203,6 +244,16 @@ class UpdateMaterialHandler:
         material = await self._repo.get_by_id(cmd.id, cmd.tenant_id)
         if not material:
             raise ValueError(f"Material {cmd.id} not found.")
+
+        # ── Code immutability enforcement ──────────────────────────────────
+        # If the request includes a code value that differs from the current one,
+        # and code_locked is True, reject with an immutability error.
+        if cmd.code is not MISSING and cmd.code is not None:
+            requested_code = cmd.code.strip()
+            if requested_code and requested_code != material.code:
+                if material.code_locked:
+                    raise ValueError("Item code is immutable")
+        # If code is omitted (MISSING) or None, retain existing code unchanged.
 
         next_name = Material.normalize_name(cmd.name) if cmd.name is not None else material.name
         next_type = (
@@ -265,6 +316,9 @@ class AddStockHandler:
         if not material.is_active:
             raise ValueError("Cannot add stock to an inactive material.")
 
+        # Capture stock level before mutation for low-stock threshold check
+        previous_stock = material.current_stock
+
         await InventoryService(self._uow.session).add_stock(
             tenant_id=cmd.tenant_id,
             material_id=cmd.material_id,
@@ -279,6 +333,26 @@ class AddStockHandler:
         updated = await self._material_repo.get_by_id(cmd.material_id, cmd.tenant_id)
         if not updated:
             raise ValueError(f"Material {cmd.material_id} not found.")
+
+        # Check for low-stock threshold crossing and notify if needed.
+        # Notification failure must not affect the stock mutation.
+        try:
+            checker = LowStockChecker(self._uow.session)
+            notification_id = await checker.check_and_notify(
+                tenant_id=cmd.tenant_id,
+                material=updated,
+                previous_stock=previous_stock,
+                actor_user_id=cmd.created_by,
+            )
+            if notification_id is not None:
+                await self._uow.commit()
+        except Exception:
+            logger.exception(
+                "Low stock check failed after AddStock for material %s. "
+                "Stock mutation succeeded.",
+                cmd.material_id,
+            )
+
         return _to_result(updated)
 
 
@@ -301,6 +375,9 @@ class RemoveStockHandler:
         if not material.is_active:
             raise ValueError("Cannot remove stock from an inactive material.")
 
+        # Capture stock level before mutation for low-stock threshold check
+        previous_stock = material.current_stock
+
         await InventoryService(self._uow.session).remove_stock(
             tenant_id=cmd.tenant_id,
             material_id=cmd.material_id,
@@ -315,6 +392,26 @@ class RemoveStockHandler:
         updated = await self._material_repo.get_by_id(cmd.material_id, cmd.tenant_id)
         if not updated:
             raise ValueError(f"Material {cmd.material_id} not found.")
+
+        # Check for low-stock threshold crossing and notify if needed.
+        # Notification failure must not affect the stock mutation.
+        try:
+            checker = LowStockChecker(self._uow.session)
+            notification_id = await checker.check_and_notify(
+                tenant_id=cmd.tenant_id,
+                material=updated,
+                previous_stock=previous_stock,
+                actor_user_id=cmd.created_by,
+            )
+            if notification_id is not None:
+                await self._uow.commit()
+        except Exception:
+            logger.exception(
+                "Low stock check failed after RemoveStock for material %s. "
+                "Stock mutation succeeded.",
+                cmd.material_id,
+            )
+
         return _to_result(updated)
 
 
@@ -337,6 +434,9 @@ class AdjustStockHandler:
         if not material.is_active:
             raise ValueError("Cannot adjust stock for an inactive material.")
 
+        # Capture stock level before mutation for low-stock threshold check
+        previous_stock = material.current_stock
+
         await InventoryService(self._uow.session).adjust_stock(
             tenant_id=cmd.tenant_id,
             material_id=cmd.material_id,
@@ -350,4 +450,24 @@ class AdjustStockHandler:
         updated = await self._material_repo.get_by_id(cmd.material_id, cmd.tenant_id)
         if not updated:
             raise ValueError(f"Material {cmd.material_id} not found.")
+
+        # Check for low-stock threshold crossing and notify if needed.
+        # Notification failure must not affect the stock mutation.
+        try:
+            checker = LowStockChecker(self._uow.session)
+            notification_id = await checker.check_and_notify(
+                tenant_id=cmd.tenant_id,
+                material=updated,
+                previous_stock=previous_stock,
+                actor_user_id=cmd.created_by,
+            )
+            if notification_id is not None:
+                await self._uow.commit()
+        except Exception:
+            logger.exception(
+                "Low stock check failed after AdjustStock for material %s. "
+                "Stock mutation succeeded.",
+                cmd.material_id,
+            )
+
         return _to_result(updated)

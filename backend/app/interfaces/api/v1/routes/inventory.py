@@ -29,6 +29,7 @@ from backend.app.application.inventory.queries.inventory_queries import (
     ListMaterialsQuery,
 )
 from backend.app.domain.inventory.entities.inventory_transaction import TransactionType
+from backend.app.domain.manufacturing.exceptions import InsufficientStockError
 from backend.app.infrastructure.persistence.repositories.material_repository import MaterialRepository
 from backend.app.infrastructure.persistence.repositories.transaction_repository import TransactionRepository
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
@@ -65,6 +66,8 @@ def _material_error_status(message: str) -> int:
         return status.HTTP_404_NOT_FOUND
     if "already exists" in normalized:
         return status.HTTP_409_CONFLICT
+    if "immutable" in normalized:
+        return status.HTTP_422_UNPROCESSABLE_ENTITY
     return status.HTTP_400_BAD_REQUEST
 
 
@@ -107,6 +110,7 @@ async def create_material(
                     location_id=body.location_id,
                     is_batch_tracked=body.is_batch_tracked,
                     is_serialized=body.is_serialized,
+                    opening_stock=body.opening_stock,
                 )
             )
         except ValueError as e:
@@ -199,6 +203,13 @@ async def update_material(
         handler = UpdateMaterialHandler(material_repo=material_repo, uow=uow)
         patch = body.model_dump(exclude_unset=True)
         try:
+            # Determine code value: use MISSING if neither code nor item_code was sent in the request
+            code_value = MISSING
+            if "item_code" in patch and patch["item_code"] is not None:
+                code_value = patch["item_code"]
+            elif "code" in patch and patch["code"] is not None:
+                code_value = patch["code"]
+
             result = await handler.handle(
                 UpdateMaterialCommand(
                     id=material_id,
@@ -219,6 +230,7 @@ async def update_material(
                     inspection_template_id=patch["inspection_template_id"]
                     if "inspection_template_id" in patch
                     else MISSING,
+                    code=code_value,
                 )
             )
         except ValueError as e:
@@ -343,6 +355,11 @@ async def create_transaction(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Transfer requires both from_location_id and to_location_id",
                     )
+                if body.from_location_id == body.to_location_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Source and destination locations must be different",
+                    )
                 from backend.app.application.manufacturing.services.inventory_service import InventoryService
 
                 inventory_service = InventoryService(session)
@@ -383,6 +400,8 @@ async def create_transaction(
                     )
                 )
         except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except InsufficientStockError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     return MaterialResponse.model_validate(result)

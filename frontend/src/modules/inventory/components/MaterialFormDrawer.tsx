@@ -63,6 +63,9 @@ const materialSchema = z.object({
 
   // Phase 2: lock after creation (default true)
   code_locked: z.boolean().default(true).optional(),
+
+  // Opening stock (only used in create mode)
+  opening_stock: z.coerce.number().min(0, "Opening stock must be 0 or greater").optional().nullable(),
 }).superRefine(({ name, material_type }, ctx) => {
   const normalized = normalizeMaterialName(name)
   if (material_type === "raw" && GENERIC_RAW_NAMES.has(normalized)) {
@@ -204,17 +207,20 @@ export function MaterialFormDrawer({ materialId, open, onClose }: Props) {
         })
       } else {
         return await materialService.createMaterial({
-          item_code: data.item_code ?? data.code ?? null,
+          item_code: (data.item_code?.trim() || data.code?.trim()) || null,
           code_locked: data.code_locked ?? true,
           name: data.name,
           material_type: data.material_type,
-          base_unit_id: data.base_unit_id,
-          description: data.description,
+          base_unit_id: data.base_unit_id || null,
+          description: data.description || null,
           category_id: data.category_id,
           reorder_level: data.reorder_level,
-          location_id: data.location_id,
+          location_id: data.location_id || null,
           is_batch_tracked: data.is_batch_tracked,
           is_serialized: data.is_serialized,
+          opening_stock: data.opening_stock && data.opening_stock > 0
+            ? data.opening_stock
+            : undefined,
         })
       }
     },
@@ -353,6 +359,15 @@ export function MaterialFormDrawer({ materialId, open, onClose }: Props) {
               <Input id="reorder_level" type="number" min="0" step="0.01" {...register("reorder_level")} />
               {errors.reorder_level && <p className="text-xs text-destructive">{errors.reorder_level.message}</p>}
             </div>
+
+            {!isEditing && (
+              <div className="space-y-2">
+                <Label htmlFor="opening_stock">Opening Stock</Label>
+                <Input id="opening_stock" type="number" min="0" step="0.01" placeholder="Leave empty if none" {...register("opening_stock")} />
+                {errors.opening_stock && <p className="text-xs text-destructive">{errors.opening_stock.message}</p>}
+                <p className="text-xs text-muted-foreground">Initial stock quantity. A stock-in transaction will be recorded automatically.</p>
+              </div>
+            )}
 
             {isEditing && (
               <div className="space-y-3 border-t pt-4">

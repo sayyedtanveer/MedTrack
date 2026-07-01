@@ -9,7 +9,7 @@ import { TableSkeleton } from "@/components/shared/LoadingSkeleton"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Plus, Replace, Upload } from "lucide-react"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { ColumnDef } from "@tanstack/react-table"
 import { usePermissions } from "@/hooks/usePermissions"
 import { MaterialFormDrawer } from "../components/MaterialFormDrawer"
@@ -81,12 +81,31 @@ export default function MaterialListPage() {
         const qty = product.current_stock ?? 0
         const isLow = product.is_low_stock
         const unit = units?.find(u => u.id === product.base_unit_id)
+        const unitLabel = unit?.code || ""
+        const reservedStock = product.reserved_stock ?? 0
+        const availableStock = Math.max(0, qty - reservedStock)
         return (
-          <div className="flex items-center gap-2">
-            <span className={isLow ? "text-destructive font-medium" : ""}>
-              {qty} {unit?.code || ""}
-            </span>
-            {isLow && <StatusBadge status="low-stock" label="Low" />}
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className={isLow ? "text-destructive font-medium" : ""}>
+                {qty} {unitLabel}
+              </span>
+              {isLow && <StatusBadge status="low-stock" label="Low" />}
+            </div>
+            {reservedStock > 0 && (
+              <span className="text-xs text-muted-foreground">
+                Reserved: {reservedStock} {unitLabel} · Available: {availableStock} {unitLabel}
+              </span>
+            )}
+            {isLow && (
+              <Link
+                to={`/procurement/purchase-orders/new?material_id=${product.id}&material_name=${encodeURIComponent(product.name)}&suggested_qty=${product.reorder_level ?? 0}`}
+                className="text-xs text-blue-600 hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Suggest PO
+              </Link>
+            )}
           </div>
         )
       },
@@ -107,7 +126,7 @@ export default function MaterialListPage() {
         )
       },
     },
-  ], [setSearchParams])
+  ], [setSearchParams, units, categories])
 
   const actionButtons = (
     <>
@@ -182,12 +201,28 @@ export default function MaterialListPage() {
                       <span className="text-sm text-muted-foreground">
                         {categories?.find(c => c.id === product.category_id)?.name || "Uncategorized"}
                       </span>
-                      <div className="flex items-center gap-2">
-                        <span className={isLow ? "text-destructive font-medium text-sm" : "text-sm font-medium"}>
-                          {qty} {units?.find(u => u.id === product.base_unit_id)?.code || ""}
-                        </span>
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2">
+                          <span className={isLow ? "text-destructive font-medium text-sm" : "text-sm font-medium"}>
+                            {qty} {units?.find(u => u.id === product.base_unit_id)?.code || ""}
+                          </span>
+                          {isLow && (
+                            <StatusBadge status="low-stock" label="Low" />
+                          )}
+                        </div>
+                        {(product.reserved_stock ?? 0) > 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            Reserved: {product.reserved_stock} · Available: {Math.max(0, qty - (product.reserved_stock ?? 0))}
+                          </span>
+                        )}
                         {isLow && (
-                          <StatusBadge status="low-stock" label="Low" />
+                          <Link
+                            to={`/procurement/purchase-orders/new?material_id=${product.id}&material_name=${encodeURIComponent(product.name)}&suggested_qty=${product.reorder_level ?? 0}`}
+                            className="text-xs text-blue-600 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Suggest PO
+                          </Link>
                         )}
                       </div>
                     </div>

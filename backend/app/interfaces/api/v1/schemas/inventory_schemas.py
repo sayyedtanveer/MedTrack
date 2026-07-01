@@ -5,13 +5,13 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Material Request Schemas ──────────────────────────────────────────────
 class CreateMaterialRequest(BaseModel):
-    code: Optional[str] = Field(None, min_length=1, max_length=50, description="Manual item code override")
-    item_code: Optional[str] = Field(None, min_length=1, max_length=50, description="Manual item code override")
+    code: Optional[str] = Field(None, max_length=50, description="Manual item code override")
+    item_code: Optional[str] = Field(None, max_length=50, description="Manual item code override")
     name: str = Field(..., min_length=1, max_length=255)
     material_type: str = Field("raw", pattern="^(raw|finished|semi_finished)$")
     description: Optional[str] = Field(None, max_length=2000)
@@ -21,9 +21,21 @@ class CreateMaterialRequest(BaseModel):
     location_id: Optional[uuid.UUID] = None
     is_batch_tracked: bool = False
     is_serialized: bool = False
+    code_locked: Optional[bool] = None
+    opening_stock: Optional[Decimal] = Field(None, ge=0, description="Set initial stock on creation")
+
+    @field_validator("code", "item_code", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        """Coerce empty/whitespace-only strings to None so frontend can send '' safely."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 class UpdateMaterialRequest(BaseModel):
+    code: Optional[str] = Field(None, max_length=50, description="Item code (immutable after creation)")
+    item_code: Optional[str] = Field(None, max_length=50, description="Item code (immutable after creation)")
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=2000)
     category_id: Optional[uuid.UUID] = None
@@ -36,6 +48,14 @@ class UpdateMaterialRequest(BaseModel):
     is_active: Optional[bool] = None
     inspection_required: Optional[bool] = None
     inspection_template_id: Optional[uuid.UUID] = None
+
+    @field_validator("code", "item_code", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        """Coerce empty/whitespace-only strings to None so frontend can send '' safely."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 # ── Transaction Request Schemas ───────────────────────────────────────────

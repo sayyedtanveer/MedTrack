@@ -102,3 +102,109 @@ async def test_inventory_transfer_moves_stock_between_locations(
 
     assert buckets[(source_location_id, "available")] == Decimal("5")
     assert buckets[(target_location_id, "available")] == Decimal("4")
+
+
+@pytest.mark.asyncio
+async def test_transfer_rejects_same_source_and_destination_location(
+    async_client,
+    token_headers,
+):
+    """Requirement 3.3: Transfer with from_location_id == to_location_id returns 400."""
+    run_id = uuid.uuid4().hex[:6].upper()
+    location_id = await _create_location(
+        async_client,
+        token_headers,
+        name=f"Same Location {run_id}",
+        code=f"WH-SAME-{run_id}",
+    )
+
+    material_resp = await async_client.post(
+        "/api/v1/inventory/materials",
+        json={
+            "code": f"RM-SAME-{run_id}",
+            "name": f"Same Loc Test Material {run_id}",
+            "material_type": "raw",
+        },
+        headers=token_headers,
+    )
+    assert material_resp.status_code == 201, material_resp.text
+    material_id = material_resp.json()["id"]
+
+    transfer_resp = await async_client.post(
+        "/api/v1/inventory/transactions",
+        json={
+            "material_id": material_id,
+            "transaction_type": "transfer",
+            "quantity": "5",
+            "from_location_id": location_id,
+            "to_location_id": location_id,
+        },
+        headers=token_headers,
+    )
+    assert transfer_resp.status_code == 400, transfer_resp.text
+    assert "Source and destination locations must be different" in transfer_resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_transfer_rejects_insufficient_stock_at_source(
+    async_client,
+    token_headers,
+):
+    """Requirement 3.6: Transfer with insufficient stock at source returns 400 with available quantity."""
+    run_id = uuid.uuid4().hex[:6].upper()
+    source_location_id = await _create_location(
+        async_client,
+        token_headers,
+        name=f"Low Source {run_id}",
+        code=f"WH-LOW-{run_id}",
+    )
+    target_location_id = await _create_location(
+        async_client,
+        token_headers,
+        name=f"Target {run_id}",
+        code=f"WH-TGT2-{run_id}",
+    )
+
+    material_resp = await async_client.post(
+        "/api/v1/inventory/materials",
+        json={
+            "code": f"RM-INSUF-{run_id}",
+            "name": f"Insufficient Stock Material {run_id}",
+            "material_type": "raw",
+        },
+        headers=token_headers,
+    )
+    assert material_resp.status_code == 201, material_resp.text
+    material_id = material_resp.json()["id"]
+
+    # Add only 3 units to the source location
+    add_resp = await async_client.post(
+        "/api/v1/inventory/transactions",
+        json={
+            "material_id": material_id,
+            "transaction_type": "in",
+            "quantity": "3",
+            "to_location_id": source_location_id,
+            "remarks": "Seed small stock",
+        },
+        headers=token_headers,
+    )
+    assert add_resp.status_code == 201, add_resp.text
+
+    # Try to transfer 10 units (more than available)
+    transfer_resp = await async_client.post(
+        "/api/v1/inventory/transactions",
+        json={
+            "material_id": material_id,
+            "transaction_type": "transfer",
+            "quantity": "10",
+            "from_location_id": source_location_id,
+            "to_location_id": target_location_id,
+            "remarks": "Attempt oversized transfer",
+        },
+        headers=token_headers,
+    )
+    assert transfer_resp.status_code == 400, transfer_resp.text
+    detail = transfer_resp.json()["detail"]
+    # The error should mention available quantity
+    assert "3" in detail or "insufficient" in detail.lower() or "only" in detail.lower()

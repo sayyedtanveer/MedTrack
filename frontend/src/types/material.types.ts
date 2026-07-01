@@ -112,6 +112,9 @@ export interface CreateMaterialInput {
 
   // Phase 2 item-code locking
   code_locked?: boolean;
+
+  // Opening balance on creation
+  opening_stock?: number;
 }
 
 export interface UpdateMaterialInput {

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { FormSkeleton } from "@/components/shared/LoadingSkeleton"
-import { ArrowDownToLine, ArrowUpToLine, Replace, Save } from "lucide-react"
+import { ArrowDownToLine, ArrowUpToLine, ArrowLeftRight, Replace, Save } from "lucide-react"
 import { Drawer } from "@/components/shared/Drawer"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useEffect, useState } from "react"
@@ -83,11 +83,11 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
       return await materialService.createTransaction({
         material_id: materialId!,
         transaction_type: activeTab,
-        quantity: data.quantity, // backend AdjustStock uses "new_quantity", but unified transaction endpoint takes "quantity" and handles it, wait: for ADJUSTMENT my schema takes "new_quantity". Let's use new_quantity if ADJUSTMENT
+        quantity: data.quantity,
         new_quantity: activeTab === "adjustment" ? data.quantity : undefined,
         unit_id: data.unit_id,
-        from_location_id: activeTab === "out" ? data.from_location_id : undefined,
-        to_location_id: activeTab === "in" ? data.to_location_id : undefined,
+        from_location_id: activeTab === "out" ? data.from_location_id : activeTab === "transfer" ? data.from_location_id : undefined,
+        to_location_id: activeTab === "in" ? data.to_location_id : activeTab === "transfer" ? data.to_location_id : undefined,
         remarks: data.remarks,
       })
     },
@@ -102,6 +102,12 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
   if (!materialId) return null;
 
   const onSubmit = (data: OperationFormValues) => {
+    // Transfer-specific validation
+    if (activeTab === "transfer") {
+      if (!data.from_location_id) return;
+      if (!data.to_location_id) return;
+      if (data.from_location_id === data.to_location_id) return;
+    }
     saveMutation.mutate(data)
   }
 
@@ -128,7 +134,7 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 p-1 bg-muted/50 rounded-lg">
+          <div className="grid grid-cols-4 gap-2 p-1 bg-muted/50 rounded-lg">
             <Button 
               type="button" 
               variant={activeTab === "in" ? "default" : "ghost"} 
@@ -136,7 +142,7 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
               onClick={() => setActiveTab("in")}
             >
               <ArrowDownToLine className="w-4 h-4 mr-2"/>
-              Stock In
+              In
             </Button>
             <Button 
               type="button" 
@@ -145,7 +151,7 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
               onClick={() => setActiveTab("out")}
             >
               <ArrowUpToLine className="w-4 h-4 mr-2"/>
-              Stock Out
+              Out
             </Button>
             <Button 
               type="button" 
@@ -154,7 +160,16 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
               onClick={() => setActiveTab("adjustment")}
             >
               <Replace className="w-4 h-4 mr-2"/>
-              Set Exact
+              Adjust
+            </Button>
+            <Button 
+              type="button" 
+              variant={activeTab === "transfer" ? "default" : "ghost"} 
+              className={`w-full ${activeTab === "transfer" ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}`}
+              onClick={() => setActiveTab("transfer")}
+            >
+              <ArrowLeftRight className="w-4 h-4 mr-2"/>
+              Transfer
             </Button>
           </div>
 
@@ -249,6 +264,52 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
                 </div>
               )}
 
+              {activeTab === "transfer" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="from_location_id">From Location <span className="text-destructive">*</span></Label>
+                    <Select 
+                      value={watch("from_location_id") || ""} 
+                      onValueChange={(val) => setValue("from_location_id", val, { shouldValidate: true })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select source location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations?.map((l) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            {l.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {errors.from_location_id && <p className="text-xs text-destructive">{errors.from_location_id.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="to_location_id">To Location <span className="text-destructive">*</span></Label>
+                    <Select 
+                      value={watch("to_location_id") || ""} 
+                      onValueChange={(val) => setValue("to_location_id", val, { shouldValidate: true })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select destination location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations?.map((l) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            {l.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {errors.to_location_id && <p className="text-xs text-destructive">{errors.to_location_id.message}</p>}
+                  </div>
+                  {watch("from_location_id") && watch("to_location_id") && watch("from_location_id") === watch("to_location_id") && (
+                    <p className="text-xs text-destructive">Source and destination locations must be different</p>
+                  )}
+                </>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="remarks">Remarks / Reason</Label>
                 <Textarea 
@@ -265,14 +326,19 @@ export function StockOperationDrawer({ materialId, open, onClose }: Props) {
               <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">Cancel</Button>
               <Button 
                 type="submit" 
-                disabled={saveMutation.isPending || (activeTab === "out" && material && Number(qty) > material.current_stock)} 
+                disabled={
+                  saveMutation.isPending || 
+                  (activeTab === "out" && material && Number(qty) > material.current_stock) ||
+                  (activeTab === "transfer" && (!watch("from_location_id") || !watch("to_location_id") || watch("from_location_id") === watch("to_location_id")))
+                } 
                 className={`w-full sm:w-auto ${
                   activeTab === "in" ? "bg-green-600 hover:bg-green-700 text-white" : 
-                  activeTab === "out" ? "bg-red-600 hover:bg-red-700 text-white" : ""
+                  activeTab === "out" ? "bg-red-600 hover:bg-red-700 text-white" : 
+                  activeTab === "transfer" ? "bg-blue-600 hover:bg-blue-700 text-white" : ""
                 }`}
               >
                 <Save className="mr-2 h-4 w-4" />
-                {saveMutation.isPending ? "Processing..." : `Confirm ${activeTab}`}
+                {saveMutation.isPending ? "Processing..." : `Confirm ${activeTab === "transfer" ? "Transfer" : activeTab}`}
               </Button>
             </div>
           </form>

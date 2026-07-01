@@ -24,6 +24,7 @@ class CreateMaterialCommand:
     location_id: Optional[uuid.UUID] = None
     is_batch_tracked: bool = False
     is_serialized: bool = False
+    opening_stock: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,8 @@ class UpdateMaterialCommand:
     is_active: Optional[bool] = None
     inspection_required: Any = field(default=MISSING)
     inspection_template_id: Any = field(default=MISSING)
+    # Code immutability: MISSING means "not provided" (retain existing), explicit value triggers check
+    code: Any = field(default=MISSING)
 
 
 @dataclass(frozen=True)

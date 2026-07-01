@@ -181,6 +181,14 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/settings",
     icon: Settings,
     roles: getRolesForModule("settings"),
+    children: [
+      {
+        title: "Number Series",
+        href: "/settings/business-config/number-series",
+        icon: Settings,
+        roles: getRolesForModule("settings"),
+      },
+    ],
   },
 ]
 

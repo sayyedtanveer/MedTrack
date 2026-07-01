@@ -33,6 +33,7 @@ FIELDS = [
     "min_stock", "max_stock", "reorder_level", "reorder_quantity", "barcode", "traceability_enabled",
     "qc_required", "approved_supplier", "supplier_item_code", "purchase_uom", "lead_time", "moq",
     "length_uom", "cuttable_inventory", "remaining_quantity_tracking", "decimal_precision", "reusable_remainder",
+    "opening_stock",
 ]
 ALIASES = {"material code": "item_code", "code": "item_code", "item code": "item_code", "name": "material_name",
            "material": "material_name", "material name": "material_name", "category": "material_category",
@@ -208,6 +209,10 @@ class MaterialOnboardingService:
         parse_int(data.get("lead_time"),"lead_time",issues,0)
         for f in ["min_stock","max_stock","reorder_level","reorder_quantity","moq"]:
             parse_decimal(data.get(f),f,issues,0)
+        # Opening stock validation: numeric, >= 0, max 999,999,999.99
+        _opening = parse_decimal(data.get("opening_stock"), "opening_stock", issues, 0)
+        if _opening is not None and _opening > Decimal("999999999.99"):
+            issues.append({"field": "opening_stock", "severity": "error", "type": "invalid_number", "message": "Opening Stock must not exceed 999,999,999.99"})
         exact=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,func.upper(MaterialModel.code)==str(data.get("item_code") or "").upper(),MaterialModel.is_deleted.is_(False))) if data.get("item_code") else None
         barcode=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,MaterialModel.barcode==data["barcode"],MaterialModel.is_deleted.is_(False))) if data.get("barcode") else None
         supplier=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,MaterialModel.supplier_item_code==data["supplier_item_code"],MaterialModel.is_deleted.is_(False))) if data.get("supplier_item_code") else None
@@ -290,6 +295,8 @@ class MaterialOnboardingService:
         else:
             await UpdateMaterialHandler(repo,uow).handle(UpdateMaterialCommand(id=mat.id,tenant_id=tenant_id,name=d.get("material_name"),category_id=cat.id,base_unit_id=unit.id,material_type=d.get("material_type") or mat.material_type,reorder_level=Decimal(str(d["reorder_level"])) if d.get("reorder_level") else None,location_id=location.id if location else None,is_batch_tracked=optional_bool(d.get("batch_tracking_enabled")))); mat=await self.session.get(MaterialModel,mat.id)
             if d.get("item_code") and d["item_code"] != mat.code:
+                if getattr(mat, "code_locked", False):
+                    raise ValueError("Item code is immutable")
                 mat.code = await ItemCodeService(self.session).validate_manual_code(
                     tenant_id=tenant_id, code=d["item_code"], target="material"
                 )

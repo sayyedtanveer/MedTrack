@@ -58,4 +58,7 @@ async def test_material_onboarding_full_flow(authenticated_async_client, db_sess
     )
     material = result.scalars().first()
     assert material is not None
-    assert str(material.code) == "MAT-TEST-001"
+    # With Number Series Engine wired in (default manual_override="never"),
+    # CSV item_code is discarded and a code is auto-generated via generate_for_entity()
+    assert material.code  # non-empty generated code
+    assert material.code_locked is True
