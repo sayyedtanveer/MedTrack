@@ -558,7 +558,7 @@ export default function SuppliersListPage() {
             headerClassName: "text-right",
             className: "text-right",
             cell: (supplier) => (
-              <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); openEdit(supplier) }}>
+              <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); openEdit(supplier) }} aria-label="Edit supplier">
                 <Pencil className="h-4 w-4" />
               </Button>
             ),

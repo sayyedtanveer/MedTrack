@@ -71,7 +71,7 @@ export default function NewInvoicePage() {
   return (
     <div className="p-8 max-w-2xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/finance/invoices")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/finance/invoices")} aria-label="Back to invoices">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>

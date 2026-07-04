@@ -890,7 +890,7 @@ class InventoryService:
         reference_id: Optional[uuid.UUID] = None,
         remarks: Optional[str] = None,
     ) -> None:
-        """Release a legacy reservation through the canonical mutation path."""
+        """Release a reservation through the canonical mutation path via RESERVATION_RELEASE transaction."""
         if quantity <= 0:
             return
         model = await self._lock_material(tenant_id, material_id)
@@ -900,13 +900,13 @@ class InventoryService:
         await self._log_transaction(
             tenant_id=tenant_id,
             material_id=material_id,
-            transaction_type="reservation_cancel",
+            transaction_type="RESERVATION_RELEASE",
             quantity=quantity,
             unit_id=unit_id,
             reference_type=reference_type or "manual",
             reference_id=reference_id,
             created_by=created_by,
-            remarks=remarks or "Legacy reservation cancelled",
+            remarks=remarks or "Reservation released",
         )
 
     async def cancel_work_order_reservation(
@@ -968,14 +968,14 @@ class InventoryService:
             await self._log_transaction(
                 tenant_id=tenant_id,
                 material_id=material_id,
-                transaction_type="reservation_cancel",
+                transaction_type="RESERVATION_RELEASE",
                 quantity=qty,
                 unit_id=unit_id,
                 batch_id=cancelled_batch_id,
                 reference_type="work_order",
                 reference_id=work_order_id,
                 created_by=created_by,
-                remarks=remarks or f"Reservation cancelled for WO {work_order_id}",
+                remarks=remarks or f"Reservation released for WO {work_order_id}",
             )
         return cancelled_qty
 
@@ -998,8 +998,17 @@ class InventoryService:
         sales_order_line_id: uuid.UUID,
         unit_id: Optional[uuid.UUID] = None,
         created_by: uuid.UUID,
+        sales_order_id: Optional[uuid.UUID] = None,
     ) -> None:
-        """Reserve finished goods for a sales order line without reducing on-hand stock."""
+        """Reserve finished goods for a sales order line without reducing on-hand stock.
+
+        Creates both an inventory_transactions audit record (type=reserve) and an
+        inventory_reservations row (reference_type=sales_order) as required by Req 14
+        (Gap #2 — FG auto-reservation at SO confirm).
+
+        SELECT FOR UPDATE on the materials row is acquired via _lock_material, satisfying
+        Cross-Cutting Requirement A (optimistic locking).
+        """
         model = await self._lock_material(tenant_id, material_id)
         available = await self._available_for_locked_material(model)
         if quantity > available:
@@ -1018,6 +1027,22 @@ class InventoryService:
             created_by=created_by,
             remarks=f"Reserved for sales order line {sales_order_line_id}",
         )
+        # Create an inventory_reservations record (Req 14.2, 14.4 — Gap #2).
+        # reference_type is "sales_order" when the SO id is available; fall back to
+        # "sales_order_line" so existing callers without so_id still work.
+        ref_type = "sales_order" if sales_order_id is not None else "sales_order_line"
+        ref_id = sales_order_id if sales_order_id is not None else sales_order_line_id
+        reservation = InventoryReservationModel(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            reference_type=ref_type,
+            reference_id=ref_id,
+            material_id=material_id,
+            quantity=float(quantity),
+            status="RESERVED",
+            unit_id=unit_id,
+        )
+        self._session.add(reservation)
 
     async def release_sales_reservation(
         self,
@@ -1029,7 +1054,10 @@ class InventoryService:
         unit_id: Optional[uuid.UUID] = None,
         created_by: uuid.UUID,
     ) -> None:
-        """Release a sales reservation back to available stock."""
+        """Release a sales reservation back to available stock.
+        
+        Creates a RESERVATION_RELEASE inventory transaction for audit trail (Req 18.1, 18.4).
+        """
         model = await self._lock_material(tenant_id, material_id)
         reserved = Decimal(str(model.reserved_stock))
         released = min(quantity, reserved)
@@ -1038,7 +1066,7 @@ class InventoryService:
             await self._log_transaction(
                 tenant_id=tenant_id,
                 material_id=material_id,
-                transaction_type="release",
+                transaction_type="RESERVATION_RELEASE",
                 quantity=released,
                 unit_id=unit_id,
                 reference_type="sales_order_line",

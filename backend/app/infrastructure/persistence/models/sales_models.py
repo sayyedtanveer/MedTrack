@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Optional, List
 
 from sqlalchemy import (
@@ -148,7 +149,7 @@ class SalesOrderModel(Base):
     delivery_date: Mapped[str] = mapped_column(nullable=False)
 
     # Status fields
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="DRAFT")
     payment_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="PENDING"
     )
@@ -163,6 +164,17 @@ class SalesOrderModel(Base):
     )
     grand_total: Mapped[float] = mapped_column(
         Numeric(18, 4), nullable=False, default=0
+    )
+
+    # Estimated dates for order tracking (Req 28.1)
+    estimated_completion_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
+    expected_dispatch_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
+    expected_delivery_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
     )
 
     # Metadata
@@ -268,6 +280,9 @@ class SalesOrderLineModel(Base):
     allocated_quantity: Mapped[float] = mapped_column(
         Numeric(18, 4), nullable=False, default=0
     )
+    dispatched_quantity: Mapped[float] = mapped_column(
+        Numeric(18, 4), nullable=False, default=0
+    )
     shipped_quantity: Mapped[float] = mapped_column(
         Numeric(18, 4), nullable=False, default=0
     )
@@ -280,8 +295,21 @@ class SalesOrderLineModel(Base):
         UUID(as_uuid=True), nullable=True
     )
 
+    # Shortage tracking (Req 16 — Gap #2)
+    # shortfall_quantity: the quantity that could not be reserved from existing FG stock
+    shortfall_quantity: Mapped[float] = mapped_column(
+        Numeric(18, 4), nullable=False, default=0
+    )
+    # production_required: True when FG stock was insufficient and a work order is needed
+    production_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+
     # Status
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    # Extended line status for partial dispatch tracking (Req 19.3, 20.1)
+    # Values: PENDING, ALLOCATED, PARTIAL, SHORT_CLOSED, BACKORDER, CANCELLED
+    line_status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING")
 
     # Metadata
     notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

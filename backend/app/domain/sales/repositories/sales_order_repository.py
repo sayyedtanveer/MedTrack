@@ -49,6 +49,8 @@ class SalesOrderRepository(BaseRepository):
                 line_total=line.line_total,
                 work_order_id=line.work_order_id,
                 notes=line.notes,
+                shortfall_quantity=getattr(line, "shortfall_quantity", 0) or 0,
+                production_required=getattr(line, "production_required", False) or False,
                 created_at=line.created_at,
                 updated_at=line.updated_at,
             )
@@ -209,6 +211,8 @@ class SalesOrderRepository(BaseRepository):
                     work_order_id=line.work_order_id,
                     status=line.status.value if isinstance(line.status, LineStatus) else str(line.status),
                     notes=line.notes,
+                    shortfall_quantity=float(getattr(line, "shortfall_quantity", 0) or 0),
+                    production_required=bool(getattr(line, "production_required", False)),
                     created_at=line.created_at,
                     updated_at=line.updated_at,
                 )

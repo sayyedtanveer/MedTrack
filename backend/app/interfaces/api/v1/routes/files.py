@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from backend.app.interfaces.api.v1.dependencies.auth import get_current_tenant_id, get_container
 from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
 from backend.app.interfaces.api.v1.schemas.tenant_schemas import FileUploadResponse
+from backend.app.utils.file_validation import validate_upload, sanitize_filename
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
@@ -26,26 +27,26 @@ async def upload_file(
     category: str = "documents",
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
 ):
+    """Upload a file with validation (size, type, filename sanitization).
+    
+    Requirements: 43.4
+    """
     if category not in VALID_CATEGORIES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid category. Must be one of: {sorted(VALID_CATEGORIES)}",
         )
 
+    # Validate file size and content type
+    content = await validate_upload(file)
+
+    # Sanitize filename
+    safe_filename = sanitize_filename(file.filename or "upload")
+
     container = get_container(request)
-    settings = request.app.state.container
-    max_bytes = 10 * 1024 * 1024  # 10 MB default
-
-    content = await file.read()
-    if len(content) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds maximum size of 10 MB",
-        )
-
     result = await container.storage_service.save(
         file_content=content,
-        original_filename=file.filename or "upload",
+        original_filename=safe_filename,
         content_type=file.content_type or "application/octet-stream",
         tenant_id=tenant_id,
         category=category,

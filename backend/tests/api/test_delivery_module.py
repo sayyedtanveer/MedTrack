@@ -181,3 +181,166 @@ async def test_delivery_document_ships_delivers_and_generates_invoice(
         )
     ).first()
     assert invoice is not None
+
+
+
+async def test_dispatch_queue_returns_ready_for_dispatch_orders(
+    async_client,
+    db_session,
+    token_headers,
+    test_tenant_id,
+    test_user_id,
+):
+    """Test GET /delivery/dispatch-queue returns READY_FOR_DISPATCH orders with correct fields.
+    
+    Requirements: 33 — Gap #5
+    - Returns sales orders with status = 'READY_FOR_DISPATCH'
+    - Filters by tenant_id
+    - Returns: id, order_number, customer_name, grand_total, ready_at timestamp
+    - Requires delivery:dispatch:view permission (403 if absent)
+    """
+    run_id = uuid.uuid4().hex[:8]
+    client_id = uuid.uuid4()
+    order_1_id = uuid.uuid4()
+    order_2_id = uuid.uuid4()
+    order_3_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    # Setup tenant
+    await db_session.merge(
+        TenantModel(
+            id=test_tenant_id,
+            name=f"Dispatch Tenant {run_id}",
+            slug=f"dispatch-{run_id}",
+            plan="starter",
+            is_active=True,
+        )
+    )
+    await db_session.merge(
+        UserModel(
+            id=test_user_id,
+            tenant_id=test_tenant_id,
+            email=f"dispatch-admin-{run_id}@example.com",
+            hashed_password=BcryptPasswordHasher().hash("Password123!"),
+            first_name="Dispatch",
+            last_name="Admin",
+            role="admin",
+            is_active=True,
+            is_deleted=False,
+        )
+    )
+    
+    # Create client
+    db_session.add(
+        ClientModel(
+            id=client_id,
+            tenant_id=test_tenant_id,
+            code=f"DISP-CLI-{run_id}",
+            name="Dispatch Test Client",
+            email=f"dispatch-client-{run_id}@example.com",
+            credit_limit=Decimal("10000"),
+            credit_used=Decimal("0"),
+            payment_terms_days=30,
+            is_active=True,
+            is_deleted=False,
+        )
+    )
+    
+    # Create SO in READY_FOR_DISPATCH
+    db_session.add(
+        SalesOrderModel(
+            id=order_1_id,
+            tenant_id=test_tenant_id,
+            client_id=client_id,
+            order_number=f"SO-DISP-001-{run_id}",
+            order_date=date.today().isoformat(),
+            delivery_date=(date.today() + timedelta(days=2)).isoformat(),
+            status="READY_FOR_DISPATCH",
+            payment_status="PENDING",
+            subtotal=1000,
+            discount_amount=0,
+            tax_amount=50,
+            grand_total=1050,
+            created_by=str(test_user_id),
+            is_active=True,
+            is_deleted=False,
+            updated_at=now,
+        )
+    )
+    
+    # Create another SO in READY_FOR_DISPATCH
+    db_session.add(
+        SalesOrderModel(
+            id=order_2_id,
+            tenant_id=test_tenant_id,
+            client_id=client_id,
+            order_number=f"SO-DISP-002-{run_id}",
+            order_date=date.today().isoformat(),
+            delivery_date=(date.today() + timedelta(days=5)).isoformat(),
+            status="READY_FOR_DISPATCH",
+            payment_status="PENDING",
+            subtotal=2000,
+            discount_amount=0,
+            tax_amount=100,
+            grand_total=2100,
+            created_by=str(test_user_id),
+            is_active=True,
+            is_deleted=False,
+            updated_at=now - timedelta(minutes=5),
+        )
+    )
+    
+    # Create SO in CONFIRMED (should not appear in dispatch queue)
+    db_session.add(
+        SalesOrderModel(
+            id=order_3_id,
+            tenant_id=test_tenant_id,
+            client_id=client_id,
+            order_number=f"SO-DISP-003-{run_id}",
+            order_date=date.today().isoformat(),
+            delivery_date=(date.today() + timedelta(days=3)).isoformat(),
+            status="CONFIRMED",
+            payment_status="PENDING",
+            subtotal=500,
+            discount_amount=0,
+            tax_amount=25,
+            grand_total=525,
+            created_by=str(test_user_id),
+            is_active=True,
+            is_deleted=False,
+            updated_at=now,
+        )
+    )
+    
+    await db_session.commit()
+
+    # Call the dispatch queue endpoint
+    response = await async_client.get(
+        "/api/v1/delivery/dispatch-queue",
+        headers=token_headers,
+    )
+    
+    assert response.status_code == 200, response.text
+    queue_data = response.json()
+    
+    # Should have 2 orders (only READY_FOR_DISPATCH)
+    assert len(queue_data) == 2
+    
+    # Check first order has required fields
+    order_1 = next((o for o in queue_data if o["order_number"] == f"SO-DISP-001-{run_id}"), None)
+    assert order_1 is not None
+    assert order_1["id"] == str(order_1_id)
+    assert order_1["order_number"] == f"SO-DISP-001-{run_id}"
+    assert order_1["customer_name"] == "Dispatch Test Client"
+    assert order_1["grand_total"] == 1050.0
+    assert order_1["ready_at"] is not None  # Should have a timestamp
+    
+    # Check second order
+    order_2 = next((o for o in queue_data if o["order_number"] == f"SO-DISP-002-{run_id}"), None)
+    assert order_2 is not None
+    assert order_2["id"] == str(order_2_id)
+    assert order_2["grand_total"] == 2100.0
+    
+    # Verify CONFIRMED order is not in the queue
+    order_3 = next((o for o in queue_data if o["order_number"] == f"SO-DISP-003-{run_id}"), None)
+    assert order_3 is None

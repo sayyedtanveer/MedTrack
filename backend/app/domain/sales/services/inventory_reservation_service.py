@@ -3,6 +3,8 @@
 from decimal import Decimal
 from uuid import UUID
 
+from backend.app.domain.manufacturing.exceptions import InsufficientStockError
+
 
 class InventoryReservationService:
     """
@@ -49,6 +51,7 @@ class InventoryReservationService:
             product_type: Product type ("variant" or "finished_product")
             uom_id: Unit of measure ID
             quantity: Quantity to reserve
+            sales_order_id: Sales order ID
             sales_order_line_id: Sales order line ID (for work order linkage)
             delivery_date: Delivery date (due date for work orders)
             
@@ -66,7 +69,9 @@ class InventoryReservationService:
             allocated_qty = min(available, quantity)
             shortage_qty = quantity - allocated_qty
             
-            # Reserve the allocated quantity
+            # Reserve the allocated quantity (Req 14 — Gap #2).
+            # SELECT FOR UPDATE is held inside reserve_sales_stock via _lock_material.
+            # inventory_reservations row is created with reference_type="sales_order".
             if allocated_qty > 0:
                 await self.inventory_service.reserve_stock(
                     tenant_id=tenant_id,
@@ -76,6 +81,7 @@ class InventoryReservationService:
                     uom_id=uom_id,
                     reference_type="sales_order_line",
                     reference_id=sales_order_line_id,
+                    sales_order_id=sales_order_id,
                 )
             
             # Create work order for shortage if any
@@ -94,6 +100,10 @@ class InventoryReservationService:
             
             return allocated_qty, shortage_qty, work_order_id
             
+        except InsufficientStockError:
+            # Re-raise directly so the route layer can return a 409 Conflict for
+            # concurrent reservation conflicts (Cross-Cutting Req A).
+            raise
         except Exception as e:
             # Log and re-raise with context
             raise ValueError(

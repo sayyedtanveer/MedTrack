@@ -5,8 +5,10 @@ import {
   numberSeriesService,
   type NumberSeriesConfig,
   type NumberSeriesPrefix,
+  type NumberSeriesAuditEntry,
 } from "@/services/number-series.service"
 import { useToast } from "@/hooks/use-toast"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,7 +29,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { ArrowLeft, Save, Eye } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ArrowLeft, Save, Eye, History } from "lucide-react"
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 
@@ -92,6 +95,8 @@ export default function NumberSeriesEntityConfigPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { isAdmin } = usePermissions()
+  const canEdit = isAdmin()
 
   // ─ Form state ──────────────────────────────────────────────────────────────
   const [formState, setFormState] = useState<Partial<NumberSeriesConfig>>({})
@@ -111,6 +116,13 @@ export default function NumberSeriesEntityConfigPage() {
   const { data: prefixes, isLoading: prefixesLoading } = useQuery({
     queryKey: ["number-series-prefixes", entityType],
     queryFn: () => numberSeriesService.getPrefixes(entityType!),
+    enabled: !!entityType,
+  })
+
+  // Audit log query
+  const { data: auditData, isLoading: auditLoading } = useQuery({
+    queryKey: ["number-series-audit", entityType],
+    queryFn: () => numberSeriesService.getAuditLog({ entity_type: entityType, page_size: 50 }),
     enabled: !!entityType,
   })
 
@@ -286,209 +298,280 @@ export default function NumberSeriesEntityConfigPage() {
         </div>
       </div>
 
-      {/* Live Preview */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Eye className="h-4 w-4" />
-            Live Preview
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md bg-muted px-4 py-3 font-mono text-lg">
-            {previewLoading ? (
-              <span className="text-muted-foreground animate-pulse">Generating...</span>
-            ) : (
-              preview || "—"
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="configuration" className="w-full">
+        <TabsList>
+          <TabsTrigger value="configuration">Configuration</TabsTrigger>
+          <TabsTrigger value="audit-log">
+            <History className="mr-1 h-4 w-4" />
+            Audit Log
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Configuration Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>General Settings</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Auto Generate Toggle */}
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="auto_generate"
-              checked={formState.auto_generate ?? true}
-              onCheckedChange={(checked) => updateField("auto_generate", checked === true)}
-            />
-            <Label htmlFor="auto_generate" className="cursor-pointer">
-              Auto-generate codes
-            </Label>
-          </div>
+        <TabsContent value="configuration" className="space-y-6 mt-4">
+          {/* Live Preview */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Eye className="h-4 w-4" />
+                Live Preview
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md bg-muted px-4 py-3 font-mono text-lg">
+                {previewLoading ? (
+                  <span className="text-muted-foreground animate-pulse">Generating...</span>
+                ) : (
+                  preview || "—"
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-          {/* Manual Override */}
-          <div className="space-y-2">
-            <Label htmlFor="manual_override">Manual Override Policy</Label>
-            <Select
-              value={formState.manual_override || "never"}
-              onValueChange={(val) =>
-                updateField("manual_override", val as "never" | "admin_only" | "always")
-              }
-            >
-              <SelectTrigger id="manual_override">
-                <SelectValue placeholder="Select policy" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="never">Never — always auto-generate</SelectItem>
-                <SelectItem value="admin_only">Admin Only — admins can enter manual codes</SelectItem>
-                <SelectItem value="always">Always — any user can enter manual codes</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Configuration Form */}
+          <Card>
+            <CardHeader>
+              <CardTitle>General Settings</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Auto Generate Toggle */}
+              <div className="flex items-center space-x-3">
+                <Checkbox
+                  id="auto_generate"
+                  checked={formState.auto_generate ?? true}
+                  onCheckedChange={(checked) => updateField("auto_generate", checked === true)}
+                  disabled={!canEdit}
+                />
+                <Label htmlFor="auto_generate" className="cursor-pointer">
+                  Auto-generate codes
+                </Label>
+              </div>
 
-          {/* Include Abbreviation Toggle */}
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="include_abbreviation"
-              checked={formState.include_abbreviation ?? false}
-              onCheckedChange={(checked) => updateField("include_abbreviation", checked === true)}
-            />
-            <Label htmlFor="include_abbreviation" className="cursor-pointer">
-              Include abbreviation in code
-            </Label>
-          </div>
+              {/* Manual Override */}
+              <div className="space-y-2">
+                <Label htmlFor="manual_override">Manual Override Policy</Label>
+                <Select
+                  value={formState.manual_override || "never"}
+                  onValueChange={(val) =>
+                    updateField("manual_override", val as "never" | "admin_only" | "always")
+                  }
+                  disabled={!canEdit}
+                >
+                  <SelectTrigger id="manual_override">
+                    <SelectValue placeholder="Select policy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="never">Never — always auto-generate</SelectItem>
+                    <SelectItem value="admin_only">Admin Only — admins can enter manual codes</SelectItem>
+                    <SelectItem value="always">Always — any user can enter manual codes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-          {/* Abbreviation Length — only visible when include_abbreviation is on */}
-          {formState.include_abbreviation && (
-            <div className="space-y-2">
-              <Label htmlFor="abbreviation_length">Abbreviation Length</Label>
-              <Input
-                id="abbreviation_length"
-                type="number"
-                min={2}
-                max={6}
-                value={formState.abbreviation_length ?? 3}
-                onChange={(e) => updateField("abbreviation_length", parseInt(e.target.value, 10) || 0)}
-                className={errors.abbreviation_length ? "border-destructive" : ""}
-              />
-              {errors.abbreviation_length && (
-                <p className="text-xs text-destructive">{errors.abbreviation_length}</p>
+              {/* Include Abbreviation Toggle */}
+              <div className="flex items-center space-x-3">
+                <Checkbox
+                  id="include_abbreviation"
+                  checked={formState.include_abbreviation ?? false}
+                  onCheckedChange={(checked) => updateField("include_abbreviation", checked === true)}
+                  disabled={!canEdit}
+                />
+                <Label htmlFor="include_abbreviation" className="cursor-pointer">
+                  Include abbreviation in code
+                </Label>
+              </div>
+
+              {/* Abbreviation Length — only visible when include_abbreviation is on */}
+              {formState.include_abbreviation && (
+                <div className="space-y-2">
+                  <Label htmlFor="abbreviation_length">Abbreviation Length</Label>
+                  <Input
+                    id="abbreviation_length"
+                    type="number"
+                    min={2}
+                    max={6}
+                    value={formState.abbreviation_length ?? 3}
+                    onChange={(e) => updateField("abbreviation_length", parseInt(e.target.value, 10) || 0)}
+                    className={errors.abbreviation_length ? "border-destructive" : ""}
+                    disabled={!canEdit}
+                  />
+                  {errors.abbreviation_length && (
+                    <p className="text-xs text-destructive">{errors.abbreviation_length}</p>
+                  )}
+                </div>
               )}
-            </div>
+
+              {/* Sequence Length */}
+              <div className="space-y-2">
+                <Label htmlFor="sequence_length">Sequence Length</Label>
+                <Input
+                  id="sequence_length"
+                  type="number"
+                  min={4}
+                  max={10}
+                  value={formState.sequence_length ?? 6}
+                  onChange={(e) => updateField("sequence_length", parseInt(e.target.value, 10) || 0)}
+                  className={errors.sequence_length ? "border-destructive" : ""}
+                  disabled={!canEdit}
+                />
+                {errors.sequence_length && (
+                  <p className="text-xs text-destructive">{errors.sequence_length}</p>
+                )}
+              </div>
+
+              {/* Separator */}
+              <div className="space-y-2">
+                <Label htmlFor="separator">Separator</Label>
+                <Input
+                  id="separator"
+                  type="text"
+                  maxLength={5}
+                  value={formState.separator ?? "-"}
+                  onChange={(e) => updateField("separator", e.target.value)}
+                  className={errors.separator ? "border-destructive" : ""}
+                  placeholder="-"
+                  disabled={!canEdit}
+                />
+                {errors.separator && (
+                  <p className="text-xs text-destructive">{errors.separator}</p>
+                )}
+              </div>
+
+              {/* Lock After Save Toggle */}
+              <div className="flex items-center space-x-3">
+                <Checkbox
+                  id="lock_after_save"
+                  checked={formState.lock_after_save ?? true}
+                  onCheckedChange={(checked) => updateField("lock_after_save", checked === true)}
+                  disabled={!canEdit}
+                />
+                <Label htmlFor="lock_after_save" className="cursor-pointer">
+                  Lock code after save (immutable)
+                </Label>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sub-Type Prefix Table */}
+          {editedPrefixes.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Sub-Type Prefixes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Sub-Type</TableHead>
+                      <TableHead>Prefix</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {editedPrefixes.map((p) => (
+                      <TableRow key={p.sub_type}>
+                        <TableCell className="font-medium capitalize">
+                          {p.sub_type.replace(/_/g, " ")}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={p.prefix}
+                            onChange={(e) => updatePrefixValue(p.sub_type, e.target.value)}
+                            className={`w-24 uppercase ${errors.prefixes?.[p.sub_type] ? "border-destructive" : ""}`}
+                            maxLength={10}
+                            placeholder="RM"
+                            disabled={!canEdit}
+                          />
+                          {errors.prefixes?.[p.sub_type] && (
+                            <p className="text-xs text-destructive mt-1">
+                              {errors.prefixes[p.sub_type]}
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                              p.is_active
+                                ? "bg-green-100 text-green-800"
+                                : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {p.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           )}
 
-          {/* Sequence Length */}
-          <div className="space-y-2">
-            <Label htmlFor="sequence_length">Sequence Length</Label>
-            <Input
-              id="sequence_length"
-              type="number"
-              min={4}
-              max={10}
-              value={formState.sequence_length ?? 6}
-              onChange={(e) => updateField("sequence_length", parseInt(e.target.value, 10) || 0)}
-              className={errors.sequence_length ? "border-destructive" : ""}
-            />
-            {errors.sequence_length && (
-              <p className="text-xs text-destructive">{errors.sequence_length}</p>
-            )}
-          </div>
+          {/* Save Button — only visible to admins */}
+          {canEdit && (
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => navigate(-1)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={configMutation.isPending || hasErrors(errors)}
+              >
+                <Save className="mr-2 h-4 w-4" />
+                {configMutation.isPending ? "Saving..." : "Save Configuration"}
+              </Button>
+            </div>
+          )}
+        </TabsContent>
 
-          {/* Separator */}
-          <div className="space-y-2">
-            <Label htmlFor="separator">Separator</Label>
-            <Input
-              id="separator"
-              type="text"
-              maxLength={5}
-              value={formState.separator ?? "-"}
-              onChange={(e) => updateField("separator", e.target.value)}
-              className={errors.separator ? "border-destructive" : ""}
-              placeholder="-"
-            />
-            {errors.separator && (
-              <p className="text-xs text-destructive">{errors.separator}</p>
-            )}
-          </div>
-
-          {/* Lock After Save Toggle */}
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="lock_after_save"
-              checked={formState.lock_after_save ?? true}
-              onCheckedChange={(checked) => updateField("lock_after_save", checked === true)}
-            />
-            <Label htmlFor="lock_after_save" className="cursor-pointer">
-              Lock code after save (immutable)
-            </Label>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Sub-Type Prefix Table */}
-      {editedPrefixes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Sub-Type Prefixes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Sub-Type</TableHead>
-                  <TableHead>Prefix</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {editedPrefixes.map((p) => (
-                  <TableRow key={p.sub_type}>
-                    <TableCell className="font-medium capitalize">
-                      {p.sub_type.replace(/_/g, " ")}
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        value={p.prefix}
-                        onChange={(e) => updatePrefixValue(p.sub_type, e.target.value)}
-                        className={`w-24 uppercase ${errors.prefixes?.[p.sub_type] ? "border-destructive" : ""}`}
-                        maxLength={10}
-                        placeholder="RM"
-                      />
-                      {errors.prefixes?.[p.sub_type] && (
-                        <p className="text-xs text-destructive mt-1">
-                          {errors.prefixes[p.sub_type]}
-                        </p>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                          p.is_active
-                            ? "bg-green-100 text-green-800"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {p.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Save Button */}
-      <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={() => navigate(-1)}>
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSave}
-          disabled={configMutation.isPending || hasErrors(errors)}
-        >
-          <Save className="mr-2 h-4 w-4" />
-          {configMutation.isPending ? "Saving..." : "Save Configuration"}
-        </Button>
-      </div>
+        <TabsContent value="audit-log" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="h-5 w-5" />
+                Change History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {auditLoading ? (
+                <div className="text-muted-foreground animate-pulse py-4">Loading audit log...</div>
+              ) : !auditData?.items?.length ? (
+                <p className="text-sm text-muted-foreground py-4">No audit entries found for this entity type.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Timestamp</TableHead>
+                      <TableHead>Event</TableHead>
+                      <TableHead>Old Value</TableHead>
+                      <TableHead>New Value</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditData.items.map((entry: NumberSeriesAuditEntry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="text-xs whitespace-nowrap">
+                          {new Date(entry.timestamp).toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {entry.event_type.replace(/_/g, " ")}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-xs font-mono max-w-[200px] truncate">
+                          {entry.old_value || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono max-w-[200px] truncate">
+                          {entry.new_value || "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

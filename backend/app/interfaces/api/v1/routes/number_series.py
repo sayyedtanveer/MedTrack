@@ -62,7 +62,7 @@ SUPPORTED_ENTITY_TYPES = [
 
 
 @router.get(
-    "/",
+    "",
     response_model=List[NumberSeriesConfigResponse],
     summary="List all number series configurations for tenant",
     dependencies=[Depends(require_permission("inventory:read"))],

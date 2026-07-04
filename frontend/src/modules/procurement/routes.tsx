@@ -22,9 +22,11 @@ import RFQListPage from "./pages/RFQListPage"
 import RFQCreatePage from "./pages/RFQCreatePage"
 import RFQDetailPage from "./pages/RFQDetailPage"
 import SupplierPerformancePage from "./pages/SupplierPerformancePage"
+import ProcurementDashboardPage from "./pages/ProcurementDashboardPage"
 
 export const procurementRoutes: RouteObject[] = [
   { path: "procurement", element: <ProcurementHubPage /> },
+  { path: "procurement/dashboard", element: <ProcurementDashboardPage /> },
   { path: "procurement/suppliers", element: <SuppliersListPage /> },
   { path: "procurement/purchase-orders", element: <PurchaseOrdersPage /> },
   { path: "procurement/purchase-orders/:poId", element: <PurchaseOrderDetailPage /> },

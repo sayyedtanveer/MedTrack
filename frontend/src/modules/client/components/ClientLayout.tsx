@@ -110,7 +110,7 @@ export default function ClientLayout() {
               <p className="text-xs uppercase tracking-[0.25em] text-blue-300/80">MedTrack</p>
               <h1 className="text-xl font-semibold text-white">Client Portal</h1>
             </div>
-            <Button variant="ghost" size="icon" className="md:hidden text-slate-300 hover:bg-slate-800 hover:text-white" onClick={() => setIsSidebarOpen(false)}>
+            <Button variant="ghost" size="icon" className="md:hidden text-slate-300 hover:bg-slate-800 hover:text-white" onClick={() => setIsSidebarOpen(false)} aria-label="Close menu">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -149,7 +149,7 @@ export default function ClientLayout() {
         <div className="flex min-h-screen flex-1 flex-col">
           <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 px-3 py-3 backdrop-blur sm:px-4 md:px-8 md:py-4">
             <div className="flex flex-wrap items-center gap-3">
-              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsSidebarOpen(true)}>
+              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsSidebarOpen(true)} aria-label="Open menu">
                 <Menu className="h-5 w-5" />
               </Button>
               <div className="min-w-0 flex-1">
@@ -168,7 +168,7 @@ export default function ClientLayout() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" className="relative rounded-full border-slate-200 bg-white">
+                  <Button variant="outline" size="icon" className="relative rounded-full border-slate-200 bg-white" aria-label="Notifications">
                     <Bell className="h-4 w-4" />
                     {unreadCount > 0 && (
                       <Badge className="absolute -right-1 -top-1 h-5 min-w-5 rounded-full px-1 text-[10px]">{unreadCount}</Badge>

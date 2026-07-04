@@ -35,6 +35,8 @@ class SalesOrderLine:
         line_total: Decimal | None = None,
         work_order_id: UUID | None = None,
         notes: str | None = None,
+        shortfall_quantity: Decimal = Decimal("0"),
+        production_required: bool = False,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
     ):
@@ -52,6 +54,10 @@ class SalesOrderLine:
         self.allocated_quantity = Decimal(str(allocated_quantity))
         self.shipped_quantity = Decimal(str(shipped_quantity))
         self.backorder_quantity = Decimal(str(backorder_quantity))
+        
+        # Shortage tracking (Req 16 — Gap #2)
+        self.shortfall_quantity = Decimal(str(shortfall_quantity))
+        self.production_required = bool(production_required)
         
         # Denormalized for efficiency
         self.tax_amount = Decimal(str(tax_amount)) if tax_amount is not None else Decimal("0")
@@ -129,6 +135,24 @@ class SalesOrderLine:
         self.status = LineStatus.BACKORDER
         self.updated_at = datetime.now(timezone.utc)
 
+    def mark_shortage(self, shortfall: Decimal) -> None:
+        """
+        Record FG shortage for this line (Req 16 — Gap #2).
+
+        Called when FG stock is insufficient at SO confirmation.  The line is
+        flagged so a work order can be created to manufacture the missing qty.
+
+        Args:
+            shortfall: Quantity that could not be reserved from existing FG stock
+        """
+        shortfall = Decimal(str(shortfall))
+        if shortfall < 0:
+            raise ValueError("Shortfall quantity cannot be negative")
+        self.shortfall_quantity = shortfall
+        if shortfall > 0:
+            self.production_required = True
+        self.updated_at = datetime.now(timezone.utc)
+
     def ship(self, qty: Decimal) -> None:
         """
         Record shipment for this line.
@@ -177,6 +201,8 @@ class SalesOrderLine:
             "allocated_quantity": str(self.allocated_quantity),
             "shipped_quantity": str(self.shipped_quantity),
             "backorder_quantity": str(self.backorder_quantity),
+            "shortfall_quantity": str(self.shortfall_quantity),
+            "production_required": self.production_required,
             "status": self.status.value,
             "work_order_id": str(self.work_order_id) if self.work_order_id else None,
             "created_at": self.created_at.isoformat(),

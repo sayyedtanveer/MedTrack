@@ -941,3 +941,198 @@ async def generate_pick_list(
         return result
 
 
+# ── Production Hold / Resume (Req 26.1, 26.2) ──────────────────────────────
+
+
+@router.post(
+    "/{work_order_id}/hold",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission("manufacturing:write"))],
+)
+async def put_work_order_on_hold(
+    work_order_id: uuid.UUID,
+    body: dict,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    """Put a work order on production hold with a reason.
+
+    Only valid when the WO is IN_PRODUCTION. Transitions the WO to
+    PRODUCTION_HOLD, records hold_reason and hold_started_at, creates
+    an audit log entry, and triggers a machine_breakdown notification.
+
+    Requirements: 26.1, 26.2
+    """
+    from datetime import datetime, timezone as tz
+    from sqlalchemy import select, and_
+
+    reason = (body or {}).get("reason", "")
+    if not reason or not reason.strip():
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"error_code": "VALIDATION_ERROR", "message": "Hold reason is required", "validation_errors": []},
+        )
+
+    container = get_container(request)
+    async with container.session_factory() as session:
+        stmt = select(WorkOrderModel).where(
+            and_(
+                WorkOrderModel.id == work_order_id,
+                WorkOrderModel.tenant_id == tenant_id,
+                WorkOrderModel.is_deleted.is_(False),
+            )
+        )
+        wo = (await session.execute(stmt)).scalar_one_or_none()
+        if not wo:
+            return JSONResponse(
+                status_code=404,
+                content={"error_code": "NOT_FOUND", "message": "Work Order not found", "validation_errors": []},
+            )
+
+        if wo.status != "IN_PRODUCTION":
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "error_code": "INVALID_STATUS_TRANSITION",
+                    "message": f"Cannot hold work order in status '{wo.status}'. Must be IN_PRODUCTION.",
+                    "validation_errors": [],
+                },
+            )
+
+        before_status = wo.status
+        wo.status = "PRODUCTION_HOLD"
+        wo.hold_reason = reason.strip()
+        wo.hold_started_at = datetime.now(tz.utc)
+        wo.updated_at = datetime.now(tz.utc)
+        await session.flush()
+
+        # Audit log
+        try:
+            from backend.app.services.audit_log_service import AuditLogService
+            audit_service = AuditLogService(session)
+            await audit_service.log_action(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action_type="production_hold",
+                entity_type="work_order",
+                entity_id=work_order_id,
+                before_state={"status": before_status},
+                after_state={"status": wo.status, "hold_reason": wo.hold_reason},
+                reason=reason.strip(),
+            )
+        except Exception:
+            pass
+
+        # Notification
+        try:
+            from backend.app.application.notifications.notification_service import NotificationService
+            notif_service = NotificationService(session)
+            await notif_service.create_notification(
+                tenant_id=tenant_id,
+                notification_type="machine_breakdown",
+                title=f"Production Hold - WO {wo.wo_number}",
+                message=f"Work Order {wo.wo_number} placed on hold. Reason: {reason.strip()}",
+                reference_id=str(work_order_id),
+                reference_type="work_order",
+            )
+        except Exception:
+            pass
+
+        await session.commit()
+        return {
+            "status": wo.status,
+            "hold_reason": wo.hold_reason,
+            "hold_started_at": wo.hold_started_at.isoformat() if wo.hold_started_at else None,
+        }
+
+
+@router.post(
+    "/{work_order_id}/resume",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission("manufacturing:write"))],
+)
+async def resume_work_order(
+    work_order_id: uuid.UUID,
+    request: Request,
+    body: Optional[dict] = None,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    """Resume a work order from production hold.
+
+    Only valid when the WO is in PRODUCTION_HOLD status. Transitions the
+    WO back to IN_PRODUCTION and clears hold fields.
+
+    Requirements: 26.2
+    """
+    from datetime import datetime, timezone as tz
+    from sqlalchemy import select, and_
+
+    container = get_container(request)
+    async with container.session_factory() as session:
+        stmt = select(WorkOrderModel).where(
+            and_(
+                WorkOrderModel.id == work_order_id,
+                WorkOrderModel.tenant_id == tenant_id,
+                WorkOrderModel.is_deleted.is_(False),
+            )
+        )
+        wo = (await session.execute(stmt)).scalar_one_or_none()
+        if not wo:
+            return JSONResponse(
+                status_code=404,
+                content={"error_code": "NOT_FOUND", "message": "Work Order not found", "validation_errors": []},
+            )
+
+        if wo.status != "PRODUCTION_HOLD":
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "error_code": "INVALID_STATUS_TRANSITION",
+                    "message": f"Cannot resume work order in status '{wo.status}'. Must be PRODUCTION_HOLD.",
+                    "validation_errors": [],
+                },
+            )
+
+        before_status = wo.status
+        hold_duration_seconds = None
+        if wo.hold_started_at:
+            now = datetime.now(tz.utc)
+            hold_start = wo.hold_started_at
+            if hold_start.tzinfo is None:
+                from datetime import timezone as _tz
+                hold_start = hold_start.replace(tzinfo=_tz.utc)
+            hold_duration_seconds = (now - hold_start).total_seconds()
+
+        wo.status = "IN_PRODUCTION"
+        wo.hold_reason = None
+        wo.hold_started_at = None
+        wo.updated_at = datetime.now(tz.utc)
+        await session.flush()
+
+        # Audit log
+        try:
+            from backend.app.services.audit_log_service import AuditLogService
+            audit_service = AuditLogService(session)
+            await audit_service.log_action(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action_type="production_resume",
+                entity_type="work_order",
+                entity_id=work_order_id,
+                before_state={"status": before_status},
+                after_state={"status": wo.status},
+                reason=(body or {}).get("notes"),
+                metadata={"hold_duration_seconds": hold_duration_seconds},
+            )
+        except Exception:
+            pass
+
+        await session.commit()
+        return {
+            "status": wo.status,
+            "hold_duration_seconds": hold_duration_seconds,
+        }
+
+

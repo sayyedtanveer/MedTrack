@@ -201,6 +201,7 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
                                 size="icon"
                                 className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10"
                                 title="Delete operation"
+                                aria-label="Delete operation"
                                 onClick={() => removeMutation.mutate(ao.id)}
                                 disabled={removeMutation.isPending}
                               >

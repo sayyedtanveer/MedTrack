@@ -13,6 +13,7 @@ from backend.app.interfaces.api.v1.dependencies.auth import (
 )
 from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
 from backend.app.interfaces.api.v1.schemas.delivery_schemas import (
+    DeliveryCancelRequest,
     DeliveryCreate,
     DeliveryResponse,
     DeliveryShipRequest,
@@ -141,3 +142,40 @@ async def deliver_delivery(
         except ValueError as exc:
             await session.rollback()
             raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/{delivery_id}/cancel",
+    response_model=DeliveryResponse,
+    dependencies=[Depends(require_permission("sales:write"))],
+)
+async def cancel_delivery(
+    delivery_id: uuid.UUID,
+    request: Request,
+    body: DeliveryCancelRequest = DeliveryCancelRequest(),
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    """Cancel a delivery in DRAFT or PACKING status.
+
+    Creates DISPATCH_REVERSAL inventory transactions to restore stock,
+    updates SO line dispatched_quantity, creates audit log and notification.
+    """
+    container = get_container(request)
+    async with container.session_factory() as session:
+        try:
+            delivery = await DeliveryService(session).cancel(
+                tenant_id=tenant_id,
+                delivery_id=delivery_id,
+                cancelled_by=user_id,
+                reason=body.reason,
+            )
+            await session.commit()
+            return delivery
+        except ValueError as exc:
+            await session.rollback()
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            await session.rollback()
+            logger.exception("Delivery cancellation failed", extra={"delivery_id": str(delivery_id)})
+            raise

@@ -111,7 +111,7 @@ export default function ProductDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/products")}>
+          <Button variant="ghost" size="icon" onClick={() => navigate("/products")} aria-label="Back to products">
             <ChevronLeft className="w-4 h-4" />
           </Button>
           <div>

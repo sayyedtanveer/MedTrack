@@ -104,7 +104,7 @@ export default function ProductTemplateFormPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/products")}><ArrowLeft className="w-4 h-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/products")} aria-label="Back to products"><ArrowLeft className="w-4 h-4" /></Button>
         <h1 className="text-xl font-semibold flex-1">{isNew ? "New Product Template" : "Edit Template"}</h1>
         {canEdit && (
           <Button onClick={save} disabled={mutation.isPending}>
@@ -192,7 +192,7 @@ export default function ProductTemplateFormPage() {
                   />
                 </div>
                 {canEdit && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeAttr(i)}>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeAttr(i)} aria-label="Remove attribute">
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 )}

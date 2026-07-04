@@ -161,6 +161,7 @@ export default function OperationsListPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
+                        aria-label="Edit operation"
                         onClick={(event) => {
                           event.stopPropagation()
                           navigate(`/operations/${op.id}/edit`)
@@ -172,6 +173,7 @@ export default function OperationsListPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 hover:text-destructive"
+                        aria-label="Delete operation"
                         onClick={(event) => {
                           event.stopPropagation()
                           handleDelete(op.id, op.name)

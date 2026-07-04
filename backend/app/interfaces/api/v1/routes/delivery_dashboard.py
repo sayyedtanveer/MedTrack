@@ -4,10 +4,13 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
+from sqlalchemy import select, and_, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.interfaces.api.v1.dependencies.auth import get_current_tenant_id, get_current_user_id
 from backend.app.interfaces.api.v1.dependencies.auth import get_container
+from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
 from backend.app.application.delivery.commands.delivery_commands import (
     CreateDispatchCommand,
     UpdateShipmentStatusCommand,
@@ -20,19 +23,58 @@ from backend.app.application.delivery.handlers.delivery_dashboard_handler import
 router = APIRouter(prefix="/delivery", tags=["Delivery Dashboard"])
 
 
-@router.get("/dispatch-queue")
+@router.get(
+    "/dispatch-queue",
+    dependencies=[Depends(require_permission("delivery:dispatch:view"))],
+)
 async def get_dispatch_queue(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
-    user_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    """Get dispatch queue for delivery dashboard."""
+    """Get orders ready for dispatch (Gap #5).
+
+    Returns sales orders in READY_FOR_DISPATCH status filtered by tenant_id.
+    Each item includes: id, order_number, customer_name, grand_total, ready_at timestamp.
+
+    Requirements: 33 — Gap #5
+    Permission: delivery:dispatch:view (403 if absent)
+    """
     container = get_container(request)
     async with container.session_factory() as session:
-        from backend.app.application.delivery.services.delivery_service import DeliveryService
-        service = DeliveryService(session)
-        queue = await service._get_dispatch_queue(tenant_id)
-        return queue
+        from backend.app.infrastructure.persistence.models.sales_models import (
+            SalesOrderModel,
+            SalesOrderLineModel,
+        )
+
+        # Query sales orders in READY_FOR_DISPATCH, filtered by tenant_id
+        stmt = (
+            select(SalesOrderModel)
+            .where(
+                and_(
+                    SalesOrderModel.tenant_id == tenant_id,
+                    SalesOrderModel.status == "READY_FOR_DISPATCH",
+                    SalesOrderModel.is_deleted.is_(False),
+                )
+            )
+            .order_by(SalesOrderModel.delivery_date.asc())
+        )
+        result = await session.execute(stmt)
+        sales_orders = result.scalars().all()
+
+        queue_data = []
+        for so in sales_orders:
+            # ClientModel uses `name` field (not `company_name`)
+            customer_name = so.client.name if so.client else None
+
+            queue_data.append({
+                "id": str(so.id),
+                "order_number": so.order_number,
+                "customer_name": customer_name,
+                "grand_total": float(so.grand_total),
+                "ready_at": so.updated_at.isoformat() if so.updated_at else None,
+            })
+
+        return queue_data
 
 
 @router.get("/in-transit-queue")

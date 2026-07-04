@@ -15,8 +15,13 @@ import {
   ReceiptText,
   Truck,
   ShieldAlert,
+  ShieldCheck,
   History,
   Wrench,
+  ArrowLeftRight,
+  TrendingUp,
+  Gauge,
+  CalendarDays,
   LucideIcon,
 } from "lucide-react"
 import { UserRole, getRolesForModule } from "@/lib/roles.config"
@@ -31,13 +36,22 @@ export type NavItem = {
 
 const FINANCE_FULL_ACCESS_ROLES = [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT]
 const FINANCE_CUSTOMER_INVOICE_ROLES = [...FINANCE_FULL_ACCESS_ROLES, UserRole.SALES]
+const MANUFACTURING_ROLES = getRolesForModule("manufacturing")
+const PROCUREMENT_ROLES = getRolesForModule("procurement")
+const INVENTORY_ROLES = getRolesForModule("inventory")
+const REPORTS_ROLES = getRolesForModule("reports")
+const DELIVERY_ROLES = getRolesForModule("delivery")
+const QUALITY_ROLES = getRolesForModule("quality")
+const WORK_ORDER_ROLES = getRolesForModule("workOrders")
+const SALES_ROLES = getRolesForModule("sales")
+const SHOP_FLOOR_ROLES = getRolesForModule("shopFloor")
 
 export const NAV_ITEMS: NavItem[] = [
   {
     title: "Dashboard",
     href: "/",
     icon: LayoutDashboard,
-    roles: getRolesForModule("dashboard"),
+    roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
   },
   {
     title: "System Map",
@@ -57,12 +71,38 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Layers,
     roles: getRolesForModule("bom"),
   },
+
+  // ── Manufacturing ────────────────────────────────────────────────────
   {
     title: "Manufacturing",
-    href: "/manufacturing",
+    href: "/manufacturing/dashboard",
     icon: Factory,
-    roles: getRolesForModule("manufacturing"),
+    roles: MANUFACTURING_ROLES,
     children: [
+      {
+        title: "Production Dashboard",
+        href: "/manufacturing/dashboard",
+        icon: Gauge,
+        roles: MANUFACTURING_ROLES,
+      },
+      {
+        title: "Work Orders",
+        href: "/work-orders",
+        icon: ClipboardList,
+        roles: WORK_ORDER_ROLES,
+      },
+      {
+        title: "Planner Dashboard",
+        href: "/work-orders/planner",
+        icon: CalendarDays,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER, UserRole.PLANNER],
+      },
+      {
+        title: "Shop Floor",
+        href: "/shop-floor",
+        icon: Factory,
+        roles: SHOP_FLOOR_ROLES,
+      },
       {
         title: "Operations Master",
         href: "/operations",
@@ -71,24 +111,107 @@ export const NAV_ITEMS: NavItem[] = [
       },
     ],
   },
+
+  // ── Procurement ──────────────────────────────────────────────────────
+  {
+    title: "Procurement",
+    href: "/procurement/dashboard",
+    icon: Truck,
+    roles: PROCUREMENT_ROLES,
+    children: [
+      {
+        title: "Procurement Dashboard",
+        href: "/procurement/dashboard",
+        icon: LayoutDashboard,
+        roles: PROCUREMENT_ROLES,
+      },
+      {
+        title: "Purchase Orders",
+        href: "/procurement/purchase-orders",
+        icon: FileText,
+        roles: PROCUREMENT_ROLES,
+      },
+      {
+        title: "Suppliers",
+        href: "/procurement/suppliers",
+        icon: Users,
+        roles: PROCUREMENT_ROLES,
+      },
+      {
+        title: "Quality & QC",
+        href: "/procurement/quality",
+        icon: ShieldAlert,
+        roles: QUALITY_ROLES,
+      },
+    ],
+  },
+
+  // ── Quality ──────────────────────────────────────────────────────────
+  {
+    title: "Quality",
+    href: "/procurement/quality",
+    icon: ShieldCheck,
+    roles: QUALITY_ROLES,
+    children: [
+      {
+        title: "QC Dashboard",
+        href: "/procurement/quality",
+        icon: ShieldCheck,
+        roles: QUALITY_ROLES,
+      },
+    ],
+  },
+
+  // ── Delivery ─────────────────────────────────────────────────────────
+  {
+    title: "Delivery",
+    href: "/delivery/dashboard",
+    icon: Truck,
+    roles: DELIVERY_ROLES,
+    children: [
+      {
+        title: "Delivery Dashboard",
+        href: "/delivery/dashboard",
+        icon: LayoutDashboard,
+        roles: DELIVERY_ROLES,
+      },
+      {
+        title: "Dispatch Queue",
+        href: "/delivery/dispatch-queue",
+        icon: PackageSearch,
+        roles: DELIVERY_ROLES,
+      },
+    ],
+  },
+
+  // ── Inventory ────────────────────────────────────────────────────────
   {
     title: "Inventory",
     href: "/inventory",
     icon: Package,
-    roles: getRolesForModule("inventory"),
+    roles: INVENTORY_ROLES,
+    children: [
+      {
+        title: "Materials",
+        href: "/inventory/materials",
+        icon: Package,
+        roles: INVENTORY_ROLES,
+      },
+      {
+        title: "Transactions",
+        href: "/inventory/transactions",
+        icon: ArrowLeftRight,
+        roles: INVENTORY_ROLES,
+      },
+      {
+        title: "Stock Movements",
+        href: "/inventory/movements",
+        icon: History,
+        roles: INVENTORY_ROLES,
+      },
+    ],
   },
-  {
-    title: "Work Orders",
-    href: "/work-orders",
-    icon: ClipboardList,
-    roles: getRolesForModule("workOrders"),
-  },
-  {
-    title: "Procurement",
-    href: "/procurement",
-    icon: Truck,
-    roles: getRolesForModule("procurement"),
-  },
+
   {
     title: "Capacity & MRP",
     href: "/mrp",
@@ -102,18 +225,41 @@ export const NAV_ITEMS: NavItem[] = [
       UserRole.OPERATOR,
     ],
   },
-  {
-    title: "Quality & QC",
-    href: "/procurement/quality",
-    icon: ShieldAlert,
-    roles: getRolesForModule("quality"),
-  },
+
+  // ── Sales ────────────────────────────────────────────────────────────
   {
     title: "Sales",
     href: "/sales",
     icon: ShoppingCart,
-    roles: getRolesForModule("sales"),
+    roles: SALES_ROLES,
+    children: [
+      {
+        title: "Sales Dashboard",
+        href: "/sales",
+        icon: LayoutDashboard,
+        roles: SALES_ROLES,
+      },
+      {
+        title: "Sales Orders",
+        href: "/sales/orders",
+        icon: ClipboardList,
+        roles: SALES_ROLES,
+      },
+      {
+        title: "Clients",
+        href: "/sales/clients",
+        icon: Users,
+        roles: SALES_ROLES,
+      },
+      {
+        title: "Price Lists",
+        href: "/sales/price-lists",
+        icon: FileText,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER, UserRole.SALES],
+      },
+    ],
   },
+
   {
     title: "Finance",
     href: "/finance",
@@ -150,14 +296,31 @@ export const NAV_ITEMS: NavItem[] = [
     title: "Shop floor",
     href: "/shop-floor",
     icon: Factory,
-    roles: getRolesForModule("shopFloor"),
+    roles: SHOP_FLOOR_ROLES,
   },
+
+  // ── Reports ──────────────────────────────────────────────────────────
   {
     title: "Reports",
     href: "/reports",
     icon: BarChart3,
-    roles: getRolesForModule("reports"),
+    roles: REPORTS_ROLES,
+    children: [
+      {
+        title: "Analytics",
+        href: "/reports",
+        icon: TrendingUp,
+        roles: REPORTS_ROLES,
+      },
+      {
+        title: "Manufacturing KPIs",
+        href: "/reports/manufacturing-kpis",
+        icon: Gauge,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER, UserRole.PLANNER],
+      },
+    ],
   },
+
   {
     title: "Activity Log",
     href: "/activity-log",
@@ -183,8 +346,8 @@ export const NAV_ITEMS: NavItem[] = [
     roles: getRolesForModule("settings"),
     children: [
       {
-        title: "Number Series",
-        href: "/settings/business-config/number-series",
+        title: "Business Configuration",
+        href: "/settings/business-config",
         icon: Settings,
         roles: getRolesForModule("settings"),
       },

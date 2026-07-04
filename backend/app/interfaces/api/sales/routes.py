@@ -196,6 +196,14 @@ def _status_name(order) -> str:
     return getattr(status_value, "name", str(status_value)).upper()
 
 
+def _build_dispatch_notification_service(session):
+    """Create a NotificationService for dispatch_queue_updated notifications (Gap #4)."""
+    from backend.app.application.notifications.notification_service import (
+        NotificationService as OperationalNotificationService,
+    )
+    return OperationalNotificationService(session)
+
+
 async def _notify_client_order_status(
     session,
     container,
@@ -450,7 +458,7 @@ async def list_clients(
     tenant_id: UUID = Depends(get_current_tenant_id),
     is_active: Optional[bool] = None,
     search: Optional[str] = None,
-    limit: int = Query(50, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     """List clients with pagination and filtering."""
@@ -610,7 +618,7 @@ async def create_order(
 async def list_draft_orders(
     request: Request,
     tenant_id: UUID = Depends(get_current_tenant_id),
-    limit: int = Query(50, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=200),
 ):
     """List draft orders waiting for confirmation."""
     container = get_container(request)
@@ -689,7 +697,7 @@ async def list_orders(
     status_filter: Optional[str] = Query(None, alias="status"),
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    limit: int = Query(50, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     """List orders with filtering by client or date range."""
@@ -905,7 +913,7 @@ async def approve_order(
             created_by=user_id,
         ).with_event_dispatcher(container.event_dispatcher)
         inv_service = InventoryReservationService(inv_integ, mfg_integ)
-        confirm_handler = ConfirmSalesOrderCommandHandler(order_repo, client_repo, credit_service, inv_service, uow)
+        confirm_handler = ConfirmSalesOrderCommandHandler(order_repo, client_repo, credit_service, inv_service, uow, notification_service=_build_dispatch_notification_service(session))
 
         try:
             await approve_handler.handle(
@@ -998,20 +1006,23 @@ async def confirm_order(
     tenant_id: UUID = Depends(get_current_tenant_id),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    """Confirm order (DRAFT → CONFIRMED)."""
+    """Confirm order (APPROVED → CONFIRMED) with FG availability check (Gap #2)."""
     container = get_container(request)
     async with container.session_factory() as session:
         order_repo = SalesOrderRepository(session)
         client_repo = ClientRepository(session)
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        
+
         from backend.app.domain.sales.services.credit_validation_service import CreditValidationService
         from backend.app.domain.sales.services.inventory_reservation_service import InventoryReservationService
         from backend.app.application.sales.manufacturing_integration import SalesManufacturingIntegrationService
-        from backend.app.application.sales.inventory_integration import SalesInventoryIntegrationService
+        from backend.app.application.sales.inventory_integration import (
+            SalesInventoryIntegrationService,
+            FGAvailabilityCheckService,
+        )
         from backend.app.application.manufacturing.handlers.work_order_handler import WorkOrderHandler
         from backend.app.application.manufacturing.services.inventory_service import InventoryService as StockInventoryService
-        
+
         credit_service = CreditValidationService(client_repo)
         stock_inventory = StockInventoryService(session)
         wo_handler = WorkOrderHandler(session).with_uow(uow)
@@ -1023,7 +1034,23 @@ async def confirm_order(
         ).with_event_dispatcher(container.event_dispatcher)
         inv_service = InventoryReservationService(inv_integ, mfg_integ)
 
-        handler = ConfirmSalesOrderCommandHandler(order_repo, client_repo, credit_service, inv_service, uow)
+        # Gap #2: wire FGAvailabilityCheckService (all-or-nothing per line, SELECT FOR UPDATE)
+        fg_check_service = FGAvailabilityCheckService(
+            inv_integ,
+            mfg_integ,
+            created_by=user_id,
+        )
+
+        handler = ConfirmSalesOrderCommandHandler(
+            order_repo,
+            client_repo,
+            credit_service,
+            inv_service,
+            uow,
+            fg_check_service=fg_check_service,
+            notification_service=_build_dispatch_notification_service(session),
+        )
+        from backend.app.domain.manufacturing.exceptions import InsufficientStockError as _StockError
         try:
             await handler.handle(
                 ConfirmSalesOrderCommand(
@@ -1046,6 +1073,12 @@ async def confirm_order(
                 )
                 await _notify_order_action_owner(session, container, tenant_id, order)
             return order.to_dict() if order else None
+        except _StockError as e:
+            # Concurrent reservation conflict — Req 14.6 / Cross-Cutting Req A
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Insufficient stock — concurrent reservation conflict",
+            )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
@@ -1329,7 +1362,7 @@ async def list_price_lists(
     request: Request,
     tenant_id: UUID = Depends(get_current_tenant_id),
     is_default: Optional[bool] = None,
-    limit: int = Query(50, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     """List price lists."""

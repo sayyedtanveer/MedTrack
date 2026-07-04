@@ -33,6 +33,7 @@ export type AppModuleKey =
   | "procurement"
   | "quality"
   | "sales"
+  | "delivery"
   | "finance"
   | "shopFloor"
   | "reports"
@@ -53,6 +54,7 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, AppModuleKey[]> = {
     "procurement",
     "quality",
     "sales",
+    "delivery",
     "finance",
     "shopFloor",
     "reports",
@@ -71,6 +73,7 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, AppModuleKey[]> = {
     "procurement",
     "quality",
     "sales",
+    "delivery",
     "finance",
     "shopFloor",
     "reports",
@@ -79,7 +82,7 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, AppModuleKey[]> = {
     "settings",
   ],
   [UserRole.PLANNER]: ["dashboard", "bom", "workOrders", "inventory", "procurement", "reports"],
-  [UserRole.STOREKEEPER]: ["dashboard", "inventory", "workOrders", "procurement"],
+  [UserRole.STOREKEEPER]: ["dashboard", "inventory", "workOrders", "procurement", "delivery"],
   [UserRole.OPERATOR]: ["dashboard", "inventory", "workOrders", "procurement", "quality", "manufacturing"],
   [UserRole.MANAGER]: [
     "dashboard",
@@ -91,11 +94,12 @@ export const ROLE_MODULE_ACCESS: Record<UserRole, AppModuleKey[]> = {
     "procurement",
     "quality",
     "sales",
+    "delivery",
     "finance",
     "reports",
   ],
   [UserRole.ACCOUNTANT]: ["dashboard", "finance", "reports"],
-  [UserRole.SALES]: ["dashboard", "sales"],
+  [UserRole.SALES]: ["dashboard", "sales", "delivery"],
   [UserRole.QC]: ["dashboard", "quality", "workOrders", "inventory"],
   [UserRole.WORKER]: ["shopFloor"],
   [UserRole.CLIENT]: ["dashboard", "sales"],
@@ -292,6 +296,13 @@ export const MODULE_ROLES: Record<string, UserRole[]> = {
     UserRole.OPERATOR,
     UserRole.QC,
     UserRole.VIEWER,
+  ],
+  delivery: [
+    UserRole.ADMIN,
+    UserRole.TENANT_ADMIN,
+    UserRole.MANAGER,
+    UserRole.SALES,
+    UserRole.STOREKEEPER,
   ],
   finance: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT],
   workOrders: [

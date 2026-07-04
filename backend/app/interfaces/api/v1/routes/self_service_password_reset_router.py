@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 
 from backend.app.config import settings
+from backend.app.infrastructure.logging.logger import get_logger
 from backend.app.infrastructure.persistence.models.user_model import (
     UserModel,
     PasswordResetTokenModel,
@@ -27,6 +28,8 @@ from backend.app.infrastructure.persistence.models.user_model import (
 from backend.app.infrastructure.security.password_hasher import BcryptPasswordHasher
 
 router = APIRouter(prefix="/forgot-password", tags=["password-reset"])
+
+logger = get_logger(__name__)
 
 
 def _get_container(request: Request):
@@ -137,8 +140,18 @@ async def request_password_reset(
         session.add(token_model)
         await session.commit()
         
-        # TODO: Send email with reset link
-        # For now, just return token in development mode
+        # Send password reset email
+        email_service = request.app.state.container.email_service
+        reset_url = f"{settings.frontend_url}/reset-password?token={reset_token}"
+        try:
+            await email_service.send_email(
+                to=user.email,
+                subject="MedTrack - Password Reset Request",
+                body=f"You requested a password reset. Use this link to reset your password: {reset_url}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, ignore this email.",
+                html_body=f"<h2>Password Reset</h2><p>You requested a password reset for your MedTrack account.</p><p><a href='{reset_url}'>Click here to reset your password</a></p><p>This link expires in 1 hour.</p><p>If you didn't request this, you can safely ignore this email.</p>",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send password reset email to {email}: {e}")
         
         # In development, return token for testing
         if settings.environment.lower() != "production":

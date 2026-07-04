@@ -15,10 +15,10 @@ from backend.app.application.quality.commands.qc_commands import (
     ScrapBatchCommand,
 )
 from backend.app.application.quality.services.qc_service import QCService
-from backend.app.application.manufacturing.services.inventory_service import InventoryService
-from backend.app.application.manufacturing.services.workflow_orchestration_service import (
-    WorkflowOrchestrationService,
+from backend.app.application.quality.handlers.fg_receive_command_handler import (
+    FGReceiveCommandHandler,
 )
+from backend.app.application.manufacturing.services.inventory_service import InventoryService
 from backend.app.domain.quality.entities.quality_inspection import (
     QualityInspection,
     InspectionResult,
@@ -121,13 +121,13 @@ class QCHandler:
             )
             self._session.add(detail_model)
         
-        # Transition WO to QC_APPROVED, then delegate the single FG receipt path.
+        # Transition WO to QC_APPROVED, then fire FGReceiveCommandHandler (Gap #3).
         wo_model.status = WorkOrderStatus.QC_APPROVED.value
         wo_model.updated_at = date.today()
 
-        await WorkflowOrchestrationService(self._session).on_qc_approved(
+        await FGReceiveCommandHandler(self._session).handle(
+            wo_id=command.work_order_id,
             tenant_id=command.tenant_id,
-            work_order_id=command.work_order_id,
             received_by=command.inspector_id,
         )
         
@@ -249,7 +249,9 @@ class QCHandler:
         """Scrap rejected batch.
         
         Triggers WO transition: QC_REJECTED → REJECTED → CLOSED.
-        Inventory impact: ISSUED → REJECTED (via InventoryService).
+        Inventory impact: 
+          - ISSUED → REJECTED (via InventoryService)
+          - Release remaining unreserved materials (reserved > issued) via RESERVATION_RELEASE (Req 18.3)
         """
         # Load WO
         stmt = select(WorkOrderModel).where(
@@ -285,6 +287,33 @@ class QCHandler:
             created_by=command.inspector_id,
             reason="QC rejected - batch scrapped",
         )
+        
+        # Release remaining unreserved raw materials (reserved > issued) - Req 18.3
+        # Materials that were reserved but not yet issued should be returned to available stock
+        await self._inventory.cancel_work_order_reservation(
+            tenant_id=command.tenant_id,
+            material_id=wo_model.product_id,
+            work_order_id=command.work_order_id,
+            unit_id=None,
+            created_by=command.inspector_id,
+            remarks=f"WO scrapped - releasing remaining unreserved materials",
+        )
+        
+        # Also release reservations for all BOM line materials
+        from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderMaterialModel
+        wo_materials_stmt = select(WorkOrderMaterialModel).where(
+            WorkOrderMaterialModel.work_order_id == command.work_order_id,
+        )
+        wo_materials = (await self._session.execute(wo_materials_stmt)).scalars().all()
+        for wom in wo_materials:
+            await self._inventory.cancel_work_order_reservation(
+                tenant_id=command.tenant_id,
+                material_id=wom.material_id,
+                work_order_id=command.work_order_id,
+                unit_id=wom.unit_id,
+                created_by=command.inspector_id,
+                remarks=f"WO scrapped - releasing remaining unreserved material",
+            )
         
         # Close WO after scrap
         wo_model.status = WorkOrderStatus.CLOSED.value

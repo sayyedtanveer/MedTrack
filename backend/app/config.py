@@ -68,6 +68,25 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    def validate_cors_for_production(self) -> None:
+        """Raise ValueError if running in production with wildcard CORS.
+
+        Call this during application startup to enforce the security
+        requirement that CORS_ALLOWED_ORIGINS must be explicitly set in
+        production environments.
+
+        Requirements: 43.2
+        """
+        if self.is_production:
+            origins = self.cors_origins_list
+            if not origins or origins == ["*"]:
+                raise ValueError(
+                    "CORS_ALLOWED_ORIGINS must be explicitly set in production. "
+                    "Wildcard '*' is not allowed for security reasons. "
+                    "Set CORS_ORIGINS to a comma-separated list of allowed origins, "
+                    "e.g. https://app.yourdomain.com,https://admin.yourdomain.com"
+                )
+
     # ── File Storage ─────────────────────────────
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 10
@@ -75,7 +94,14 @@ class Settings(BaseSettings):
     # ── Redis ────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
 
-    # ── Email (stub) ──────────────────────────────
+    # ── Email (Resend) ───────────────────────────────
+    resend_api_key: str = ""
+    resend_from_email: str = "noreply@medtrack.app"
+
+    # ── Frontend URL (for email links) ───────────
+    frontend_url: str = "http://localhost:5173"
+
+    # ── Legacy SMTP (deprecated) ─────────────────
     smtp_host: str = "localhost"
     smtp_port: int = 587
     smtp_user: str = ""

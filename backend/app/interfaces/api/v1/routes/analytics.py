@@ -395,7 +395,7 @@ async def get_dashboard_summary(
 @router.get("/execution-history", response_model=list[ReportExecution])
 async def get_execution_history(
     report_id: Optional[uuid.UUID] = Query(None),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=200),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     request: Request = None,
 ):

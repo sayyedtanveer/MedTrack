@@ -1,5 +1,6 @@
 """Sales order command handlers (application orchestration)."""
 
+from typing import Optional
 from uuid import uuid4, UUID
 from datetime import date
 
@@ -305,27 +306,43 @@ class ConfirmSalesOrderCommandHandler:
         credit_service: CreditValidationService,
         inventory_service: InventoryReservationService,
         uow,
+        *,
+        fg_check_service=None,
+        notification_service=None,
     ):
-        """Initialize handler."""
+        """Initialize handler.
+
+        Args:
+            fg_check_service: Optional :class:`FGAvailabilityCheckService` instance.
+                When provided it is used in place of ``inventory_service`` for the
+                FG check path (Gap #2).  The inventory_service is still kept for
+                backward-compat usage (e.g. cancellation release).
+            notification_service: Optional :class:`NotificationService` instance.
+                When provided, emits ``dispatch_queue_updated`` notification to the
+                Dispatch role when the SO transitions to READY_FOR_DISPATCH (Gap #4).
+        """
         self.sales_order_repo = sales_order_repo
         self.client_repo = client_repo
         self.credit_service = credit_service
         self.inventory_service = inventory_service
         self.uow = uow
+        self.fg_check_service = fg_check_service
+        self.notification_service = notification_service
 
     async def handle(self, command: ConfirmSalesOrderCommand) -> None:
         """
-        Confirm a sales order (DRAFT → CONFIRMED).
-        
+        Confirm a sales order (APPROVED → CONFIRMED).
+
         Business logic:
         1. Validate order state
         2. Check client credit availability
         3. Allocate credit
-        4. Reserve inventory
-        5. Transition to CONFIRMED
-        
+        4. FG availability check & reservation via FGAvailabilityCheckService (Gap #2)
+        5. Transition to CONFIRMED (and optionally READY_FOR_DISPATCH / PRODUCTION)
+
         Raises:
             ValueError: If validation fails
+            InsufficientStockError: On concurrent reservation conflict (→ 409)
         """
         # Fetch order
         order = await self.sales_order_repo.get_by_id(
@@ -334,12 +351,12 @@ class ConfirmSalesOrderCommandHandler:
         )
         if not order:
             raise ValueError(f"Order {command.sales_order_id} not found")
-        
+
         # 1. Validate state. Legacy draft confirmation stays supported, while
         # approved orders enter execution through this same reservation path.
         if order.status not in (OrderStatus.DRAFT, OrderStatus.APPROVED):
             raise ValueError(f"Cannot confirm order in {order.status.value} state")
-        
+
         # 2. Check credit
         is_valid, reason = await self.credit_service.validate_credit(
             tenant_id=command.tenant_id,
@@ -348,36 +365,51 @@ class ConfirmSalesOrderCommandHandler:
         )
         if not is_valid:
             raise ValueError(f"Credit validation failed: {reason}")
-        
+
         # 3. Allocate credit
         await self.credit_service.allocate_credit(
             tenant_id=command.tenant_id,
             client_id=order.client_id,
             amount=order.grand_total,
         )
-        
-        # 4. Reserve inventory for all lines
-        for line in order.lines:
-            allocated_qty, backorder_qty, work_order_id = (
-                await self.inventory_service.reserve_for_order_line(
-                    tenant_id=command.tenant_id,
-                    product_id=line.product_id,
-                    product_type=line.product_type,
-                    uom_id=line.uom_id,
-                    quantity=line.quantity,
-                    sales_order_id=order.id,
-                    sales_order_line_id=line.id,
-                    delivery_date=order.delivery_date,
-                )
+
+        # 4. FG availability check & reservation (Req 13, 14, 16 — Gap #2)
+        if self.fg_check_service is not None:
+            # Preferred path: all-or-nothing per line via FGAvailabilityCheckService.
+            # SELECT FOR UPDATE on materials row held inside check_and_reserve().
+            await self.fg_check_service.check_and_reserve(
+                so_id=order.id,
+                tenant_id=command.tenant_id,
+                lines=order.lines,
+                delivery_date=order.delivery_date,
             )
-            
-            # Update line with allocations
-            line.allocate(allocated_qty)
-            if backorder_qty > 0:
-                line.backorder(backorder_qty)
-            if work_order_id:
-                line.work_order_id = work_order_id
-        
+        else:
+            # Legacy fallback: per-line partial allocation via InventoryReservationService.
+            for line in order.lines:
+                allocated_qty, backorder_qty, work_order_id = (
+                    await self.inventory_service.reserve_for_order_line(
+                        tenant_id=command.tenant_id,
+                        product_id=line.product_id,
+                        product_type=line.product_type,
+                        uom_id=line.uom_id,
+                        quantity=line.quantity,
+                        sales_order_id=order.id,
+                        sales_order_line_id=line.id,
+                        delivery_date=order.delivery_date,
+                    )
+                )
+
+                # Update line with allocations
+                if allocated_qty > 0:
+                    line.allocate(allocated_qty)
+                if backorder_qty > 0:
+                    # Record the FG shortage on the line (Req 16 — Gap #2).
+                    # mark_shortage sets shortfall_quantity and production_required=True.
+                    line.mark_shortage(backorder_qty)
+                    line.backorder(backorder_qty)
+                if work_order_id:
+                    line.work_order_id = work_order_id
+
         # 5. Transition order
         order.confirm()
         has_backorder = any(line.backorder_quantity > 0 for line in order.lines)
@@ -387,11 +419,27 @@ class ConfirmSalesOrderCommandHandler:
         if has_backorder:
             order.transition_to_production()
         elif all_allocated:
-            order.transition_to_ready()
-        
+            # Gap #4: all lines fully allocated → READY_FOR_DISPATCH (Req 15)
+            order.mark_ready_for_dispatch()
+
         # Persist all changes
         await self.sales_order_repo.save(order)
         await self.uow.work()
+
+        # Gap #4: emit dispatch_queue_updated notification to Dispatch role (Req 15.3)
+        if all_allocated and self.notification_service is not None:
+            try:
+                await self.notification_service.notify_ready_for_dispatch_action(
+                    tenant_id=command.tenant_id,
+                    sales_order_id=order.id,
+                    order_number=str(order.order_number),
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Failed to emit dispatch_queue_updated notification for SO %s",
+                    order.id,
+                )
 
 
 class CancelSalesOrderCommandHandler:

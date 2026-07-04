@@ -13,6 +13,7 @@ from app.domain.sales.value_objects import (
     Money,
 )
 from app.domain.sales.entities import Client, SalesOrder, SalesOrderLine, PriceList, PriceListLine
+from app.domain.sales.entities.sales_order import InvalidStatusTransitionError
 
 
 class TestOrderNumber:
@@ -585,7 +586,7 @@ class TestSalesOrder:
         )
         
         # Try to ship from DRAFT (invalid)
-        with pytest.raises(ValueError):
+        with pytest.raises(InvalidStatusTransitionError):
             order.ship()
 
     def test_cannot_add_line_to_non_draft_order(self):

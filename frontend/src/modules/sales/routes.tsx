@@ -11,6 +11,7 @@ import SalesOrderFormPage from './pages/SalesOrderFormPage';
 import ClientsListPage from './pages/ClientsListPage';
 import ClientFormPage from './pages/ClientFormPage';
 import PriceListsPage from './pages/PriceListsPage';
+import PriceListFormPage from './pages/PriceListFormPage';
 import DeliveriesPage from './pages/DeliveriesPage';
 
 export const salesRoutes: RouteObject[] = [
@@ -52,6 +53,14 @@ export const salesRoutes: RouteObject[] = [
       {
         path: 'price-lists',
         element: <PriceListsPage />,
+      },
+      {
+        path: 'price-lists/new',
+        element: <PriceListFormPage />,
+      },
+      {
+        path: 'price-lists/:id/edit',
+        element: <PriceListFormPage />,
       },
       {
         path: 'deliveries',

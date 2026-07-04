@@ -211,7 +211,7 @@ export default function PurchaseOrdersPage() {
                       />
                     </div>
                     {lines.length > 1 && (
-                      <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(i)}>
+                      <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(i)} aria-label="Remove line">
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     )}

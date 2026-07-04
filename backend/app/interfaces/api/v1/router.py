@@ -5,6 +5,7 @@ from backend.app.core.module_registry import module_registry
 from backend.app.interfaces.api.v1.dependencies.auth import get_current_role
 
 from backend.app.interfaces.api.v1.routes.auth import router as auth_router
+from backend.app.interfaces.api.v1.routes.auth_refresh import router as auth_refresh_router
 from backend.app.interfaces.api.v1.routes.self_service_password_reset_router import router as password_reset_router
 from backend.app.interfaces.api.v1.routes.tenants import router as tenants_router
 from backend.app.interfaces.api.v1.routes.files import router as files_router
@@ -29,6 +30,7 @@ from backend.app.interfaces.api.v1.routes.mrp import router as mrp_router
 
 from backend.app.interfaces.api.v1.routes.inventory_extended import router as inventory_extended_router
 from backend.app.interfaces.api.v1.routes.rbac_admin import router as rbac_admin_router
+from backend.app.interfaces.api.v1.routes.admin import router as admin_router
 from backend.app.interfaces.api.v1.routes.users import router as users_router
 from backend.app.interfaces.api.v1.routes.dashboards import router as dashboards_router
 from backend.app.interfaces.api.v1.routes.audit_logs import router as audit_logs_router
@@ -41,15 +43,21 @@ from backend.app.interfaces.api.v1.routes.delivery_dashboard import router as de
 from backend.app.interfaces.api.v1.routes.analytics import router as analytics_router
 from backend.app.interfaces.api.v1.routes.material_onboarding import router as material_onboarding_router
 from backend.app.interfaces.api.v1.routes.number_series import router as number_series_router
+from backend.app.interfaces.api.v1.routes.inventory_transactions import (
+    inventory_transactions_router,
+    procurement_router,
+)
 from backend.app.infrastructure.persistence.models import material_consumption_model as _material_consumption_model
 from backend.app.infrastructure.persistence.models import pick_list_model as _pick_list_model
 
 api_v1_router = APIRouter()
 
 api_v1_router.include_router(rbac_admin_router)
+api_v1_router.include_router(admin_router)
 api_v1_router.include_router(users_router)
 api_v1_router.include_router(audit_logs_router)
 api_v1_router.include_router(auth_router)
+api_v1_router.include_router(auth_refresh_router)
 api_v1_router.include_router(password_reset_router)
 api_v1_router.include_router(tenants_router)
 api_v1_router.include_router(files_router)
@@ -82,6 +90,8 @@ api_v1_router.include_router(delivery_dashboard_router)
 api_v1_router.include_router(analytics_router)
 api_v1_router.include_router(material_onboarding_router)
 api_v1_router.include_router(number_series_router)
+api_v1_router.include_router(inventory_transactions_router)
+api_v1_router.include_router(procurement_router)
 
 
 # --- Dynamic Module Registration ---

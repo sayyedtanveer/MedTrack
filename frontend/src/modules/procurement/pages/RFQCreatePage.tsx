@@ -202,6 +202,7 @@ export default function RFQCreatePage() {
                   variant="ghost"
                   className="text-destructive hover:text-destructive"
                   disabled={lines.length === 1}
+                  aria-label="Remove line"
                   onClick={() => removeLine(idx)}
                 >
                   <Trash2 className="h-4 w-4" />

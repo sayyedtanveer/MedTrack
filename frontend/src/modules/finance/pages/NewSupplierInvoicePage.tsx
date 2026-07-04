@@ -112,7 +112,7 @@ export default function NewSupplierInvoicePage() {
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/finance/supplier-invoices")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/finance/supplier-invoices")} aria-label="Back to supplier invoices">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>

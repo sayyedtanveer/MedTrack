@@ -177,7 +177,7 @@ export default function ClientNewOrder() {
                       placeholder="Auto"
                     />
                   </div>
-                  <Button variant="ghost" size="icon" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, idx) => idx !== index))}>
+                  <Button variant="ghost" size="icon" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, idx) => idx !== index))} aria-label="Remove line">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

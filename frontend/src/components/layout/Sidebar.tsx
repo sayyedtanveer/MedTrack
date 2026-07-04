@@ -79,6 +79,7 @@ export function Sidebar() {
                 variant="ghost"
                 size="icon"
                 onClick={toggleSidebar}
+                aria-label="Collapse sidebar"
                 className="shrink-0 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"
               >
                 <PanelLeftClose className="h-4 w-4" />
@@ -90,6 +91,7 @@ export function Sidebar() {
                 variant="ghost"
                 size="icon"
                 onClick={toggleSidebar}
+                aria-label="Expand sidebar"
                 className="rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"
               >
                 <PanelLeftOpen className="h-4 w-4" />
@@ -98,7 +100,7 @@ export function Sidebar() {
           )}
         </div>
 
-        <nav className="erp-dark-scrollbar flex-1 space-y-1.5 overflow-y-auto px-3 py-4 pr-2">
+        <nav aria-label="Main navigation" className="erp-dark-scrollbar flex-1 space-y-1.5 overflow-y-auto px-3 py-4 pr-2">
           {visibleNavItems.map((item) => {
             const childItems = item.children ?? []
             const hasChildren = childItems.length > 0
@@ -135,6 +137,7 @@ export function Sidebar() {
                           key={child.href}
                           to={child.href}
                           onClick={closeOnMobile}
+                          aria-current={isChildActive ? "page" : undefined}
                           className={cn(
                             "group flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-all duration-200",
                             isChildActive
@@ -159,6 +162,7 @@ export function Sidebar() {
                 key={item.href}
                 to={item.href}
                 onClick={closeOnMobile}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "group flex items-center rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200",
                   isActive

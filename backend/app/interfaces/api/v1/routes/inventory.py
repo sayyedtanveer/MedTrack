@@ -320,7 +320,7 @@ async def create_transaction(
 
         try:
             if body.transaction_type == "in":
-                handler = AddStockHandler(material_repo=material_repo, tx_repo=tx_repo, uow=uow)
+                handler = AddStockHandler(material_repo=material_repo, tx_repo=tx_repo, uow=uow, connection_manager=getattr(container, 'connection_manager', None))
                 result = await handler.handle(
                     AddStockCommand(
                         tenant_id=tenant_id,
@@ -335,7 +335,7 @@ async def create_transaction(
                 )
 
             elif body.transaction_type == "out":
-                handler = RemoveStockHandler(material_repo=material_repo, tx_repo=tx_repo, uow=uow)
+                handler = RemoveStockHandler(material_repo=material_repo, tx_repo=tx_repo, uow=uow, connection_manager=getattr(container, 'connection_manager', None))
                 result = await handler.handle(
                     RemoveStockCommand(
                         tenant_id=tenant_id,
@@ -387,7 +387,7 @@ async def create_transaction(
 
             else:  # adjustment
                 new_qty = body.new_quantity if body.new_quantity is not None else body.quantity
-                handler = AdjustStockHandler(material_repo=material_repo, tx_repo=tx_repo, uow=uow)
+                handler = AdjustStockHandler(material_repo=material_repo, tx_repo=tx_repo, uow=uow, connection_manager=getattr(container, 'connection_manager', None))
                 result = await handler.handle(
                     AdjustStockCommand(
                         tenant_id=tenant_id,

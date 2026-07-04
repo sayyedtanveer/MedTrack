@@ -8,6 +8,12 @@ from backend.app.domain.shared.base_entity import AggregateRoot
 from backend.app.domain.sales.value_objects import OrderNumber, OrderStatus, PaymentStatus, Money
 
 
+class InvalidStatusTransitionError(Exception):
+    """Raised when a Sales Order lifecycle transition is not permitted."""
+
+    error_code = "INVALID_SO_STATUS_TRANSITION"
+
+
 def _coerce_order_status(status: OrderStatus | str) -> OrderStatus:
     if isinstance(status, OrderStatus):
         return status
@@ -187,56 +193,86 @@ class SalesOrder(AggregateRoot):
             self.subtotal - self.discount_amount + self.tax_amount
         ).quantize(Decimal("0.01"))
 
+    # Canonical forward-transition map — single source of truth for this aggregate.
+    # Any state not listed here has no valid forward transitions (terminal states).
+    VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
+        OrderStatus.DRAFT: [
+            OrderStatus.PENDING_APPROVAL,
+            OrderStatus.CONFIRMED,
+            OrderStatus.CANCELLED,
+        ],
+        OrderStatus.PENDING_APPROVAL: [
+            OrderStatus.APPROVED,
+            OrderStatus.REJECTED,
+            OrderStatus.CANCELLED,
+        ],
+        OrderStatus.APPROVED: [
+            OrderStatus.CONFIRMED,
+            OrderStatus.PROCESSING,
+            OrderStatus.CANCELLED,
+        ],
+        OrderStatus.REJECTED: [],
+        # CONFIRMED → READY_FOR_DISPATCH (Gap #4): FG fully reserved path
+        # CONFIRMED → PROCESSING / PRODUCTION: production-required path
+        OrderStatus.CONFIRMED: [
+            OrderStatus.READY_FOR_DISPATCH,
+            OrderStatus.PROCESSING,
+            OrderStatus.PRODUCTION,
+            OrderStatus.READY,
+            OrderStatus.CANCELLED,
+        ],
+        OrderStatus.PROCESSING: [
+            OrderStatus.PRODUCTION,
+            OrderStatus.READY,
+            OrderStatus.READY_FOR_DISPATCH,
+            OrderStatus.CANCELLED,
+        ],
+        OrderStatus.PRODUCTION: [
+            OrderStatus.READY,
+            OrderStatus.READY_FOR_DISPATCH,
+            OrderStatus.CANCELLED,
+        ],
+        OrderStatus.READY: [
+            OrderStatus.READY_FOR_DISPATCH,
+            OrderStatus.SHIPPED,
+            OrderStatus.CANCELLED,
+        ],
+        # READY_FOR_DISPATCH → SHIPPED
+        OrderStatus.READY_FOR_DISPATCH: [
+            OrderStatus.SHIPPED,
+            OrderStatus.CANCELLED,
+        ],
+        # SHIPPED → DELIVERED
+        OrderStatus.SHIPPED: [
+            OrderStatus.DELIVERED,
+            OrderStatus.CANCELLED,
+        ],
+        # DELIVERED → INVOICED (Gap #7 auto-invoice trigger)
+        OrderStatus.DELIVERED: [
+            OrderStatus.INVOICED,
+            OrderStatus.CANCELLED,
+        ],
+        # INVOICED → PAYMENT_RECEIVED (Gap #4)
+        OrderStatus.INVOICED: [
+            OrderStatus.PAYMENT_RECEIVED,
+            OrderStatus.CANCELLED,
+        ],
+        # PAYMENT_RECEIVED → COMPLETED (Gap #4 / Gap #10)
+        OrderStatus.PAYMENT_RECEIVED: [
+            OrderStatus.COMPLETED,
+        ],
+        OrderStatus.COMPLETED: [],
+        OrderStatus.CANCELLED: [],
+    }
+
     def can_transition_to(self, new_status: OrderStatus) -> bool:
-        """
-        Check if status transition is allowed.
-        
-        Valid transitions:
-        - DRAFT → CONFIRMED, CANCELLED
-        - CONFIRMED → PRODUCTION, READY, CANCELLED
-        - PRODUCTION → READY, CANCELLED
-        - READY → SHIPPED, CANCELLED
-        - SHIPPED → DELIVERED, CANCELLED
-        - DELIVERED → (no transitions)
-        - CANCELLED → (final state)
-        """
-        valid_transitions = {
-            OrderStatus.DRAFT: [
-                OrderStatus.PENDING_APPROVAL,
-                OrderStatus.CONFIRMED,
-                OrderStatus.CANCELLED,
-            ],
-            OrderStatus.PENDING_APPROVAL: [
-                OrderStatus.APPROVED,
-                OrderStatus.REJECTED,
-                OrderStatus.CANCELLED,
-            ],
-            OrderStatus.APPROVED: [
-                OrderStatus.CONFIRMED,
-                OrderStatus.PROCESSING,
-                OrderStatus.CANCELLED,
-            ],
-            OrderStatus.REJECTED: [],
-            OrderStatus.CONFIRMED: [
-                OrderStatus.PROCESSING,
-                OrderStatus.PRODUCTION,
-                OrderStatus.READY,
-                OrderStatus.CANCELLED,
-            ],
-            OrderStatus.PROCESSING: [OrderStatus.PRODUCTION, OrderStatus.READY, OrderStatus.CANCELLED],
-            OrderStatus.PRODUCTION: [OrderStatus.READY, OrderStatus.CANCELLED],
-            OrderStatus.READY: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
-            OrderStatus.SHIPPED: [OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.CANCELLED],
-            OrderStatus.DELIVERED: [OrderStatus.COMPLETED],
-            OrderStatus.COMPLETED: [],
-            OrderStatus.CANCELLED: [],
-        }
-        return new_status in valid_transitions.get(self.status, [])
+        """Return True if transitioning from current status to *new_status* is allowed."""
+        return new_status in self.VALID_TRANSITIONS.get(self.status, [])
 
     def submit_for_approval(self, approver_id: UUID | None = None) -> None:
         """Move a draft order into the manager approval queue."""
         if not self.can_transition_to(OrderStatus.PENDING_APPROVAL):
-            raise ValueError(
+            raise InvalidStatusTransitionError(
                 f"Cannot submit order in {self.status.value} status for approval"
             )
         if not self.lines:
@@ -250,7 +286,7 @@ class SalesOrder(AggregateRoot):
     def approve(self, approver_id: UUID, notes: str | None = None) -> None:
         """Approve a submitted order before execution."""
         if not self.can_transition_to(OrderStatus.APPROVED):
-            raise ValueError(f"Cannot approve order in {self.status.value} status")
+            raise InvalidStatusTransitionError(f"Cannot approve order in {self.status.value} status")
 
         self.status = OrderStatus.APPROVED
         self.approver_id = approver_id
@@ -262,7 +298,7 @@ class SalesOrder(AggregateRoot):
     def reject(self, approver_id: UUID, notes: str | None = None) -> None:
         """Reject a submitted order and stop execution."""
         if not self.can_transition_to(OrderStatus.REJECTED):
-            raise ValueError(f"Cannot reject order in {self.status.value} status")
+            raise InvalidStatusTransitionError(f"Cannot reject order in {self.status.value} status")
 
         self.status = OrderStatus.REJECTED
         self.approver_id = approver_id
@@ -272,25 +308,26 @@ class SalesOrder(AggregateRoot):
 
     def confirm(self) -> None:
         """
-        Confirm order (transition from DRAFT → CONFIRMED).
-        
+        Confirm order (transition from APPROVED → CONFIRMED).
+
         Raises:
-            ValueError: If status transition invalid or order invalid
+            InvalidStatusTransitionError: If status transition is invalid.
+            ValueError: If order has no lines.
         """
         if not self.can_transition_to(OrderStatus.CONFIRMED):
-            raise ValueError(
+            raise InvalidStatusTransitionError(
                 f"Cannot confirm order in {self.status.value} status"
             )
         if not self.lines:
             raise ValueError("Cannot confirm order with no lines")
-        
+
         self.status = OrderStatus.CONFIRMED
         self._touch()
 
     def transition_to_production(self) -> None:
         """Transition order to PRODUCTION status."""
         if not self.can_transition_to(OrderStatus.PRODUCTION):
-            raise ValueError(
+            raise InvalidStatusTransitionError(
                 f"Cannot transition from {self.status.value} to PRODUCTION"
             )
         self.status = OrderStatus.PRODUCTION
@@ -299,16 +336,25 @@ class SalesOrder(AggregateRoot):
     def transition_to_ready(self) -> None:
         """Transition order to READY status."""
         if not self.can_transition_to(OrderStatus.READY):
-            raise ValueError(
+            raise InvalidStatusTransitionError(
                 f"Cannot transition from {self.status.value} to READY"
             )
         self.status = OrderStatus.READY
         self._touch()
 
+    def mark_ready_for_dispatch(self) -> None:
+        """Transition order to READY_FOR_DISPATCH (Gap #4 — all lines allocated)."""
+        if not self.can_transition_to(OrderStatus.READY_FOR_DISPATCH):
+            raise InvalidStatusTransitionError(
+                f"Cannot transition from {self.status.value} to READY_FOR_DISPATCH"
+            )
+        self.status = OrderStatus.READY_FOR_DISPATCH
+        self._touch()
+
     def ship(self) -> None:
         """Transition order to SHIPPED status."""
         if not self.can_transition_to(OrderStatus.SHIPPED):
-            raise ValueError(
+            raise InvalidStatusTransitionError(
                 f"Cannot transition from {self.status.value} to SHIPPED"
             )
         self.status = OrderStatus.SHIPPED
@@ -317,16 +363,43 @@ class SalesOrder(AggregateRoot):
     def deliver(self) -> None:
         """Transition order to DELIVERED status."""
         if not self.can_transition_to(OrderStatus.DELIVERED):
-            raise ValueError(
+            raise InvalidStatusTransitionError(
                 f"Cannot transition from {self.status.value} to DELIVERED"
             )
         self.status = OrderStatus.DELIVERED
         self._touch()
 
+    def invoice(self) -> None:
+        """Transition order to INVOICED status (Gap #4 / Gap #7 auto-invoice)."""
+        if not self.can_transition_to(OrderStatus.INVOICED):
+            raise InvalidStatusTransitionError(
+                f"Cannot transition from {self.status.value} to INVOICED"
+            )
+        self.status = OrderStatus.INVOICED
+        self._touch()
+
+    def receive_payment(self) -> None:
+        """Transition order to PAYMENT_RECEIVED status (Gap #4)."""
+        if not self.can_transition_to(OrderStatus.PAYMENT_RECEIVED):
+            raise InvalidStatusTransitionError(
+                f"Cannot transition from {self.status.value} to PAYMENT_RECEIVED"
+            )
+        self.status = OrderStatus.PAYMENT_RECEIVED
+        self._touch()
+
+    def complete(self) -> None:
+        """Transition order to COMPLETED status (Gap #4 / Gap #10)."""
+        if not self.can_transition_to(OrderStatus.COMPLETED):
+            raise InvalidStatusTransitionError(
+                f"Cannot transition from {self.status.value} to COMPLETED"
+            )
+        self.status = OrderStatus.COMPLETED
+        self._touch()
+
     def cancel(self) -> None:
         """Cancel order if allowed."""
         if not self.can_transition_to(OrderStatus.CANCELLED):
-            raise ValueError(
+            raise InvalidStatusTransitionError(
                 f"Cannot cancel order in {self.status.value} status"
             )
         self.status = OrderStatus.CANCELLED

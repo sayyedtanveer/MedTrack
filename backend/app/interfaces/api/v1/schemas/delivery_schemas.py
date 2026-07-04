@@ -26,6 +26,10 @@ class DeliveryShipRequest(BaseModel):
     tracking_number: Optional[str] = None
 
 
+class DeliveryCancelRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=500)
+
+
 class DeliveryLineResponse(BaseModel):
     id: UUID
     sales_order_line_id: UUID
@@ -46,6 +50,9 @@ class DeliveryResponse(BaseModel):
     tracking_number: Optional[str] = None
     shipped_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    cancelled_by: Optional[UUID] = None
+    cancellation_reason: Optional[str] = None
     notes: Optional[str] = None
     lines: List[DeliveryLineResponse] = []
     created_at: datetime

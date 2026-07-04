@@ -491,7 +491,7 @@ async def get_stock_ledger(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     material_id: Optional[uuid.UUID] = Query(None),
     location_id: Optional[uuid.UUID] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=200),
 ):
     """Get stock ledger entries."""
     container = get_container(request)

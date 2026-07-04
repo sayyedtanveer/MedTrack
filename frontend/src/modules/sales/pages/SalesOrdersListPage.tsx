@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { TableSkeleton } from '@/components/shared/LoadingSkeleton';
 import ResponsiveDataList from '@/components/shared/ResponsiveDataList';
+import { StatusBadge } from '@/components/shared/StatusBadge';
 import { ordersApi } from '@/services/sales.service';
 import { SalesOrder, OrderStatus } from '@/types/sales.types';
+import { SO_STATUS_COLOR_MAP } from '@/modules/sales/components/SalesOrderStatusConfig';
 import { Plus, Filter, Eye, ShoppingCart } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 import { REALTIME_EVENT_NAME } from '@/components/notifications/RealtimeNotificationsBridge';
@@ -86,24 +87,6 @@ export default function SalesOrdersListPage() {
     window.addEventListener(REALTIME_EVENT_NAME, handleRealtime);
     return () => window.removeEventListener(REALTIME_EVENT_NAME, handleRealtime);
   }, [loadOrders]);
-
-  const getStatusColor = (orderStatus: OrderStatus) => {
-    const colors: Record<OrderStatus, string> = {
-      [OrderStatus.DRAFT]: 'bg-gray-100 text-gray-800',
-      [OrderStatus.PENDING_APPROVAL]: 'bg-amber-100 text-amber-800',
-      [OrderStatus.APPROVED]: 'bg-indigo-100 text-indigo-800',
-      [OrderStatus.REJECTED]: 'bg-red-100 text-red-800',
-      [OrderStatus.CONFIRMED]: 'bg-blue-100 text-blue-800',
-      [OrderStatus.PROCESSING]: 'bg-sky-100 text-sky-800',
-      [OrderStatus.PRODUCTION]: 'bg-yellow-100 text-yellow-800',
-      [OrderStatus.READY]: 'bg-purple-100 text-purple-800',
-      [OrderStatus.SHIPPED]: 'bg-green-100 text-green-800',
-      [OrderStatus.DELIVERED]: 'bg-emerald-100 text-emerald-800',
-      [OrderStatus.COMPLETED]: 'bg-teal-100 text-teal-800',
-      [OrderStatus.CANCELLED]: 'bg-red-100 text-red-800',
-    };
-    return colors[orderStatus] || 'bg-gray-100 text-gray-800';
-  };
 
   if (loading && orders.length === 0) {
     return (
@@ -242,7 +225,7 @@ export default function SalesOrdersListPage() {
                 {
                   key: 'status',
                   header: 'Status',
-                  cell: (order) => <Badge className={getStatusColor(order.status)}>{order.status}</Badge>,
+                  cell: (order) => <StatusBadge status={order.status} colorMap={SO_STATUS_COLOR_MAP} />,
                 },
                 {
                   key: 'actions',
@@ -275,7 +258,7 @@ export default function SalesOrdersListPage() {
                       <p className="mt-1 text-sm text-slate-500">{order.client_name || order.client_id}</p>
                       {order.client_code && <p className="text-xs text-slate-400">{order.client_code}</p>}
                     </div>
-                    <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
+                    <StatusBadge status={order.status} colorMap={SO_STATUS_COLOR_MAP} />
                   </div>
                   <div className="mt-4 space-y-2 text-sm">
                     <div className="flex items-start justify-between gap-3">

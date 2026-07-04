@@ -9,6 +9,7 @@ import {
   UserPlus,
   PackageSearch,
   Layers,
+  Hash,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 
@@ -92,6 +93,15 @@ export function QuickActions() {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground col-span-full">
               Admin
             </p>
+            {/* Phase 0: Number Series must be first in the setup flow (Gap #11) */}
+            <Button
+              className="w-full justify-start h-12"
+              variant="outline"
+              onClick={() => navigate("/settings/business-config/number-series")}
+            >
+              <Hash className="mr-2 h-5 w-5 text-orange-500" />
+              Configure Number Series
+            </Button>
             <Button
               className="w-full justify-start h-12"
               variant="outline"

@@ -831,7 +831,7 @@ async def generate_document(
             )
             
             # Send notification about document generation
-            notification_service = container.notification_service
+            notification_service = container.create_notification_service(session)
             entity_number = template_context.get("work_order", {}).get("wo_number") or \
                            template_context.get("purchase_order", {}).get("po_number") or \
                            template_context.get("invoice", {}).get("invoice_number") or \

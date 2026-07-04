@@ -61,9 +61,6 @@ class Container:
     # ── External ──────────────────────────────────────────────────────────
     email_service: IEmailService
 
-    # ── Notifications ──────────────────────────────────────────────────────
-    notification_service: NotificationService
-
     @classmethod
     def create(cls, settings: Settings) -> "Container":
         """
@@ -105,10 +102,14 @@ class Container:
         )
 
         # External
-        email_service = StubEmailService()
-
-        # Notifications
-        notification_service = NotificationService(connection_manager=connection_manager)
+        if settings.resend_api_key:
+            from backend.app.infrastructure.external.resend_email_service import ResendEmailService
+            email_service = ResendEmailService(
+                api_key=settings.resend_api_key,
+                from_email=settings.resend_from_email,
+            )
+        else:
+            email_service = StubEmailService()
 
         return cls(
             db_engine=engine,
@@ -124,9 +125,12 @@ class Container:
             error_log_repository=error_log_repository,
             error_logger=error_logger,
             email_service=email_service,
-            notification_service=notification_service,
         )
 
     def get_session(self) -> async_sessionmaker[AsyncSession]:
         """Convenience accessor for FastAPI dependencies."""
         return self.session_factory
+
+    def create_notification_service(self, session: AsyncSession) -> NotificationService:
+        """Create a new notification service instance for the current DB session."""
+        return NotificationService(session=session, connection_manager=self.connection_manager)

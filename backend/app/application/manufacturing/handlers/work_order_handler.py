@@ -274,6 +274,7 @@ class WorkOrderHandler:
                 f"Cannot issue material with WO in status {entity.status}"
             )
 
+        old_status = wo.status
         await self._inventory.issue_material_for_wo(
             tenant_id=cmd.tenant_id,
             work_order_id=cmd.work_order_id,
@@ -283,6 +284,29 @@ class WorkOrderHandler:
             created_by=cmd.issued_by,
             transition_wo_status=True,
         )
+
+        # If WO transitioned to MATERIAL_ISSUED, notify operator (Req 23.8, 27.2)
+        if wo.status == WorkOrderStatus.MATERIAL_ISSUED.value and old_status != WorkOrderStatus.MATERIAL_ISSUED.value:
+            try:
+                await self._workflow.notification_service.create_notification(
+                    tenant_id=cmd.tenant_id,
+                    notification_type="material_issued",
+                    title=f"Materials Issued - WO {wo.wo_number}",
+                    message=f"All BOM materials have been issued for Work Order {wo.wo_number}. Production can begin.",
+                    reference_id=str(cmd.work_order_id),
+                    reference_type="work_order",
+                )
+                # Also notify operator to start production (action notification)
+                await self._workflow.notification_service.create_notification(
+                    tenant_id=cmd.tenant_id,
+                    notification_type="start_production_action",
+                    title=f"Action Required: Start Production - WO {wo.wo_number}",
+                    message=f"All materials issued for Work Order {wo.wo_number}. Production can now begin.",
+                    reference_id=str(cmd.work_order_id),
+                    reference_type="work_order",
+                )
+            except Exception as e:
+                logger.warning("Failed to send material_issued notification", extra={"error": str(e)})
 
     # ── Record Production ────────────────────────────────────────────────────────
 
@@ -519,6 +543,19 @@ class WorkOrderHandler:
         else:
             wo.status = WorkOrderStatus.REJECTED.value
         wo.updated_at = datetime.now(timezone.utc)
+
+        # Notify production supervisor about QC failure (Req 23.3)
+        try:
+            await self._workflow.notification_service.create_notification(
+                tenant_id=cmd.tenant_id,
+                notification_type="qc_failed",
+                title=f"QC Failed - WO {wo.wo_number}",
+                message=f"Quality inspection failed for Work Order {wo.wo_number}. Reason: {getattr(cmd, 'reason', 'N/A')}",
+                reference_id=str(cmd.work_order_id),
+                reference_type="work_order",
+            )
+        except Exception as e:
+            logger.warning("Failed to send qc_failed notification", extra={"error": str(e)})
 
     async def handle_qc_send_to_rework(self, cmd: QCSendToReworkCommand) -> None:
         """Send rejected WO to rework."""

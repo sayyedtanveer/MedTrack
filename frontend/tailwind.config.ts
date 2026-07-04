@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss"
+import { colors as tokenColors, typography, spacing as tokenSpacing, borders, shadows } from './src/tokens'
 
 const config = {
   darkMode: ["class"],
@@ -27,6 +28,7 @@ const config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          ...tokenColors.primary,
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -52,11 +54,47 @@ const config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Design token semantic colors
+        success: tokenColors.success,
+        warning: tokenColors.warning,
+        error: tokenColors.error,
+        info: tokenColors.info,
+        neutral: tokenColors.neutral,
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Design token border radii
+        none: borders.radius.none,
+        'token-sm': borders.radius.sm,
+        'token-md': borders.radius.md,
+        'token-lg': borders.radius.lg,
+        xl: borders.radius.xl,
+        '2xl': borders.radius['2xl'],
+        full: borders.radius.full,
+      },
+      fontFamily: {
+        sans: [...typography.fontFamily.sans],
+        mono: [...typography.fontFamily.mono],
+      },
+      fontSize: {
+        ...typography.fontSize,
+      },
+      fontWeight: {
+        ...typography.fontWeight,
+      },
+      lineHeight: {
+        ...typography.lineHeight,
+      },
+      letterSpacing: {
+        ...typography.letterSpacing,
+      },
+      spacing: {
+        ...tokenSpacing,
+      },
+      boxShadow: {
+        ...shadows,
       },
       keyframes: {
         "accordion-down": {

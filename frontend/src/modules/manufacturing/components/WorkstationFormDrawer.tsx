@@ -123,6 +123,7 @@ export function WorkstationFormDrawer({ workstationId, isNew = false, open, onCl
             onClick={onClose}
             className="h-8 w-8"
             disabled={isLoading}
+            aria-label="Close drawer"
           >
             <X className="h-4 w-4" />
           </Button>

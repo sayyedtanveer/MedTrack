@@ -87,6 +87,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
         size="icon"
         className="absolute top-2 right-2 rounded-full"
         onClick={onClose}
+        aria-label="Close scanner"
       >
         <X className="h-4 w-4" />
       </Button>

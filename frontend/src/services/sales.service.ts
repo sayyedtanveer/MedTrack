@@ -269,6 +269,13 @@ export const ordersApi = {
   },
 
   /**
+   * Update line item (for status updates like SHORT_CLOSED)
+   */
+  updateLine: async (orderId: string, lineId: string, data: { line_status?: string }): Promise<SalesOrder> => {
+    return normalizeOrder(await unwrap(apiClient.patch(`${BASE_URL}/orders/${orderId}/lines/${lineId}`, data)));
+  },
+
+  /**
    * Apply discount to order
    */
   applyDiscount: async (orderId: string, discountAmount: number): Promise<SalesOrder> => {

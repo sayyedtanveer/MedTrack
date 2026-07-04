@@ -39,7 +39,7 @@ class OrderStatus(str, Enum):
         Returns:
             True if transition is allowed
         """
-        allowed = {
+        allowed: dict[OrderStatus, list[OrderStatus]] = {
             OrderStatus.DRAFT: [
                 OrderStatus.PENDING_APPROVAL,
                 OrderStatus.CONFIRMED,
@@ -63,7 +63,10 @@ class OrderStatus(str, Enum):
                 OrderStatus.PRODUCTION,
                 OrderStatus.CANCELLED,
             ],
+            # CONFIRMED → READY_FOR_DISPATCH (Gap #4 — FG fully reserved)
+            # CONFIRMED → PROCESSING / PRODUCTION (production-required path)
             OrderStatus.CONFIRMED: [
+                OrderStatus.READY_FOR_DISPATCH,
                 OrderStatus.PROCESSING,
                 OrderStatus.PRODUCTION,
                 OrderStatus.READY,
@@ -72,12 +75,12 @@ class OrderStatus(str, Enum):
             OrderStatus.PROCESSING: [
                 OrderStatus.PRODUCTION,
                 OrderStatus.READY,
+                OrderStatus.READY_FOR_DISPATCH,
                 OrderStatus.CANCELLED,
             ],
             OrderStatus.PRODUCTION: [
                 OrderStatus.READY,
                 OrderStatus.READY_FOR_DISPATCH,
-                OrderStatus.SHIPPED,
                 OrderStatus.CANCELLED,
             ],
             OrderStatus.READY: [
@@ -85,26 +88,27 @@ class OrderStatus(str, Enum):
                 OrderStatus.SHIPPED,
                 OrderStatus.CANCELLED,
             ],
+            # READY_FOR_DISPATCH → SHIPPED
             OrderStatus.READY_FOR_DISPATCH: [
                 OrderStatus.SHIPPED,
                 OrderStatus.CANCELLED,
             ],
+            # SHIPPED → DELIVERED
             OrderStatus.SHIPPED: [
                 OrderStatus.DELIVERED,
-                OrderStatus.INVOICED,
-                OrderStatus.COMPLETED,
                 OrderStatus.CANCELLED,
             ],
+            # DELIVERED → INVOICED (Gap #7 auto-invoice trigger)
             OrderStatus.DELIVERED: [
                 OrderStatus.INVOICED,
-                OrderStatus.COMPLETED,
                 OrderStatus.CANCELLED,
             ],
+            # INVOICED → PAYMENT_RECEIVED (Gap #4)
             OrderStatus.INVOICED: [
                 OrderStatus.PAYMENT_RECEIVED,
-                OrderStatus.COMPLETED,
                 OrderStatus.CANCELLED,
             ],
+            # PAYMENT_RECEIVED → COMPLETED (Gap #4 / Gap #10)
             OrderStatus.PAYMENT_RECEIVED: [
                 OrderStatus.COMPLETED,
             ],

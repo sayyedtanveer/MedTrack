@@ -51,13 +51,12 @@ class NotificationService:
         notification = NotificationModel(
             tenant_id=tenant_id,
             user_id=user_id,
-            type=notification_type,
+            notification_type=notification_type,
             title=title,
             message=message,
             reference_type=reference_type,
             reference_id=reference_id,
             is_read=False,
-            email_sent=False,
         )
         self.session.add(notification)
         await self.session.flush()
@@ -69,8 +68,8 @@ class NotificationService:
             "reference_type": reference_type,
             "reference_id": str(reference_id) if reference_id else None,
             "is_read": False,
-            "sent_at": (notification.sent_at or datetime.now(timezone.utc)).isoformat(),
-            "timestamp": (notification.sent_at or datetime.now(timezone.utc)).isoformat(),
+            "sent_at": (notification.created_at or datetime.now(timezone.utc)).isoformat(),
+            "timestamp": (notification.created_at or datetime.now(timezone.utc)).isoformat(),
             "data": {
                 "reference_type": reference_type,
                 "reference_id": str(reference_id) if reference_id else None,
@@ -89,8 +88,6 @@ class NotificationService:
                         subject=title,
                         body=message,
                     )
-                    notification.email_sent = True
-                    notification.email_sent_at = datetime.now(timezone.utc)
             except Exception:
                 pass  # Email failure should not fail the operation
 
@@ -207,7 +204,7 @@ class NotificationService:
         )
         unread_count = (await self.session.execute(unread_q)).scalar()
 
-        q = q.order_by(NotificationModel.sent_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        q = q.order_by(NotificationModel.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
         result = await self.session.execute(q)
 
         return {

@@ -8,6 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.app.core.logging import configure_logging
+
+# Configure structured logging first, before any other imports that log.
+# Requirements: 41.1, 41.5
+configure_logging()
+
 from backend.app.config import get_settings
 from backend.app.infrastructure.container import Container
 from backend.app.infrastructure.logging.logger import get_logger
@@ -25,6 +31,9 @@ from backend.app.interfaces.api.v1.middleware.tenant_middleware import TenantMid
 from backend.app.interfaces.api.v1.middleware.audit_middleware import AuditMiddleware
 from backend.app.interfaces.api.v1.middleware.rbac_audit import RBACPermissionAuditMiddleware
 from backend.app.interfaces.api.v1.middleware.error_logging_middleware import ErrorLoggingMiddleware
+from backend.app.middleware.security_headers import SecurityHeadersMiddleware
+from backend.app.middleware.rate_limiting import limiter, rate_limit_exceeded_handler
+from backend.app.middleware.correlation_id import CorrelationIdMiddleware
 from backend.app.interfaces.api.v1.router import api_v1_router
 from backend.app.interfaces.api.v1.routes.websocket import router as websocket_router
 from backend.app.core.module_registry import module_registry
@@ -37,6 +46,9 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Application lifespan – startup and shutdown."""
     logger.info("Starting MedTrack ERP", extra={"version": settings.app_version})
+
+    # Enforce production CORS policy before starting
+    settings.validate_cors_for_production()
 
     # Build DI container once
     container = Container.create(settings)
@@ -98,6 +110,16 @@ def create_application() -> FastAPI:
 
     # ── Middleware (order matters: outermost first) ──
     app.add_middleware(ErrorLoggingMiddleware)  # ✅ NEW: Centralized error capture + logging
+    app.add_middleware(CorrelationIdMiddleware)  # ✅ NEW: X-Request-ID tracing (Req 41.2)
+    app.add_middleware(SecurityHeadersMiddleware)  # ✅ Security headers for production hardening
+
+    # Rate limiting (SlowAPI)
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,

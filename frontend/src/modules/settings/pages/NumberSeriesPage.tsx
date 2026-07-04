@@ -1,14 +1,15 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { ColumnDef } from "@tanstack/react-table"
-import { Settings2, Pencil } from "lucide-react"
+import { Settings2, Pencil, RefreshCw, AlertCircle } from "lucide-react"
 import { numberSeriesService, NumberSeriesConfig } from "@/services/number-series.service"
 import { DataTable } from "@/components/shared/DataTable"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { TableSkeleton } from "@/components/shared/LoadingSkeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { usePermissions } from "@/hooks/usePermissions"
 
 /** Human-friendly labels for entity types */
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -39,11 +40,28 @@ function buildFormatPreview(config: NumberSeriesConfig): string {
 
 export default function NumberSeriesPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { isAdmin } = usePermissions()
+  const [initializing, setInitializing] = useState(false)
 
-  const { data: configs, isLoading } = useQuery({
+  const { data: configs, isLoading, isError, refetch } = useQuery({
     queryKey: ["number-series-configs"],
     queryFn: () => numberSeriesService.listConfigs(),
+    retry: 1,
   })
+
+  /** Manual initialize handler — re-calls the list endpoint which seeds defaults */
+  const handleInitialize = async () => {
+    setInitializing(true)
+    try {
+      await refetch()
+      queryClient.invalidateQueries({ queryKey: ["number-series-configs"] })
+    } finally {
+      setInitializing(false)
+    }
+  }
+
+  const canEdit = isAdmin()
 
   const columns = useMemo<ColumnDef<NumberSeriesConfig>[]>(
     () => [
@@ -87,24 +105,40 @@ export default function NumberSeriesPage() {
       {
         id: "actions",
         header: () => <span className="sr-only">Actions</span>,
-        cell: ({ row }) => (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                navigate(`/settings/business-config/number-series/${row.original.entity_type}`)
-              }
-            >
-              <Pencil className="mr-2 h-4 w-4" />
-              Edit
-            </Button>
-          </div>
-        ),
+        cell: ({ row }) =>
+          canEdit ? (
+            <div className="flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  navigate(`/settings/business-config/number-series/${row.original.entity_type}`)
+                }
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  navigate(`/settings/business-config/number-series/${row.original.entity_type}`)
+                }
+              >
+                View
+              </Button>
+            </div>
+          ),
       },
     ],
-    [navigate]
+    [navigate, canEdit]
   )
+
+  // Empty state — error or empty data
+  const showEmptyState = !isLoading && (isError || (!configs || configs.length === 0))
 
   return (
     <div className="w-full space-y-6">
@@ -115,6 +149,19 @@ export default function NumberSeriesPage() {
 
       {isLoading ? (
         <TableSkeleton rows={6} />
+      ) : showEmptyState ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+          <AlertCircle className="h-10 w-10 text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold mb-2">No configuration found</h3>
+          <p className="text-sm text-muted-foreground mb-6 max-w-md">
+            Number series configurations have not been initialized yet. Click below to
+            seed the default configuration for all entity types.
+          </p>
+          <Button onClick={handleInitialize} disabled={initializing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${initializing ? "animate-spin" : ""}`} />
+            {initializing ? "Initializing..." : "Initialize Default Configuration"}
+          </Button>
+        </div>
       ) : (
         <DataTable
           columns={columns}

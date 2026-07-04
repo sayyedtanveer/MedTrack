@@ -14,6 +14,8 @@ export const WORK_ORDER_STATUSES = [
   'CLOSED',
   'REWORK',
   'REJECTED',
+  'PRODUCTION_HOLD',
+  'CANCELLED',
 ] as const;
 
 export type WorkOrderStatus = (typeof WORK_ORDER_STATUSES)[number];

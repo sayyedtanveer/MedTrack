@@ -67,7 +67,7 @@ export interface SalesOrderLine {
   subtotal: number;
   tax_amount: number;
   total: number;
-  line_status: 'PENDING' | 'ALLOCATED' | 'BACKORDER' | 'SHIPPED' | 'DELIVERED';
+  line_status: 'PENDING' | 'ALLOCATED' | 'PARTIAL' | 'SHORT_CLOSED' | 'BACKORDER' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 }
 
 export interface CreateOrderLineRequest {
@@ -86,12 +86,16 @@ export enum OrderStatus {
   PENDING_APPROVAL = 'PENDING_APPROVAL',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
+  WORK_ORDER_CREATED = 'WORK_ORDER_CREATED',
   CONFIRMED = 'CONFIRMED',
   PROCESSING = 'PROCESSING',
   PRODUCTION = 'PRODUCTION',
   READY = 'READY',
+  READY_FOR_DISPATCH = 'READY_FOR_DISPATCH',
   SHIPPED = 'SHIPPED',
   DELIVERED = 'DELIVERED',
+  INVOICED = 'INVOICED',
+  PAYMENT_RECEIVED = 'PAYMENT_RECEIVED',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
 }

@@ -3,6 +3,7 @@ import { RouteObject } from "react-router-dom"
 import { ProtectedRoute } from "@/app/routes/ProtectedRoute"
 import { getRolesForModule } from "@/lib/roles.config"
 
+const BusinessConfigPage = lazy(() => import("./pages/BusinessConfigPage"))
 const NumberSeriesPage = lazy(() => import("./pages/NumberSeriesPage"))
 const NumberSeriesEntityConfigPage = lazy(() => import("./pages/NumberSeriesEntityConfigPage"))
 
@@ -15,6 +16,10 @@ const settingsElement = (children: ReactNode) => (
 )
 
 export const settingsRoutes: RouteObject[] = [
+  {
+    path: "settings/business-config",
+    element: settingsElement(<BusinessConfigPage />),
+  },
   {
     path: "settings/business-config/number-series",
     element: settingsElement(<NumberSeriesPage />),

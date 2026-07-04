@@ -45,6 +45,8 @@ export interface WorkOrderDetail extends WorkOrderSummary {
   sales_order_id: string | null;
   materials: WorkOrderMaterial[];
   job_cards: JobCard[];
+  hold_reason?: string | null;
+  hold_started_at?: string | null;
 }
 
 export interface MaterialAvailabilityLine {
@@ -190,6 +192,34 @@ const workOrderService = {
       data: normalizeAvailabilityPreview(response.data),
     };
   },
+
+  // QC Actions
+  qcApprove: (id: string) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/qc-approve`, {}),
+
+  qcReject: (id: string, data: { reason: string }) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/qc-reject`, data),
+
+  sendToRework: (id: string) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/qc-rework`, {}),
+
+  scrap: (id: string, data: { reason: string }) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/scrap`, data),
+
+  // FG Receipt
+  receiveFG: (id: string) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/fg-receive`, {}),
+
+  // Production Hold and Resume
+  hold: (id: string, data: { reason: string }) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/hold`, data),
+
+  resume: (id: string) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/resume`, {}),
+
+  // Cancellation
+  cancel: (id: string, reason?: string) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/cancel`, reason ? { reason } : {}),
 };
 
 export default workOrderService;

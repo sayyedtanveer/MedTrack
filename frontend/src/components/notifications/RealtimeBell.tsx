@@ -52,21 +52,46 @@ export const RealtimeBell: React.FC = () => {
       case 'ORDER_STATUS_CHANGED':
       case 'SALES_ORDER_PENDING_APPROVAL':
       case 'CLIENT_ORDER_PENDING_APPROVAL':
+      case 'sales_approved':
+      case 'payment_received':
+      case 'promise_date_at_risk':
         return 'border-l-blue-500 bg-blue-50'
       case 'LOW_STOCK':
+      case 'material_shortage':
         return 'border-l-orange-500 bg-orange-50'
       case 'WORK_ORDER_RELEASED':
       case 'WORK_ORDER_STARTED':
       case 'WORK_ORDER_COMPLETED':
       case 'WORK_ORDER_ACTION_REQUIRED':
       case 'PRODUCTION_ACTION_REQUIRED':
+      case 'wo_released':
+      case 'material_issued':
+      case 'start_production_action':
+      case 'production_scrap_failed':
         return 'border-l-purple-500 bg-purple-50'
       case 'SUPPLIER_PO_ACTION_REQUIRED':
+      case 'requisition_rejected':
+      case 'incoming_qc_failed':
         return 'border-l-cyan-500 bg-cyan-50'
       case 'INVOICE_OVERDUE':
+      case 'invoice_creation_failed':
         return 'border-l-red-500 bg-red-50'
       case 'QUALITY_INSPECTION_FAILED':
+      case 'qc_failed':
+      case 'qc_escalation':
         return 'border-l-red-600 bg-red-50'
+      case 'fg_received':
+      case 'qc_approved':
+      case 'receive_fg_action':
+        return 'border-l-green-500 bg-green-50'
+      case 'dispatch_completed':
+      case 'ready_for_dispatch_action':
+      case 'delivery_cancelled':
+        return 'border-l-teal-500 bg-teal-50'
+      case 'machine_breakdown':
+        return 'border-l-rose-500 bg-rose-50'
+      case 'issue_materials_action':
+        return 'border-l-indigo-500 bg-indigo-50'
       default:
         return 'border-l-gray-500 bg-gray-50'
     }
@@ -77,21 +102,46 @@ export const RealtimeBell: React.FC = () => {
       case 'ORDER_STATUS_CHANGED':
       case 'SALES_ORDER_PENDING_APPROVAL':
       case 'CLIENT_ORDER_PENDING_APPROVAL':
+      case 'sales_approved':
+      case 'payment_received':
+      case 'promise_date_at_risk':
         return 'O'
       case 'LOW_STOCK':
+      case 'material_shortage':
         return '!'
       case 'WORK_ORDER_RELEASED':
       case 'WORK_ORDER_STARTED':
       case 'WORK_ORDER_COMPLETED':
       case 'WORK_ORDER_ACTION_REQUIRED':
       case 'PRODUCTION_ACTION_REQUIRED':
+      case 'wo_released':
+      case 'material_issued':
+      case 'start_production_action':
+      case 'production_scrap_failed':
         return 'W'
       case 'SUPPLIER_PO_ACTION_REQUIRED':
+      case 'requisition_rejected':
+      case 'incoming_qc_failed':
         return 'P'
       case 'INVOICE_OVERDUE':
+      case 'invoice_creation_failed':
         return '$'
       case 'QUALITY_INSPECTION_FAILED':
+      case 'qc_failed':
+      case 'qc_escalation':
         return 'X'
+      case 'fg_received':
+      case 'qc_approved':
+      case 'receive_fg_action':
+        return '✓'
+      case 'dispatch_completed':
+      case 'ready_for_dispatch_action':
+      case 'delivery_cancelled':
+        return 'D'
+      case 'machine_breakdown':
+        return '⚠'
+      case 'issue_materials_action':
+        return 'M'
       default:
         return 'N'
     }
@@ -114,6 +164,15 @@ export const RealtimeBell: React.FC = () => {
   }
 
   const openNotification = (notification: WebSocketNotification) => {
+    // Priority 1: Use deep_link if available (new notification format)
+    const deepLink = notification.data?.deep_link || (notification as any).deep_link
+    if (deepLink && typeof deepLink === 'string') {
+      navigate(deepLink)
+      setIsOpen(false)
+      return
+    }
+
+    // Priority 2: Fall back to reference_type/reference_id (legacy format)
     const referenceType = notification.reference_type || notification.data?.reference_type
     const referenceId = notification.reference_id || notification.data?.reference_id
 
@@ -132,7 +191,22 @@ export const RealtimeBell: React.FC = () => {
     if (referenceType === 'purchase_order' && referenceId) {
       navigate(`/procurement/purchase-orders/${referenceId}`)
       setIsOpen(false)
+      return
     }
+
+    if (referenceType === 'delivery' && referenceId) {
+      navigate(`/delivery/${referenceId}`)
+      setIsOpen(false)
+      return
+    }
+
+    if (referenceType === 'invoice' && referenceId) {
+      navigate(`/finance/invoices/${referenceId}`)
+      setIsOpen(false)
+      return
+    }
+
+    // If no navigation target, keep the panel open
   }
 
   return (

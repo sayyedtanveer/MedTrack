@@ -233,7 +233,7 @@ export function TopBar() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="rounded-full bg-slate-50">
+              <Button variant="outline" size="icon" className="rounded-full bg-slate-50" aria-label="User menu">
                 <UserIcon className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>

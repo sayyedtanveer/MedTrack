@@ -270,10 +270,18 @@ class DeliveryService:
         
         # Update linked sales order to SHIPPED if exists
         if do.sales_order_id:
-            await self.workflow_service.on_order_delivered(
-                tenant_id=tenant_id,
-                sales_order_id=do.sales_order_id,
+            so_stmt = select(SalesOrderModel).where(
+                and_(
+                    SalesOrderModel.id == do.sales_order_id,
+                    SalesOrderModel.tenant_id == tenant_id,
+                    SalesOrderModel.is_deleted.is_(False),
+                )
             )
+            so_result = await self.session.execute(so_stmt)
+            sales_order = so_result.scalar_one_or_none()
+            if sales_order and sales_order.status not in ("SHIPPED", "DELIVERED", "INVOICED", "PAYMENT_RECEIVED", "COMPLETED"):
+                sales_order.status = "SHIPPED"
+                sales_order.updated_at = datetime.now(timezone.utc)
         
         return {
             "delivery_order_id": str(delivery_order_id),
@@ -317,8 +325,23 @@ class DeliveryService:
         do.remarks = delivery_notes
         do.updated_at = datetime.now(timezone.utc)
         
-        # Update linked sales order to DELIVERED if exists
+        # Update linked sales order to DELIVERED, then trigger auto-invoice (Gap #7)
         if do.sales_order_id:
+            so_stmt = select(SalesOrderModel).where(
+                and_(
+                    SalesOrderModel.id == do.sales_order_id,
+                    SalesOrderModel.tenant_id == tenant_id,
+                    SalesOrderModel.is_deleted.is_(False),
+                )
+            )
+            so_result = await self.session.execute(so_stmt)
+            sales_order = so_result.scalar_one_or_none()
+            if sales_order and sales_order.status not in ("DELIVERED", "INVOICED", "PAYMENT_RECEIVED", "COMPLETED"):
+                sales_order.status = "DELIVERED"
+                sales_order.updated_at = datetime.now(timezone.utc)
+            # Flush so on_order_delivered sees SO in DELIVERED state
+            await self.session.flush()
+            # Trigger auto-invoice via WorkflowOrchestrationService (Req 36.3, 37.1–37.5)
             await self.workflow_service.on_order_delivered(
                 tenant_id=tenant_id,
                 sales_order_id=do.sales_order_id,

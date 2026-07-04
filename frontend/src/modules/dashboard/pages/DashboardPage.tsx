@@ -1,3 +1,4 @@
+import { usePermissions } from "@/hooks/usePermissions"
 import { useQuery } from "@tanstack/react-query"
 import { reportsService } from "@/services/reports.service"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -5,9 +6,11 @@ import { KPICard } from "../components/KPICard"
 import { ActivityFeed } from "../components/ActivityFeed"
 import { QuickActions } from "../components/QuickActions"
 import { LowStockAlert } from "../components/LowStockAlert"
+import { SetupChecklist } from "../components/SetupChecklist"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function DashboardPage() {
+  const { isAdmin } = usePermissions()
   const { data, isLoading, error } = useQuery({
     queryKey: ["dashboard-data"],
     queryFn: reportsService.getDashboard,
@@ -57,6 +60,13 @@ export default function DashboardPage() {
             <ActivityFeed activities={data?.recentActivities || []} />
             <QuickActions />
           </div>
+
+          {/* Setup Guide — Phase 0 (Number Series) first, visible to admins only (Gap #11) */}
+          {isAdmin() && (
+            <div className="mt-2 grid grid-cols-1 gap-4">
+              <SetupChecklist />
+            </div>
+          )}
         </>
       )}
     </div>

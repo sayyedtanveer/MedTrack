@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,7 @@ import { Plus, Edit2, IndianRupee } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 
 export default function PriceListsPage() {
+  const navigate = useNavigate();
   const [priceLists, setPriceLists] = useState<PriceList[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -56,7 +58,7 @@ export default function PriceListsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Price Lists</h1>
           <p className="text-gray-600 mt-1">Configure product pricing and rates</p>
         </div>
-        <Button size="lg">
+        <Button size="lg" onClick={() => navigate('/sales/price-lists/new')}>
           <Plus className="mr-2 h-4 w-4" />
           New Price List
         </Button>
@@ -142,6 +144,7 @@ export default function PriceListsPage() {
                   variant="outline"
                   size="sm"
                   className="w-full mt-4"
+                  onClick={() => navigate(`/sales/price-lists/${priceList.id}/edit`)}
                 >
                   <Edit2 className="mr-2 h-4 w-4" />
                   Edit Price List

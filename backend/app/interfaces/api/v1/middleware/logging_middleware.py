@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import traceback
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -23,8 +24,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     Responsibilities:
     1. Generate correlation_id for the request
     2. Set request context (correlation_id, ip_address) in ContextVars
-    3. Log request start and end with timing
-    4. Clear context vars after response
+    3. Log request start and end with timing, user_id, tenant_id
+    4. Add X-Duration-Ms response header
+    5. Log unhandled exceptions at ERROR with traceback and request context
+    6. Clear context vars after response
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
@@ -32,7 +35,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         ip_address = request.client.host if request.client else "unknown"
         start = time.perf_counter()
 
-        # Best-effort extract tenant/user from headers so logs include identity
+        # Best-effort extract tenant/user from JWT so logs include identity
+        user_id: str | None = None
+        tenant_id: str | None = None
+
         try:
             tenant_id = request.headers.get("X-Tenant-ID")
             logger.info("Request headers Authorization=%s, X-Tenant-ID=%s", request.headers.get("Authorization"), tenant_id)
@@ -108,12 +114,30 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "method": request.method,
                 "path": request.url.path,
                 "ip": ip_address,
+                "user_id": user_id,
+                "tenant_id": tenant_id,
             },
         )
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            logger.error(
+                "Unhandled exception during request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "duration_ms": duration_ms,
+                    "user_id": user_id,
+                    "tenant_id": tenant_id,
+                    "traceback": traceback.format_exc(),
+                },
+            )
+            clear_request_context()
+            raise
 
-        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
         logger.info(
             "Request completed",
             extra={
@@ -121,11 +145,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "path": request.url.path,
                 "status": response.status_code,
                 "duration_ms": duration_ms,
+                "user_id": user_id,
+                "tenant_id": tenant_id,
             },
         )
 
-        # Inject correlation_id into response header for client-side tracing
+        # Inject correlation_id and timing into response headers for client-side tracing
         response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["X-Duration-Ms"] = str(duration_ms)
 
         clear_request_context()
         return response

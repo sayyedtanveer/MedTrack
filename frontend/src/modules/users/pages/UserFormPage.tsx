@@ -83,7 +83,7 @@ export default function UserFormPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/users")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/users")} aria-label="Back to users list">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <PageHeader 

@@ -42,13 +42,13 @@ async def get_notifications(
         "items": [
             {
                 "id": str(n.id),
-                "type": n.type,
+                "type": n.notification_type,
                 "title": n.title,
                 "message": n.message,
                 "reference_type": n.reference_type,
                 "reference_id": str(n.reference_id) if n.reference_id else None,
                 "is_read": n.is_read,
-                "sent_at": n.sent_at.isoformat(),
+                "sent_at": n.created_at.isoformat(),
             }
             for n in result["items"]
         ],

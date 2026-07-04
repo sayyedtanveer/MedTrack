@@ -17,6 +17,8 @@ import { financeRoutes } from "@/modules/finance/routes"
 import { clientRoutes } from "@/modules/client/routes"
 import { mrpRoutes } from "@/modules/mrp/routes"
 import { settingsRoutes } from "@/modules/settings/routes"
+import { deliveryRoutes } from "@/modules/delivery/routes"
+import { reportsRoutes } from "@/modules/reports/routes"
 import { NotFoundPage, ForbiddenPage } from "@/components/layout/ErrorPages"
 
 // Lazy loaded modules
@@ -70,6 +72,7 @@ export const router = createBrowserRouter([
         errorElement: <RouteErrorFallback />,
         children: [
           { index: true, element: <Suspense fallback={<PageLoading />}><DashboardPage /></Suspense> },
+          { path: "dashboard", element: <Suspense fallback={<PageLoading />}><DashboardPage /></Suspense> },
           { path: "dashboard/planner", element: <Suspense fallback={<PageLoading />}><DashboardPage /></Suspense> },
           { path: "dashboard/storekeeper", element: <Suspense fallback={<PageLoading />}><StorekeeperDashboardPage /></Suspense> },
           { path: "dashboard/sales", element: <Suspense fallback={<PageLoading />}><DashboardPage /></Suspense> },
@@ -99,6 +102,8 @@ export const router = createBrowserRouter([
           ...financeRoutes,
           ...mrpRoutes,
           ...settingsRoutes,
+          ...deliveryRoutes,
+          ...reportsRoutes,
           { path: "403", element: <ForbiddenPage /> },
           { path: "*", element: <NotFoundPage /> },
         ],

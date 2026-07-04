@@ -88,7 +88,7 @@ export function FileUpload({
             </div>
           </div>
           {onClear && (
-            <Button variant="ghost" size="icon" onClick={onClear}>
+            <Button variant="ghost" size="icon" onClick={onClear} aria-label="Clear file">
               <X className="h-4 w-4" />
             </Button>
           )}

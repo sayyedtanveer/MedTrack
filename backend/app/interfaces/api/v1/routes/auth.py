@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 
 from backend.app.application.tenant.commands.register_tenant import RegisterTenantCommand
 from backend.app.application.tenant.commands.login_user import LoginUserCommand
@@ -29,6 +30,9 @@ from backend.app.interfaces.api.v1.schemas.auth_schemas import (
     TenantInMeResponse,
 )
 from backend.app.infrastructure.tasks.sample_tasks import SendWelcomeEmailTask
+from backend.app.infrastructure.logging.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -184,3 +188,70 @@ async def me(
         permissions=sorted(effective_role.permissions) if effective_role else [],
     )
 
+
+# ── Change Password ────────────────────────────────────────────────────────────
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ChangePasswordResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post(
+    "/change-password",
+    response_model=ChangePasswordResponse,
+    summary="Change current user's password",
+)
+async def change_password(
+    body: ChangePasswordRequest,
+    request: Request,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """
+    Change the authenticated user's password.
+
+    Requires providing the current password for verification.
+    New password must be at least 8 characters.
+    """
+    container = get_container(request)
+
+    # Validate new password length
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters long.",
+        )
+
+    async with container.session_factory() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_id(user_id, tenant_id)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        # Verify current password
+        if not container.password_hasher.verify(body.current_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Current password is incorrect.",
+            )
+
+        # Hash and save new password
+        user.hashed_password = container.password_hasher.hash(body.new_password)
+        await session.commit()
+
+    logger.info("Password changed successfully", extra={"user_id": str(user_id)})
+
+    return ChangePasswordResponse(
+        success=True,
+        message="Password changed successfully.",
+    )

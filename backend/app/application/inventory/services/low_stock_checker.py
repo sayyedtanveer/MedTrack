@@ -27,9 +27,9 @@ class LowStockChecker:
     notification subsystem never rolls back the stock mutation.
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, connection_manager=None):
         self._session = session
-        self._notification_svc = NotificationService(session)
+        self._notification_svc = NotificationService(session, connection_manager=connection_manager)
 
     async def check_and_notify(
         self,

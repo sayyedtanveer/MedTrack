@@ -191,7 +191,7 @@ export default function InvoiceDetailPage() {
     <div className="space-y-6 p-4 md:p-6 xl:p-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-3">
-          <Button variant="outline" size="icon" onClick={() => navigate("/finance/invoices")}>
+          <Button variant="outline" size="icon" onClick={() => navigate("/finance/invoices")} aria-label="Back to invoices">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>

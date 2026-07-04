@@ -304,10 +304,12 @@ class AddStockHandler:
         material_repo: MaterialRepository,
         tx_repo: TransactionRepository,
         uow: SQLAlchemyUnitOfWork,
+        connection_manager=None,
     ):
         self._material_repo = material_repo
         self._tx_repo = tx_repo
         self._uow = uow
+        self._connection_manager = connection_manager
 
     async def handle(self, cmd: AddStockCommand) -> MaterialResult:
         material = await self._material_repo.get_by_id(cmd.material_id, cmd.tenant_id)
@@ -337,7 +339,7 @@ class AddStockHandler:
         # Check for low-stock threshold crossing and notify if needed.
         # Notification failure must not affect the stock mutation.
         try:
-            checker = LowStockChecker(self._uow.session)
+            checker = LowStockChecker(self._uow.session, connection_manager=self._connection_manager)
             notification_id = await checker.check_and_notify(
                 tenant_id=cmd.tenant_id,
                 material=updated,
@@ -363,10 +365,12 @@ class RemoveStockHandler:
         material_repo: MaterialRepository,
         tx_repo: TransactionRepository,
         uow: SQLAlchemyUnitOfWork,
+        connection_manager=None,
     ):
         self._material_repo = material_repo
         self._tx_repo = tx_repo
         self._uow = uow
+        self._connection_manager = connection_manager
 
     async def handle(self, cmd: RemoveStockCommand) -> MaterialResult:
         material = await self._material_repo.get_by_id(cmd.material_id, cmd.tenant_id)
@@ -396,7 +400,7 @@ class RemoveStockHandler:
         # Check for low-stock threshold crossing and notify if needed.
         # Notification failure must not affect the stock mutation.
         try:
-            checker = LowStockChecker(self._uow.session)
+            checker = LowStockChecker(self._uow.session, connection_manager=self._connection_manager)
             notification_id = await checker.check_and_notify(
                 tenant_id=cmd.tenant_id,
                 material=updated,
@@ -422,10 +426,12 @@ class AdjustStockHandler:
         material_repo: MaterialRepository,
         tx_repo: TransactionRepository,
         uow: SQLAlchemyUnitOfWork,
+        connection_manager=None,
     ):
         self._material_repo = material_repo
         self._tx_repo = tx_repo
         self._uow = uow
+        self._connection_manager = connection_manager
 
     async def handle(self, cmd: AdjustStockCommand) -> MaterialResult:
         material = await self._material_repo.get_by_id(cmd.material_id, cmd.tenant_id)
@@ -454,7 +460,7 @@ class AdjustStockHandler:
         # Check for low-stock threshold crossing and notify if needed.
         # Notification failure must not affect the stock mutation.
         try:
-            checker = LowStockChecker(self._uow.session)
+            checker = LowStockChecker(self._uow.session, connection_manager=self._connection_manager)
             notification_id = await checker.check_and_notify(
                 tenant_id=cmd.tenant_id,
                 material=updated,

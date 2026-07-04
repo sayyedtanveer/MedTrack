@@ -19,8 +19,9 @@ class NotificationService:
     - Notification types: MATERIAL_SHORTAGE, WO_OVERDUE, QC_REJECTED, DELIVERY_READY
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, connection_manager=None):
         self._session = session
+        self._connection_manager = connection_manager
 
     async def create_notification(
         self,
@@ -32,6 +33,8 @@ class NotificationService:
         message: str,
         reference_type: Optional[str] = None,
         reference_id: Optional[uuid.UUID] = None,
+        deep_link: Optional[str] = None,
+        target_role: Optional[str] = None,
     ) -> uuid.UUID:
         """Create a notification for a user."""
         from backend.app.infrastructure.persistence.models.notification_model import NotificationModel
@@ -44,11 +47,36 @@ class NotificationService:
             message=message,
             reference_type=reference_type,
             reference_id=reference_id,
+            deep_link=deep_link,
+            target_role=target_role,
             is_read=False,
             created_at=datetime.now(timezone.utc),
         )
         self._session.add(notification)
         await self._session.flush()
+
+        # Best-effort WebSocket broadcast for real-time delivery
+        if self._connection_manager:
+            try:
+                payload = {
+                    "id": str(notification.id),
+                    "type": notification_type,
+                    "title": title,
+                    "message": message,
+                    "reference_type": reference_type,
+                    "reference_id": str(reference_id) if reference_id else None,
+                    "is_read": False,
+                    "created_at": notification.created_at.isoformat(),
+                }
+                await self._connection_manager.send_to_user(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    message_type="notification",
+                    payload=payload,
+                )
+            except Exception:
+                pass  # WebSocket failure must not affect persistence
+
         return notification.id
 
     async def get_user_notifications(
