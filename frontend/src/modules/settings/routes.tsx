@@ -6,6 +6,7 @@ import { getRolesForModule } from "@/lib/roles.config"
 const BusinessConfigPage = lazy(() => import("./pages/BusinessConfigPage"))
 const NumberSeriesPage = lazy(() => import("./pages/NumberSeriesPage"))
 const NumberSeriesEntityConfigPage = lazy(() => import("./pages/NumberSeriesEntityConfigPage"))
+const CompanySetupPage = lazy(() => import("./pages/CompanySetupPage"))
 
 const PageLoading = () => <div className="p-8 flex items-center justify-center">Loading...</div>
 const settingsRoles = getRolesForModule("settings")
@@ -27,5 +28,9 @@ export const settingsRoutes: RouteObject[] = [
   {
     path: "settings/business-config/number-series/:entityType",
     element: settingsElement(<NumberSeriesEntityConfigPage />),
+  },
+  {
+    path: "settings/company-setup",
+    element: settingsElement(<CompanySetupPage />),
   },
 ]

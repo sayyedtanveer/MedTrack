@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -33,6 +34,8 @@ from backend.app.infrastructure.persistence.models.sales_models import (
 from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
 from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
 from backend.app.infrastructure.persistence.models.user_model import UserModel
+
+logger = logging.getLogger(__name__)
 
 
 def _as_decimal(value: Any) -> Decimal:
@@ -680,6 +683,30 @@ class FinanceService:
             invoice.status = "PARTIAL"
 
         await self.session.flush()
+
+        if getattr(invoice, "sales_order_id", None):
+            try:
+                from backend.app.application.manufacturing.services.workflow_orchestration_service import (
+                    WorkflowOrchestrationService,
+                )
+
+                workflow_service = WorkflowOrchestrationService(self.session)
+                await workflow_service.on_payment_received(
+                    tenant_id=tenant_id,
+                    sales_order_id=invoice.sales_order_id,
+                    payment_amount=Decimal(str(amount)),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to trigger sales-order workflow after payment recording",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "invoice_id": str(invoice_id),
+                        "sales_order_id": str(invoice.sales_order_id),
+                        "error": str(exc),
+                    },
+                )
+
         await self._post_customer_payment_entries(
             tenant_id=tenant_id,
             payment=payment,

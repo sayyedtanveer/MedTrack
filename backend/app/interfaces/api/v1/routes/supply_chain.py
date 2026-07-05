@@ -10,6 +10,9 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import selectinload
 
 from backend.app.application.manufacturing.services.inventory_service import InventoryService
+from backend.app.application.manufacturing.services.workflow_orchestration_service import (
+    WorkflowOrchestrationService,
+)
 from backend.app.application.supply_chain.po_number_service import PONumberService
 from backend.app.application.supply_chain.supplier_portal_service import SupplierPortalService
 from backend.app.application.supply_chain.subcontract_number_service import SubcontractNumberService
@@ -1056,6 +1059,7 @@ async def receive_grn_into_inventory(
             raise HTTPException(status_code=404, detail="PO not found")
         
         inv = InventoryService(session)
+        workflow_service = WorkflowOrchestrationService(session)
         
         # For each GRN line, update inventory and PO line
         for grn_line in grn.lines:
@@ -1086,6 +1090,12 @@ async def receive_grn_into_inventory(
                 created_by=user_id,
                 warehouse_location_id=grn.warehouse_location_id,
                 unit_cost=grn_line.unit_price,
+            )
+            await workflow_service.on_goods_received(
+                tenant_id=tenant_id,
+                purchase_order_id=po.id,
+                material_id=grn_line.material_id,
+                quantity=accepted_qty,
             )
             await _apply_po_receipt_to_material_requests(
                 session,

@@ -1224,6 +1224,38 @@ async def deliver_order(
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Delivery recording failed")
 
 
+@router.post("/orders/{order_id}/close", dependencies=[Depends(require_permission("sales:write"))])
+async def close_order(
+    order_id: UUID,
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Force-complete a sales order and release any remaining reservations."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        from backend.app.application.manufacturing.services.workflow_orchestration_service import (
+            WorkflowOrchestrationService,
+        )
+
+        try:
+            service = WorkflowOrchestrationService(session)
+            result = await service.close_sales_order(
+                tenant_id=tenant_id,
+                sales_order_id=order_id,
+                closed_by=user_id,
+            )
+            await session.commit()
+            return result
+        except ValueError as exc:
+            await session.rollback()
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("Failed to close sales order %s: %s", order_id, exc)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Sales order close failed") from exc
+
+
 @router.post("/orders/{order_id}/cancel", response_model=SalesOrderResponse, dependencies=[Depends(require_permission("sales:write"))])
 async def cancel_order(
     order_id: UUID,

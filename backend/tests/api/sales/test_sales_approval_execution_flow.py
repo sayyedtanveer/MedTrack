@@ -629,6 +629,8 @@ async def test_sales_shortage_uses_variant_material_mapping_and_creates_linked_w
     assert approved_line["work_order_id"]
     assert Decimal(str(approved_line["allocated_quantity"])) == Decimal("0")
     assert Decimal(str(approved_line["backorder_quantity"])) == Decimal("3")
+    assert Decimal(str(approved_line["shortfall_quantity"])) == Decimal("3")
+    assert approved_line["production_required"] is True
 
     work_order = await db_session.get(WorkOrderModel, uuid.UUID(approved_line["work_order_id"]))
     assert work_order is not None

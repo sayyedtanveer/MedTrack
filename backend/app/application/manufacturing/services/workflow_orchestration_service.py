@@ -652,18 +652,13 @@ class WorkflowOrchestrationService:
         
         # Check if full payment threshold met (Req 3.4, 3.6)
         if cumulative_paid >= grand_total:
-            # Transition: INVOICED → PAYMENT_RECEIVED → COMPLETED
-            if current_status.can_transition_to(OrderStatus.PAYMENT_RECEIVED):
-                sales_order.status = OrderStatus.PAYMENT_RECEIVED.value
-                sales_order.updated_at = datetime.now(timezone.utc)
-                await self.session.flush()
-                
-                # Immediately transition to COMPLETED
-                current_status = OrderStatus(sales_order.status)
-                if current_status.can_transition_to(OrderStatus.COMPLETED):
-                    sales_order.status = OrderStatus.COMPLETED.value
-                    sales_order.updated_at = datetime.now(timezone.utc)
-                    await self.session.flush()
+            completion_result = await self._complete_sales_order(
+                tenant_id=tenant_id,
+                sales_order=sales_order,
+                completed_by=uuid.UUID("00000000-0000-0000-0000-000000000000"),
+                reason="Full payment received and sales order workflow completed",
+                metadata={"cumulative_paid": float(cumulative_paid)},
+            )
             
             # Notify sales team
             await self.notification_service.create_notification(
@@ -692,6 +687,176 @@ class WorkflowOrchestrationService:
             "fully_paid": cumulative_paid >= grand_total,
             "message": "Payment received and order status updated",
         }
+
+    async def close_sales_order(
+        self,
+        tenant_id: uuid.UUID,
+        sales_order_id: uuid.UUID,
+        closed_by: uuid.UUID,
+    ) -> Dict[str, Any]:
+        """Manually complete a sales order when the payment workflow has to be forced."""
+        stmt = select(SalesOrderModel).where(
+            and_(
+                SalesOrderModel.id == sales_order_id,
+                SalesOrderModel.tenant_id == tenant_id,
+                SalesOrderModel.is_deleted.is_(False),
+            )
+        )
+        result = await self.session.execute(stmt)
+        sales_order = result.scalar_one_or_none()
+        if not sales_order:
+            raise ValueError(f"Sales Order {sales_order_id} not found")
+
+        if sales_order.status == OrderStatus.COMPLETED.value:
+            return {
+                "sales_order_id": str(sales_order_id),
+                "status": sales_order.status,
+                "message": "Sales order already completed",
+            }
+
+        completion_result = await self._complete_sales_order(
+            tenant_id=tenant_id,
+            sales_order=sales_order,
+            completed_by=closed_by,
+            reason="Sales order manually closed",
+            metadata={"source": "manual_close"},
+        )
+
+        await self.notification_service.create_notification(
+            tenant_id=tenant_id,
+            notification_type="payment_received",
+            title=f"Order {sales_order.order_number} Closed",
+            message=f"Order {sales_order.order_number} was manually closed and all reservations were released.",
+            reference_id=str(sales_order.id),
+            reference_type="sales_order",
+        )
+
+        return {
+            "sales_order_id": str(sales_order_id),
+            "status": sales_order.status,
+            "released_materials": completion_result.get("released_materials", []),
+            "message": "Sales order manually closed",
+        }
+
+    async def _complete_sales_order(
+        self,
+        tenant_id: uuid.UUID,
+        sales_order: SalesOrderModel,
+        completed_by: uuid.UUID,
+        reason: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Transition a sales order through PAYMENT_RECEIVED and COMPLETED, release reservations, and write audit state."""
+        current_status = OrderStatus(sales_order.status)
+        released_materials: List[Dict[str, Any]] = []
+
+        if current_status.can_transition_to(OrderStatus.PAYMENT_RECEIVED):
+            sales_order.status = OrderStatus.PAYMENT_RECEIVED.value
+            sales_order.updated_at = datetime.now(timezone.utc)
+            await self.session.flush()
+
+        current_status = OrderStatus(sales_order.status)
+        if current_status.can_transition_to(OrderStatus.COMPLETED):
+            sales_order.status = OrderStatus.COMPLETED.value
+            sales_order.updated_at = datetime.now(timezone.utc)
+            await self.session.flush()
+            released_materials = await self._release_sales_order_reservations(
+                tenant_id=tenant_id,
+                sales_order_id=sales_order.id,
+                released_by=completed_by,
+            )
+
+            try:
+                from backend.app.services.audit_log_service import AuditLogService
+
+                audit_service = AuditLogService(self.session)
+                completed_at = datetime.now(timezone.utc)
+                await audit_service.log_action(
+                    tenant_id=tenant_id,
+                    user_id=completed_by,
+                    action_type="lifecycle_completed",
+                    entity_type="sales_order",
+                    entity_id=sales_order.id,
+                    before_state={
+                        "status": OrderStatus.PAYMENT_RECEIVED.value,
+                        "order_date": sales_order.order_date,
+                        "approved_at": self._serialize_datetime(getattr(sales_order, "approved_at", None)),
+                        "confirmed_at": self._serialize_datetime(getattr(sales_order, "confirmed_at", None)),
+                        "delivered_at": self._serialize_datetime(getattr(sales_order, "delivered_at", None)),
+                        "invoiced_at": self._serialize_datetime(getattr(sales_order, "invoiced_at", None)),
+                        "completed_at": None,
+                    },
+                    after_state={
+                        "status": OrderStatus.COMPLETED.value,
+                        "order_date": sales_order.order_date,
+                        "approved_at": self._serialize_datetime(getattr(sales_order, "approved_at", None)),
+                        "confirmed_at": self._serialize_datetime(getattr(sales_order, "confirmed_at", None)),
+                        "delivered_at": self._serialize_datetime(getattr(sales_order, "delivered_at", None)),
+                        "invoiced_at": self._serialize_datetime(getattr(sales_order, "invoiced_at", None)),
+                        "completed_at": completed_at.isoformat(),
+                        "reservations_released": len(released_materials),
+                    },
+                    reason=reason,
+                    metadata=metadata,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to record sales order completion audit entry",
+                    extra={"error": str(e), "sales_order_id": str(sales_order.id)},
+                )
+
+        return {
+            "status": sales_order.status,
+            "released_materials": released_materials,
+            "audit_logged": True,
+        }
+
+    @staticmethod
+    def _serialize_datetime(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value)
+
+    async def _release_sales_order_reservations(
+        self,
+        tenant_id: uuid.UUID,
+        sales_order_id: uuid.UUID,
+        released_by: uuid.UUID,
+    ) -> List[Dict[str, Any]]:
+        """Release any remaining reserved stock for a completed sales order."""
+        released_materials: List[Dict[str, Any]] = []
+        so_lines_stmt = select(SalesOrderLineModel).where(
+            SalesOrderLineModel.sales_order_id == sales_order_id,
+        )
+        so_lines = (await self.session.execute(so_lines_stmt)).scalars().all()
+
+        for line in so_lines:
+            allocated_qty = Decimal(str(getattr(line, "allocated_quantity", 0) or 0))
+            if allocated_qty <= 0:
+                continue
+            try:
+                await self.inventory_service.release_sales_reservation(
+                    tenant_id=tenant_id,
+                    material_id=line.product_id,
+                    quantity=allocated_qty,
+                    sales_order_line_id=line.id,
+                    unit_id=getattr(line, "uom_id", None),
+                    created_by=released_by,
+                )
+                released_materials.append(
+                    {
+                        "sales_order_line_id": str(line.id),
+                        "quantity_released": float(allocated_qty),
+                    }
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to release sales reservation on payment completion",
+                    extra={"line_id": str(line.id), "error": str(e)},
+                )
+        return released_materials
     
     async def get_workflow_status(
         self,

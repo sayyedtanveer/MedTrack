@@ -43,6 +43,7 @@ from backend.app.interfaces.api.v1.routes.delivery_dashboard import router as de
 from backend.app.interfaces.api.v1.routes.analytics import router as analytics_router
 from backend.app.interfaces.api.v1.routes.material_onboarding import router as material_onboarding_router
 from backend.app.interfaces.api.v1.routes.number_series import router as number_series_router
+from backend.app.interfaces.api.v1.routes.setup_status import router as setup_status_router
 from backend.app.interfaces.api.v1.routes.inventory_transactions import (
     inventory_transactions_router,
     procurement_router,
@@ -90,6 +91,7 @@ api_v1_router.include_router(delivery_dashboard_router)
 api_v1_router.include_router(analytics_router)
 api_v1_router.include_router(material_onboarding_router)
 api_v1_router.include_router(number_series_router)
+api_v1_router.include_router(setup_status_router)
 api_v1_router.include_router(inventory_transactions_router)
 api_v1_router.include_router(procurement_router)
 

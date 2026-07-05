@@ -64,6 +64,8 @@ export interface SalesOrderLine {
   allocated_qty: number;
   shipped_qty: number;
   backorder_qty: number;
+  shortfall_quantity?: number;
+  production_required?: boolean;
   subtotal: number;
   tax_amount: number;
   total: number;

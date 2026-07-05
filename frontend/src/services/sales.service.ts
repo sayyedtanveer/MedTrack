@@ -57,6 +57,8 @@ const normalizeOrderLine = (line: any) => {
     allocated_qty: toNumber(line.allocated_qty ?? line.allocated_quantity),
     shipped_qty: toNumber(line.shipped_qty ?? line.shipped_quantity),
     backorder_qty: toNumber(line.backorder_qty ?? line.backorder_quantity),
+    shortfall_quantity: toNumber(line.shortfall_quantity),
+    production_required: Boolean(line.production_required),
     subtotal: toNumber(line.subtotal ?? quantity * unitPrice),
     tax_amount: toNumber(line.tax_amount),
     total,

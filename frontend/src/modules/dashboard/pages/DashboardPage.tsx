@@ -7,6 +7,7 @@ import { ActivityFeed } from "../components/ActivityFeed"
 import { QuickActions } from "../components/QuickActions"
 import { LowStockAlert } from "../components/LowStockAlert"
 import { SetupChecklist } from "../components/SetupChecklist"
+import { SetupProgressCard } from "../components/SetupProgressCard"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function DashboardPage() {
@@ -58,7 +59,10 @@ export default function DashboardPage() {
 
           <div className="mt-2 grid grid-cols-1 gap-4 xl:grid-cols-3">
             <ActivityFeed activities={data?.recentActivities || []} />
-            <QuickActions />
+            <div className="space-y-4">
+              <SetupProgressCard />
+              <QuickActions />
+            </div>
           </div>
 
           {/* Setup Guide — Phase 0 (Number Series) first, visible to admins only (Gap #11) */}

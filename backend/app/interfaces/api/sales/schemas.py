@@ -151,6 +151,8 @@ class SalesOrderLineResponse(BaseModel):
     allocated_quantity: Decimal
     shipped_quantity: Decimal
     backorder_quantity: Decimal
+    shortfall_quantity: Decimal
+    production_required: bool
     work_order_id: Optional[UUID] = None
     status: str
     created_at: datetime

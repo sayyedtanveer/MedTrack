@@ -574,6 +574,47 @@ class TestOnPaymentReceived:
         assert so.status == OrderStatus.COMPLETED.value
 
     @pytest.mark.asyncio
+    async def test_full_payment_triggers_reservation_release_and_audit_log(self):
+        """Full payment completion should release remaining sales reservations."""
+        service = _make_service()
+        tenant_id = uuid.uuid4()
+        so_id = uuid.uuid4()
+        so = _make_sales_order(
+            tenant_id=tenant_id,
+            sales_order_id=so_id,
+            status=OrderStatus.INVOICED.value,
+            grand_total=1000.0,
+        )
+
+        service.on_auto_transition = AsyncMock(return_value={"duplicate": False})
+        service._release_sales_order_reservations = AsyncMock(return_value=[{"sales_order_line_id": str(uuid.uuid4()), "quantity_released": 50.0}])
+
+        with patch(
+            "backend.app.services.audit_log_service.AuditLogService"
+        ) as MockAuditService:
+            mock_audit_instance = AsyncMock()
+            mock_audit_instance.log_action = AsyncMock()
+            MockAuditService.return_value = mock_audit_instance
+
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = so
+            service.session.execute.return_value = mock_result
+            service.session.scalar = AsyncMock(return_value=1000.0)
+
+            result = await service.on_payment_received(
+                tenant_id=tenant_id,
+                sales_order_id=so_id,
+                payment_amount=Decimal("1000"),
+            )
+
+        assert result["fully_paid"] is True
+        assert so.status == OrderStatus.COMPLETED.value
+        service._release_sales_order_reservations.assert_awaited_once()
+        MockAuditService.return_value.log_action.assert_awaited_once()
+        logged_call = MockAuditService.return_value.log_action.await_args.kwargs
+        assert logged_call["action_type"] == "lifecycle_completed"
+
+    @pytest.mark.asyncio
     async def test_partial_payment_stays_invoiced(self):
         """Partial payment leaves SO in INVOICED status."""
         service = _make_service()
