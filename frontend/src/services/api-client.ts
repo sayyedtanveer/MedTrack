@@ -73,6 +73,10 @@ function isAuthRequest(url: string | undefined): boolean {
  */
 export function extractErrorMessage(error: AxiosError<any>): string {
   if (!error.response) {
+    // Network error — backend is unreachable (wrong port, not running, etc.)
+    if (error.code === "ERR_NETWORK" || error.message === "Network Error") {
+      return "Cannot reach the server. Please make sure the backend is running on port 8001."
+    }
     return error.message || "Network error. Please check your connection."
   }
 

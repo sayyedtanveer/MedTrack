@@ -121,11 +121,18 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
   const handleRequestSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
-    if (!email) {
+    if (!email.trim()) {
       setError("Please enter your email")
       return
     }
-    requestMutation.mutate(email)
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
+    if (!emailRegex.test(email.trim())) {
+      setError("Please enter a valid email address")
+      return
+    }
+
+    requestMutation.mutate(email.trim())
   }
 
   const handleResetSubmit = (e: React.FormEvent) => {

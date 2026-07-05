@@ -1,0 +1,6 @@
+item_code,material_name,material_category,material_type,uom,batch_tracking_enabled,shelf_life,expiry_tracking,warehouse,zone,rack_bin,min_stock,max_stock,reorder_level,reorder_quantity,barcode,traceability_enabled,qc_required,approved_supplier,supplier_item_code,purchase_uom,lead_time,moq,length_uom,cuttable_inventory,remaining_quantity_tracking,decimal_precision,reusable_remainder
+RM-GR-BRASS-BODY,Gear Rotameter Brass Body,Uncategorized,raw,PCS,yes,365,yes,,,,5,100,10,25,GR-BRASS-BODY-001,yes,yes,,SUP-GR-BRASS,PCS,7,10,,no,no,2,no
+RM-GR-SS-FLOAT,Gear Rotameter SS Float,Uncategorized,raw,PCS,yes,730,yes,,,,5,200,15,50,GR-SS-FLOAT-001,yes,yes,,SUP-GR-FLOAT,PCS,10,25,,no,no,2,no
+RM-GR-GEAR-SET,Gear Rotameter Gear Set,Uncategorized,raw,PCS,no,,no,,,,2,80,8,20,GR-GEAR-SET-001,yes,no,,SUP-GR-GEAR,PCS,12,10,,no,no,0,no
+RM-GR-GLASS-TUBE,Gear Rotameter Borosilicate Glass Tube,Uncategorized,raw,PCS,yes,1095,yes,,,,3,60,6,15,GR-GLASS-TUBE-001,yes,yes,,SUP-GR-GLASS,PCS,14,10,,no,no,2,no
+RM-GR-GASKET-NBR,Gear Rotameter NBR Gasket,Uncategorized,raw,PCS,yes,730,yes,,,,20,500,50,100,GR-GASKET-NBR-001,yes,yes,,SUP-GR-GASKET,PCS,5,100,,no,no,0,no

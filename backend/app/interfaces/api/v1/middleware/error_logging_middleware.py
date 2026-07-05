@@ -69,8 +69,12 @@ class ErrorLoggingMiddleware(BaseHTTPMiddleware):
             # Get mapped status code and error code
             from backend.app.infrastructure.logging.error_logger import ErrorLogger
 
-            error_logger = request.app.state.container.error_logger
-            status_code, error_code = error_logger._map_exception_to_status_and_code(exc)
+            error_logger = getattr(getattr(request.app, "state", None), "container", None)
+            if error_logger is None:
+                status_code, error_code = (500, None)
+            else:
+                error_logger = error_logger.error_logger
+                status_code, error_code = error_logger._map_exception_to_status_and_code(exc)
 
             # Build clean error response
             return JSONResponse(
@@ -95,7 +99,12 @@ class ErrorLoggingMiddleware(BaseHTTPMiddleware):
         - Errors in logging are silently caught
         """
         try:
-            error_logger = request.app.state.container.error_logger
+            container = getattr(getattr(request.app, "state", None), "container", None)
+            if container is None:
+                return
+            error_logger = getattr(container, "error_logger", None)
+            if error_logger is None:
+                return
             await error_logger.log_error(request, exception, trace_id)
         except Exception as logging_exc:
             # Error logger itself must never crash the request

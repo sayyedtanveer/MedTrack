@@ -1,8 +1,17 @@
 """
 Resend Email Service
 ====================
-Production email service using Resend (https://resend.com).
-Falls back to StubEmailService behavior when RESEND_API_KEY is not configured.
+Production-ready email service using Resend (https://resend.com).
+
+Configuration:
+    RESEND_API_KEY
+    RESEND_FROM_EMAIL
+
+Development:
+    RESEND_FROM_EMAIL = "MedTrack <onboarding@resend.dev>"
+
+Production:
+    RESEND_FROM_EMAIL = "MedTrack <noreply@medtrack.app>"
 """
 
 from __future__ import annotations
@@ -17,23 +26,37 @@ logger = get_logger(__name__)
 
 
 class ResendEmailService(IEmailService):
-    """Send emails via Resend API."""
+    """Email service implementation using Resend."""
 
-    def __init__(self, api_key: str, from_email: str = "noreply@medtrack.app"):
+    def __init__(
+        self,
+        api_key: str,
+        from_email: str,
+    ) -> None:
         self._api_key = api_key
         self._from_email = from_email
+
+        if not api_key:
+            raise ValueError("RESEND_API_KEY is missing.")
 
         try:
             import resend
 
             resend.api_key = api_key
             self._resend = resend
-            logger.info("ResendEmailService initialized", extra={"from_email": from_email})
-        except ImportError:
-            logger.error(
-                "resend package not installed. Run: pip install resend"
+
+            logger.info(
+                "ResendEmailService initialized",
+                extra={
+                    "from_email": from_email,
+                },
             )
-            self._resend = None
+
+        except ImportError as ex:
+            logger.exception(
+                "Resend package is not installed. Install it using: pip install resend"
+            )
+            raise ex
 
     async def send_email(
         self,
@@ -42,32 +65,49 @@ class ResendEmailService(IEmailService):
         body: str,
         html_body: Optional[str] = None,
     ) -> None:
-        if not self._resend:
-            logger.warning(
-                "Resend not available, email not sent",
-                extra={"to": to, "subject": subject},
-            )
-            return
+        """
+        Send an email using Resend.
 
-        params: dict = {
+        Args:
+            to: Recipient email address.
+            subject: Email subject.
+            body: Plain text body.
+            html_body: Optional HTML body.
+        """
+
+        import resend
+
+        params: resend.Emails.SendParams = {
             "from": self._from_email,
             "to": [to],
             "subject": subject,
             "text": body,
         }
+
         if html_body:
             params["html"] = html_body
 
         try:
-            # resend.Emails.send() is synchronous — run in thread pool
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self._resend.Emails.send, params)
+            response = await asyncio.to_thread(
+                self._resend.Emails.send,
+                params,
+            )
+
             logger.info(
-                "Email sent via Resend",
-                extra={"to": to, "subject": subject},
+                "Email sent successfully",
+                extra={
+                    "to": to,
+                    "subject": subject,
+                    "response": str(response),
+                },
             )
-        except Exception as e:
-            logger.error(
+
+        except Exception as ex:
+            logger.exception(
                 "Failed to send email via Resend",
-                extra={"to": to, "subject": subject, "error": str(e)},
+                extra={
+                    "to": to,
+                    "subject": subject,
+                },
             )
+            raise ex

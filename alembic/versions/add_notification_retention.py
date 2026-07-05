@@ -10,7 +10,8 @@ branch_labels = None
 depends_on = None
 
 def upgrade() -> None:
-    op.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notifications_created_at ON notifications (created_at)")
+    # notifications uses sent_at, not created_at
+    op.execute("CREATE INDEX IF NOT EXISTS ix_notifications_created_at ON notifications (sent_at)")
 
 def downgrade() -> None:
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_notifications_created_at")
+    op.execute("DROP INDEX IF EXISTS ix_notifications_created_at")

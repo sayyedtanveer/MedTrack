@@ -1,25 +1,21 @@
 /**
  * Standardized Sonner Toaster configuration.
- * Position: bottom-right, richColors, auto-dismiss timers.
- * Requirements: 53.1–53.6
+ * Position: top-center so errors are immediately visible.
  */
 import { Toaster as SonnerToaster } from 'sonner';
 
 export function SonnerToasterProvider() {
   return (
     <SonnerToaster
-      position="bottom-right"
+      position="top-center"
       richColors
       closeButton
       expand={false}
-      visibleToasts={3}
+      visibleToasts={1}
       toastOptions={{
         duration: 4000,
         classNames: {
-          success: 'border-green-200',
-          error: 'border-red-200',
-          warning: 'border-amber-200',
-          info: 'border-blue-200',
+          error: 'border-red-200 text-sm',
         },
       }}
     />

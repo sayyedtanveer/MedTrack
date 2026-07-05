@@ -18,44 +18,49 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add missing columns to materials table
-    op.add_column('materials', sa.Column('length_uom', sa.String(length=20), nullable=True))
-    op.add_column('materials', sa.Column('length_per_unit', sa.Numeric(18, 4), nullable=True))
-    op.add_column('materials', sa.Column('weight_per_unit', sa.Numeric(18, 4), nullable=True))
-    op.add_column('materials', sa.Column('dimension_spec', sa.Text(), nullable=True))
-    op.add_column('materials', sa.Column('preferred_supplier_id', sa.UUID(), nullable=True))
-    op.add_column('materials', sa.Column('hazardous_flag', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('qc_required_flag', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('barcode', sa.String(length=100), nullable=True))
-    op.add_column('materials', sa.Column('traceability_enabled', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('batch_rule', sa.String(length=50), nullable=True))
-    op.add_column('materials', sa.Column('expiry_tracking', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('shelf_life_days', sa.Integer(), nullable=True))
-    op.add_column('materials', sa.Column('quarantine_required', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('cuttable_inventory', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('remaining_quantity_tracking', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('reusable_remainder', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('materials', sa.Column('decimal_precision', sa.Integer(), nullable=True))
-    op.add_column('materials', sa.Column('supplier_item_code', sa.String(length=100), nullable=True))
-    op.add_column('materials', sa.Column('purchase_uom', sa.String(length=20), nullable=True))
-    op.add_column('materials', sa.Column('min_stock', sa.Numeric(18, 4), nullable=True))
-    op.add_column('materials', sa.Column('max_stock', sa.Numeric(18, 4), nullable=True))
-    op.add_column('materials', sa.Column('reorder_quantity', sa.Numeric(18, 4), nullable=True))
-    op.add_column('materials', sa.Column('moq', sa.Numeric(18, 4), nullable=True))
-    
-    # Add missing columns to material_categories
-    op.alter_column('material_categories', 'is_active',
-               existing_type=sa.BOOLEAN(),
-               nullable=False)
-    
-    # Add missing columns to units_of_measure
-    op.alter_column('units_of_measure', 'is_active',
-               existing_type=sa.BOOLEAN(),
-               nullable=False)
+    # Use IF NOT EXISTS so this migration is safe to run even if columns
+    # were already added by a prior schema sync or another migration.
+    conn = op.get_bind()
+
+    material_columns = [
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS length_uom VARCHAR(20)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS length_per_unit NUMERIC(18,4)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS weight_per_unit NUMERIC(18,4)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS dimension_spec TEXT",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS preferred_supplier_id UUID",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS hazardous_flag BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS qc_required_flag BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS barcode VARCHAR(100)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS traceability_enabled BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS batch_rule VARCHAR(50)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS expiry_tracking BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS quarantine_required BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS cuttable_inventory BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS remaining_quantity_tracking BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS reusable_remainder BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS decimal_precision INTEGER",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS supplier_item_code VARCHAR(100)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS purchase_uom VARCHAR(20)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS min_stock NUMERIC(18,4)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS max_stock NUMERIC(18,4)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS reorder_quantity NUMERIC(18,4)",
+        "ALTER TABLE materials ADD COLUMN IF NOT EXISTS moq NUMERIC(18,4)",
+    ]
+
+    for stmt in material_columns:
+        conn.execute(sa.text(stmt))
+
+    # Ensure NOT NULL on these flag columns (safe to re-run)
+    conn.execute(sa.text(
+        "ALTER TABLE material_categories ALTER COLUMN is_active SET NOT NULL"
+    ))
+    conn.execute(sa.text(
+        "ALTER TABLE units_of_measure ALTER COLUMN is_active SET NOT NULL"
+    ))
 
 
 def downgrade() -> None:
-    # Remove added columns
     op.drop_column('materials', 'moq')
     op.drop_column('materials', 'reorder_quantity')
     op.drop_column('materials', 'max_stock')

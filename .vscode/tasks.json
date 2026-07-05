@@ -1,0 +1,70 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // ─── Backend ────────────────────────────────────────────────────────────
+    {
+      "label": "Start Backend",
+      "type": "shell",
+      "command": ".venv/Scripts/python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "." },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Started reloader process",
+          "endsPattern": "Application startup complete"
+        }
+      },
+      "presentation": {
+        "group": "medtrack",
+        "panel": "dedicated",
+        "reveal": "always",
+        "label": "Backend :8001"
+      }
+    },
+
+    // ─── Frontend ───────────────────────────────────────────────────────────
+    {
+      "label": "Start Frontend",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "." },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in"
+        }
+      },
+      "presentation": {
+        "group": "medtrack",
+        "panel": "dedicated",
+        "reveal": "always",
+        "label": "Frontend :3000"
+      }
+    },
+
+    // ─── Start Both ──────────────────────────────────────────────────────────
+    {
+      "label": "Start MedTrack (full stack)",
+      "dependsOrder": "parallel",
+      "dependsOn": ["Start Backend", "Start Frontend"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

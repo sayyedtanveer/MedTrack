@@ -23,7 +23,7 @@ export default function DefaultLayout() {
 
   return (
     <>
-      <div className="flex min-h-screen w-full flex-col bg-[#f8fafc]">
+      <div className="flex min-h-screen w-full flex-col bg-background">
         <Sidebar />
 
         <div

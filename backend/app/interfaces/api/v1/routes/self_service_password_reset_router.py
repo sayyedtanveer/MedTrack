@@ -14,7 +14,7 @@ This endpoint is for:
 from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 import secrets
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -47,7 +47,7 @@ hasher = BcryptPasswordHasher()
 
 class ForgotPasswordRequest(BaseModel):
     """Request to start password reset process."""
-    email: str
+    email: EmailStr
 
 
 class ForgotPasswordResponse(BaseModel):

@@ -6,6 +6,7 @@ import {
   Bell,
   CloudOff,
   CloudSync,
+  Key,
   Laptop,
   LogOut,
   Menu,
@@ -32,11 +33,13 @@ import { financeService } from "@/services/finance.service"
 import { useUIStore } from "@/app/store/uiStore"
 import { flattenNavItems, getVisibleNavItems } from "@/lib/constants"
 import { normalizeRole } from "@/lib/roles.config"
+import ChangePasswordModal from "@/modules/auth/components/ChangePasswordModal"
 
 export function TopBar() {
   const { user, logout } = useAuth()
   const { role } = usePermissions()
   const navigate = useNavigate()
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const {
     toggleSidebar,
     theme,
@@ -105,6 +108,14 @@ export function TopBar() {
     }
   }, [pendingSyncCount, clearSyncQueue])
 
+  // Apply theme to DOM whenever it changes
+  useEffect(() => {
+    const root = document.documentElement
+    const isDark =
+      theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+    root.classList.toggle("dark", isDark)
+  }, [theme])
+
   const handleSearchSubmit = (event: FormEvent) => {
     event.preventDefault()
     const query = search.trim().toLowerCase()
@@ -118,7 +129,7 @@ export function TopBar() {
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur">
       <div className="mx-auto flex h-20 w-full max-w-[1600px] items-center justify-between gap-3 px-3 sm:px-4 md:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <Button
@@ -246,8 +257,12 @@ export function TopBar() {
                   <p className="text-xs leading-none text-slate-500">{user?.email}</p>
                 </div>
               </DropdownMenuLabel>
+              <DropdownMenuItem className="py-2.5" onClick={() => setShowChangePassword(true)}>
+                <Key className="mr-2 h-4 w-4" />
+                <span>Change Password</span>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="py-2.5">
+              <DropdownMenuItem className="py-2.5" onClick={() => navigate("/settings/security")}>
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
               </DropdownMenuItem>
@@ -282,6 +297,10 @@ export function TopBar() {
           </DropdownMenu>
         </div>
       </div>
+      <ChangePasswordModal
+        isOpen={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+      />
     </header>
   )
 }

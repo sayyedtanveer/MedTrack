@@ -17,10 +17,10 @@ if not exist ".\.venv" (
 REM Activate Python environment
 call .\.venv\Scripts\activate.bat
 
-REM Start Backend
+REM Start Backend on port 8001 (matches Vite proxy target)
 echo.
-echo [1/2] Starting Backend API on http://localhost:8000
-start "MedTrack Backend" cmd /k "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload"
+echo [1/2] Starting Backend API on http://localhost:8001
+start "MedTrack Backend" cmd /k "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload"
 
 REM Wait for backend to start
 timeout /t 3 /nobreak
@@ -38,12 +38,15 @@ echo ==========================================
 echo   ✅ Services Started
 echo ==========================================
 echo.
-echo   Backend API  : http://localhost:8000
+echo   Backend API  : http://localhost:8001
+echo   API Docs     : http://localhost:8001/docs
 echo   Frontend     : http://localhost:3000
+echo   (Vite proxies /api -^> http://localhost:8001)
 echo.
 echo   Login with:
-echo   Email  : admin@medtrack-demo.com
-echo   Password: Demo@1234
+echo   Email     : admin@medtrack-demo.com
+echo   Password  : Admin@1234
+echo   Tenant ID : b5ef68c4-18be-4fa6-a439-a23c34877550
 echo.
 echo   To test BOM, open another terminal:
 echo   python test_bom_api.py

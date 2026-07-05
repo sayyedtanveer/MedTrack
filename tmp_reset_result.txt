@@ -1,0 +1,7 @@
+Rows updated: 1
+LOGIN: SUCCESS
+Email:     admin.e2e@medtrack-demo.com
+Password:  Admin@1234
+Tenant ID: b5ef68c4-18be-4fa6-a439-a23c34877550
+Role:      admin
+Token:     eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3ZjNiMWQ1NC0...

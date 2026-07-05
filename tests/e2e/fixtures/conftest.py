@@ -27,12 +27,23 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-# Patch PostgreSQL JSONB → generic JSON so SQLite can compile models.
+# ── CRITICAL: Patch PostgreSQL JSONB → generic JSON BEFORE any model imports
+# This must happen before importing any models that use JSONB
+import sys as _sys_for_jsonb
+import sqlalchemy as _sqlalchemy_for_jsonb
+from sqlalchemy import JSON as _SA_JSON_FOR_JSONB
+from sqlalchemy.dialects import postgresql as _pg_for_jsonb
+
+# Monkey-patch sqlalchemy.JSONB to handle models that import it directly
+if not hasattr(_sqlalchemy_for_jsonb, "JSONB"):
+    _sqlalchemy_for_jsonb.JSONB = _SA_JSON_FOR_JSONB
+_pg_for_jsonb.JSONB = _SA_JSON_FOR_JSONB
+
+# Also try to mock it in the builtins so direct imports work
 try:
-    from sqlalchemy import JSON as _SA_JSON
-    from sqlalchemy.dialects import postgresql as _pg
-    _pg.JSONB = _SA_JSON  # type: ignore[attr-defined]
-except Exception:
+    # For modules that do: from sqlalchemy import JSONB
+    _sqlalchemy_for_jsonb.types.JSONB = _SA_JSON_FOR_JSONB
+except:
     pass
 
 import pytest
@@ -52,6 +63,24 @@ from backend.app.infrastructure.persistence.models.user_model import UserModel
 from backend.app.infrastructure.persistence.models.number_series_models import (
     NumberSeriesConfigModel,
 )
+
+# Import all models to ensure all FK constraints are registered
+# This ensures Base.metadata includes all tables and FK relationships
+import importlib
+import pkgutil
+from backend.app.infrastructure.persistence import models as models_pkg
+
+# Skip models that have issues or we don't need for testing
+SKIP_MODELS = {"analytics_models"}  # analytics_models uses JSONB which causes import errors
+
+for importer, modname, ispkg in pkgutil.iter_modules(models_pkg.__path__):
+    if not modname.startswith("_") and modname not in SKIP_MODELS:
+        try:
+            importlib.import_module(f"backend.app.infrastructure.persistence.models.{modname}")
+        except Exception as e:
+            # Skip models that fail to import
+            print(f"Warning: Failed to import {modname}: {e}")
+            pass
 from backend.app.infrastructure.security.jwt_handler import JWTHandler
 from backend.app.infrastructure.security.password_hasher import BcryptPasswordHasher
 

@@ -1,10 +1,11 @@
 import { useMutation } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { authService } from "@/services/auth.service"
 import { useAuthStore } from "@/app/store/authStore"
+import { useShowError } from "@/hooks/useShowError"
 import { getPostLoginPath } from "@/lib/roles.config"
 import { useTenantStore } from "@/app/store/tenantStore"
 import { useNavigate } from "react-router-dom"
-import { useToast } from "@/hooks/use-toast"
 
 export function useAuth() {
   const {
@@ -19,7 +20,7 @@ export function useAuth() {
   } = useAuthStore()
   const { clearTenant, setTenantInfo } = useTenantStore()
   const navigate = useNavigate()
-  const { toast } = useToast()
+  const showError = useShowError()
 
   // Mutation for login
   const loginMutation = useMutation({
@@ -36,21 +37,23 @@ export function useAuth() {
         setSupplierAndClient(meResult.user.supplier_id ?? null, meResult.user.client_id ?? null)
         setTenantInfo(meResult.tenant.name, meResult.tenant.slug, meResult.tenant.plan)
         
-        toast({ title: "Welcome back!" })
+        toast.success("Welcome back!")
 
         const home = getPostLoginPath(meResult.user.role)
         navigate(home, { replace: true })
       } catch (err) {
         clearAuthStore()
-        toast({ title: "Failed to fetch profile", variant: "destructive" })
+        showError({
+          title: "Session error",
+          message: "Your session was created but we couldn't load your profile. Please try logging in again.",
+        })
       }
     },
     onError: (error: any) => {
-      toast({
-        title: "Login failed",
-        description: error.response?.data?.detail || "Invalid email or password.",
-        variant: "destructive",
-      })
+      // useShowError automatically maps HTTP status to friendly messages
+      // (e.g. 422 → "Invalid input", 401 → "Authentication failed")
+      // and shows a top-center sonner toast (single popup, no duplicates).
+      showError(error)
     },
   })
 
@@ -66,7 +69,7 @@ export function useAuth() {
         setSupplierAndClient(meResult.user.supplier_id ?? null, meResult.user.client_id ?? null)
         setTenantInfo(meResult.tenant.name, meResult.tenant.slug, meResult.tenant.plan)
         
-        toast({ title: "Tenant created successfully! Welcome." })
+        toast.success("Tenant created successfully! Welcome.")
         navigate("/", { replace: true })
       } catch (err) {
         clearAuthStore()
@@ -74,11 +77,7 @@ export function useAuth() {
       }
     },
     onError: (error: any) => {
-      toast({
-        title: "Registration failed",
-        description: error.response?.data?.detail || "An error occurred during registration.",
-        variant: "destructive",
-      })
+      showError(error)
     },
   })
 

@@ -7,6 +7,7 @@ const BusinessConfigPage = lazy(() => import("./pages/BusinessConfigPage"))
 const NumberSeriesPage = lazy(() => import("./pages/NumberSeriesPage"))
 const NumberSeriesEntityConfigPage = lazy(() => import("./pages/NumberSeriesEntityConfigPage"))
 const CompanySetupPage = lazy(() => import("./pages/CompanySetupPage"))
+const SecuritySettingsPage = lazy(() => import("./pages/SecuritySettingsPage"))
 
 const PageLoading = () => <div className="p-8 flex items-center justify-center">Loading...</div>
 const settingsRoles = getRolesForModule("settings")
@@ -32,5 +33,9 @@ export const settingsRoutes: RouteObject[] = [
   {
     path: "settings/company-setup",
     element: settingsElement(<CompanySetupPage />),
+  },
+  {
+    path: "settings/security",
+    element: settingsElement(<SecuritySettingsPage />),
   },
 ]

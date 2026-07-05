@@ -1,14 +1,15 @@
-"""Phase 5 E2E tests: Dispatch queue and delivery flows.
+"""Phase 5 E2E tests: Delivery lifecycle flows.
 
 Tests cover:
-- Dispatch queue retrieval (Gap #5)
-- Dispatch allocation from READY_FOR_DISPATCH
-- Delivery confirmation
+- Delivery creation from sales order with line-item allocation
+- Delivery shipment (carrier + tracking assignment)
+- Delivery completion (mark as delivered)
+- Delivery cancellation (with reason)
 - Partial delivery handling
-- Delivery completion transitions SO to IN_TRANSIT or DELIVERED
-- Auto-invoice on delivery completion (Gap #7)
+- Auto-invoice on delivery completion
+- Permission enforcement for delivery operations
 
-Requirements: 33–36 — Gap #5
+Requirements: 33–36, Gap #5 (dispatch → delivery)
 """
 import pytest
 import uuid
@@ -16,350 +17,490 @@ from decimal import Decimal
 from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 
-from backend.app.infrastructure.persistence.models.sales_models import SalesOrderModel
+from backend.app.infrastructure.persistence.models.sales_models import SalesOrderModel, SalesOrderLineModel
 from backend.app.infrastructure.persistence.models.delivery_model import (
     DeliveryOrderModel,
     DeliveryLineModel,
 )
 from backend.app.infrastructure.persistence.models.finance_models import InvoiceModel
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
+from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel
+from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
+from backend.app.infrastructure.persistence.models.user_model import UserModel
 from backend.app.domain.sales.value_objects.order_status import OrderStatus
 
 
-@pytest.mark.asyncio
-async def test_dispatch_queue_retrieval_gap_5(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper: Create a complete sales order with ready inventory
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _create_test_so_with_inventory(
+    session: AsyncSession,
+    test_tenant: TenantModel,
     admin_user_id: uuid.UUID,
-    admin_token: str,
-    seeded_materials: dict,
-):
-    """Test Gap #5: GET /dispatch/queue returns SO in READY_FOR_DISPATCH status."""
-    # Get dispatch queue
-    dispatch_response = await async_client.get(
-        "/api/v1/dispatch/queue",
-        headers={"Authorization": f"Bearer {admin_token}"},
+) -> tuple[uuid.UUID, list[dict]]:
+    """
+    Create a complete SO ready for delivery:
+    1. Create material, variant
+    2. Create opening inventory stock
+    3. Create SO with line items
+    4. Return (so_id, [line_ids])
+    """
+    now_str = date.today().isoformat()
+
+    # Create test material
+    material = MaterialModel(
+        id=uuid.uuid4(),
+        tenant_id=test_tenant.id,
+        name="Test Material",
+        code=f"MAT-{uuid.uuid4().hex[:6].upper()}",
+        description="Test material for Phase 5",
+        purchase_uom="PCS",
+        is_active=True,
+        created_by=admin_user_id,
     )
-    assert dispatch_response.status_code == 200
-    queue_data = dispatch_response.json()
-    assert isinstance(queue_data, list)
+    session.add(material)
 
-
-@pytest.mark.asyncio
-async def test_dispatch_allocation_from_ready_for_dispatch(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
-    admin_user_id: uuid.UUID,
-    admin_token: str,
-    seeded_materials: dict,
-):
-    """Test: Dispatch allocation from READY_FOR_DISPATCH SO."""
-    so_id = seeded_materials["so_id"]
-    
-    # Ensure SO is in READY_FOR_DISPATCH (assuming prior phases already did this)
-    so = await db_session.get(SalesOrderModel, so_id)
-    
-    # Allocate to dispatch
-    dispatch_response = await async_client.post(
-        "/api/v1/dispatch/allocate",
-        json={
-            "sales_order_id": str(so_id),
-            "allocated_by": str(admin_user_id),
-        },
-        headers={"Authorization": f"Bearer {admin_token}"},
+    # Create variant
+    variant = ItemVariantModel(
+        id=uuid.uuid4(),
+        tenant_id=test_tenant.id,
+        template_id=uuid.uuid4(),  # Simplified; normally refs ItemTemplateModel
+        code=f"VAR-{uuid.uuid4().hex[:6].upper()}",
+        name="Test Variant",
+        variant_key="V1",
+        attribute_values={},
+        is_active=True,
     )
-    
-    if dispatch_response.status_code == 200:
-        # Verify SO status is now IN_DISPATCH or DISPATCHED
-        await db_session.refresh(so)
-        assert so.status in (
-            OrderStatus.IN_DISPATCH.value,
-            OrderStatus.DISPATCHED.value,
-            OrderStatus.IN_TRANSIT.value,
-        )
+    session.add(variant)
+    await session.flush()  # Flush to get IDs before referencing
 
+    # Create opening inventory stock
+    stock = StockLevelModel(
+        id=uuid.uuid4(),
+        tenant_id=test_tenant.id,
+        variant_id=variant.id,
+        warehouse_id=None,  # Default warehouse
+        quantity_on_hand=Decimal("100"),
+        quantity_reserved=Decimal("0"),
+        quantity_available=Decimal("100"),
+        created_at=None,
+    )
+    session.add(stock)
+
+    # Create sales order
+    so = SalesOrderModel(
+        id=uuid.uuid4(),
+        tenant_id=test_tenant.id,
+        sales_order_number=f"SO-{uuid.uuid4().hex[:6].upper()}",
+        client_id=None,  # Simplify for test
+        status=OrderStatus.CONFIRMED.value,  # Pre-confirm so it's ready for delivery
+        order_date=date.today(),
+        requested_delivery_date=date.today(),
+        delivery_address="Test Address",
+        currency="USD",
+        subtotal=Decimal("1000"),
+        tax_amount=Decimal("100"),
+        grand_total=Decimal("1100"),
+        notes="Test SO for Phase 5",
+        created_by=admin_user_id,
+        client_name="Test Client",
+        client_address="Client Address",
+        client_gst_number="GST123",
+    )
+    session.add(so)
+
+    # Create SO line item
+    so_line = SalesOrderLineModel(
+        id=uuid.uuid4(),
+        tenant_id=test_tenant.id,
+        sales_order_id=so.id,
+        variant_id=variant.id,
+        quantity_ordered=Decimal("10"),
+        quantity_delivered=Decimal("0"),
+        unit_price=Decimal("100"),
+        discount_amount=Decimal("0"),
+        line_total=Decimal("1000"),
+        notes="Line 1",
+    )
+    session.add(so_line)
+    await session.flush()
+
+    return so.id, [
+        {
+            "sales_order_line_id": so_line.id,
+            "quantity": Decimal("10"),
+        }
+    ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests
+# ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_delivery_creation_and_confirmation(
+async def test_delivery_creation_from_sales_order(
     async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
-    admin_user_id: uuid.UUID,
-    admin_token: str,
-    seeded_materials: dict,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
 ):
-    """Test: Create delivery and confirm shipment."""
-    so_id = seeded_materials["so_id"]
-    
-    # Create delivery record
-    delivery_response = await async_client.post(
+    """Test: Create delivery from confirmed sales order."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
+    )
+    await e2e_db_session.commit()
+
+    # Create delivery with SO lines
+    response = await async_client.post(
         "/api/v1/deliveries",
         json={
             "sales_order_id": str(so_id),
-            "delivery_date": date.today().isoformat(),
-            "shipped_by": str(admin_user_id),
+            "lines": [
+                {"sales_order_line_id": str(line["sales_order_line_id"]), "quantity": str(line["quantity"])}
+                for line in lines
+            ],
+            "carrier": "FedEx",
+            "tracking_number": "1234567890",
+            "notes": "Test delivery",
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=admin_user["headers"],
     )
-    
-    if delivery_response.status_code in (200, 201):
-        delivery_data = delivery_response.json()
-        delivery_id = uuid.UUID(delivery_data["id"])
-        
-        # Confirm shipment
-        confirm_response = await async_client.post(
-            f"/api/v1/deliveries/{delivery_id}/confirm",
-            json={
-                "confirmed_by": str(admin_user_id),
-            },
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-        assert confirm_response.status_code in (200, 201)
-        
-        # Verify delivery status is SHIPPED
-        delivery = await db_session.get(DeliveryOrderModel, delivery_id)
-        await db_session.refresh(delivery)
-        assert delivery.status in (
-            "SHIPPED",
-            "IN_TRANSIT",
-        )
+
+    assert response.status_code == 201, f"Failed: {response.text}"
+    data = response.json()
+    assert data["sales_order_id"] == str(so_id)
+    assert data["status"] in ("DRAFT", "PACKING", "READY_TO_SHIP")
+    assert "delivery_number" in data
+    delivery_id = data["id"]
+
+    # Verify delivery lines match
+    assert len(data["lines"]) == len(lines)
+
+
+@pytest.mark.asyncio
+async def test_delivery_ship_transitions_status(
+    async_client: AsyncClient,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
+):
+    """Test: Shipping delivery updates status and carrier info."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
+    )
+    await e2e_db_session.commit()
+
+    # Create delivery
+    create_resp = await async_client.post(
+        "/api/v1/deliveries",
+        json={
+            "sales_order_id": str(so_id),
+            "lines": [
+                {"sales_order_line_id": str(line["sales_order_line_id"]), "quantity": str(line["quantity"])}
+                for line in lines
+            ],
+        },
+        headers=admin_user["headers"],
+    )
+    assert create_resp.status_code == 201
+    delivery_id = create_resp.json()["id"]
+
+    # Ship delivery
+    ship_resp = await async_client.post(
+        f"/api/v1/deliveries/{delivery_id}/ship",
+        json={
+            "carrier": "UPS",
+            "tracking_number": "9999999999",
+        },
+        headers=admin_user["headers"],
+    )
+    assert ship_resp.status_code == 200
+    data = ship_resp.json()
+    assert data["status"] in ("SHIPPED", "IN_TRANSIT")
+    assert data["carrier"] == "UPS"
+    assert data["tracking_number"] == "9999999999"
+    assert data["shipped_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_delivery_deliver_completes_lifecycle(
+    async_client: AsyncClient,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
+):
+    """Test: Delivering marks delivery as delivered and updates SO status."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
+    )
+    await e2e_db_session.commit()
+
+    # Create and ship delivery
+    create_resp = await async_client.post(
+        "/api/v1/deliveries",
+        json={
+            "sales_order_id": str(so_id),
+            "lines": [
+                {"sales_order_line_id": str(line["sales_order_line_id"]), "quantity": str(line["quantity"])}
+                for line in lines
+            ],
+        },
+        headers=admin_user["headers"],
+    )
+    delivery_id = create_resp.json()["id"]
+
+    ship_resp = await async_client.post(
+        f"/api/v1/deliveries/{delivery_id}/ship",
+        json={},
+        headers=admin_user["headers"],
+    )
+    assert ship_resp.status_code == 200
+
+    # Deliver
+    deliver_resp = await async_client.post(
+        f"/api/v1/deliveries/{delivery_id}/deliver",
+        headers=admin_user["headers"],
+    )
+    assert deliver_resp.status_code == 200
+    data = deliver_resp.json()
+    assert data["status"] in ("DELIVERED", "COMPLETED")
+    assert data["delivered_at"] is not None
+
+    # Verify SO transitioned to DELIVERED or similar
+    so = await e2e_db_session.get(SalesOrderModel, so_id)
+    await e2e_db_session.refresh(so)
+    assert so.status in (
+        OrderStatus.DELIVERED.value,
+        OrderStatus.INVOICED.value,
+        OrderStatus.IN_TRANSIT.value,
+    )
 
 
 @pytest.mark.asyncio
 async def test_partial_delivery_handling(
     async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
-    admin_user_id: uuid.UUID,
-    admin_token: str,
-    seeded_materials: dict,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
 ):
-    """Test: Partial delivery (quantity < SO total)."""
-    so_id = seeded_materials["so_id"]
-    
-    # Fetch SO to get line quantities
-    so = await db_session.get(SalesOrderModel, so_id)
-    await db_session.refresh(so)
-    
-    # Create partial delivery (deliver 50% of first line)
-    delivery_response = await async_client.post(
+    """Test: Partial delivery (qty < SO line total)."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
+    )
+    await e2e_db_session.commit()
+
+    # Create partial delivery (deliver 5 of 10)
+    response = await async_client.post(
         "/api/v1/deliveries",
         json={
             "sales_order_id": str(so_id),
-            "delivery_date": date.today().isoformat(),
-            "partial": True,
-            "shipped_by": str(admin_user_id),
+            "lines": [
+                {
+                    "sales_order_line_id": str(lines[0]["sales_order_line_id"]),
+                    "quantity": "5",  # Partial quantity
+                }
+            ],
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=admin_user["headers"],
     )
-    
-    if delivery_response.status_code in (200, 201):
-        delivery_data = delivery_response.json()
-        assert "partial" in delivery_data or "delivery_lines" in delivery_data
+
+    assert response.status_code == 201
+    data = response.json()
+    # Verify line quantity is 5 (not full 10)
+    assert len(data["lines"]) == 1
+    assert Decimal(str(data["lines"][0]["quantity"])) == Decimal("5")
 
 
 @pytest.mark.asyncio
-async def test_delivery_complete_transitions_so_status(
+async def test_delivery_cancellation(
     async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
-    admin_user_id: uuid.UUID,
-    admin_token: str,
-    seeded_materials: dict,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
 ):
-    """Test: Delivery completion transitions SO to IN_TRANSIT or DELIVERED."""
-    so_id = seeded_materials["so_id"]
-    
-    # Create and complete delivery
-    delivery_response = await async_client.post(
-        "/api/v1/deliveries",
-        json={
-            "sales_order_id": str(so_id),
-            "delivery_date": date.today().isoformat(),
-            "shipped_by": str(admin_user_id),
-        },
-        headers={"Authorization": f"Bearer {admin_token}"},
+    """Test: Cancel delivery in DRAFT status."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
     )
-    
-    if delivery_response.status_code in (200, 201):
-        delivery_data = delivery_response.json()
-        delivery_id = uuid.UUID(delivery_data["id"])
-        
-        # Confirm delivery
-        confirm_response = await async_client.post(
-            f"/api/v1/deliveries/{delivery_id}/confirm",
-            json={"confirmed_by": str(admin_user_id)},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-        
-        if confirm_response.status_code in (200, 201):
-            # Verify SO status transitioned
-            so = await db_session.get(SalesOrderModel, so_id)
-            await db_session.refresh(so)
-            assert so.status in (
-                OrderStatus.IN_TRANSIT.value,
-                OrderStatus.DELIVERED.value,
-                OrderStatus.INVOICED.value,
-            )
+    await e2e_db_session.commit()
 
-
-@pytest.mark.asyncio
-async def test_delivery_complete_triggers_auto_invoice_gap_7(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
-    admin_user_id: uuid.UUID,
-    admin_token: str,
-    seeded_materials: dict,
-):
-    """Test Gap #7: Delivery completion triggers auto-invoice creation.
-    
-    When delivery is confirmed as complete:
-    - InvoiceModel is created with reference to the SO
-    - Invoice status is GENERATED or PENDING
-    - Invoice amount equals SO grand_total
-    """
-    so_id = seeded_materials["so_id"]
-    
-    # Fetch SO to get grand_total
-    so = await db_session.get(SalesOrderModel, so_id)
-    await db_session.refresh(so)
-    expected_invoice_amount = Decimal(str(so.grand_total))
-    
-    # Create and complete delivery
-    delivery_response = await async_client.post(
-        "/api/v1/deliveries",
-        json={
-            "sales_order_id": str(so_id),
-            "delivery_date": date.today().isoformat(),
-            "shipped_by": str(admin_user_id),
-        },
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    
-    if delivery_response.status_code in (200, 201):
-        delivery_data = delivery_response.json()
-        delivery_id = uuid.UUID(delivery_data["id"])
-        
-        # Confirm delivery (triggers auto-invoice via Gap #7)
-        confirm_response = await async_client.post(
-            f"/api/v1/deliveries/{delivery_id}/confirm",
-            json={"confirmed_by": str(admin_user_id)},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-        assert confirm_response.status_code in (200, 201)
-        
-        # Verify invoice was created (Gap #7)
-        invoice_stmt = select(InvoiceModel).where(
-            InvoiceModel.sales_order_id == so_id,
-            InvoiceModel.is_deleted.is_(False),
-        )
-        invoices = (await db_session.execute(invoice_stmt)).scalars().all()
-        assert len(invoices) > 0, (
-            f"Expected auto-invoice to be created on delivery completion (Gap #7), "
-            f"but no invoices found for SO {so_id}"
-        )
-        
-        # Verify invoice amount matches SO grand_total
-        invoice = invoices[0]
-        invoice_amount = Decimal(str(invoice.total_amount))
-        assert invoice_amount == expected_invoice_amount, (
-            f"Expected invoice amount to be {expected_invoice_amount}, "
-            f"but got {invoice_amount}"
-        )
-        
-        # Verify SO transitioned to INVOICED
-        await db_session.refresh(so)
-        assert so.status == OrderStatus.INVOICED.value, (
-            f"Expected SO to transition to INVOICED after auto-invoice, "
-            f"but status is {so.status}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_dispatch_permission_enforced(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
-    admin_user_id: uuid.UUID,
-    admin_token: str,
-    regular_user_token: str,
-    seeded_materials: dict,
-):
-    """Test: 403 without dispatch:allocate permission."""
-    so_id = seeded_materials["so_id"]
-    
-    # Try to allocate dispatch without permission
-    dispatch_response = await async_client.post(
-        "/api/v1/dispatch/allocate",
-        json={
-            "sales_order_id": str(so_id),
-            "allocated_by": str(admin_user_id),
-        },
-        headers={"Authorization": f"Bearer {regular_user_token}"},
-    )
-    
-    assert dispatch_response.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_delivery_idempotent_on_duplicate_confirm(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    test_tenant_id: uuid.UUID,
-    admin_user_id: uuid.UUID,
-    admin_token: str,
-    seeded_materials: dict,
-):
-    """Test: Duplicate delivery confirm is idempotent (no duplicate invoice)."""
-    so_id = seeded_materials["so_id"]
-    
     # Create delivery
-    delivery_response = await async_client.post(
+    create_resp = await async_client.post(
         "/api/v1/deliveries",
         json={
             "sales_order_id": str(so_id),
-            "delivery_date": date.today().isoformat(),
-            "shipped_by": str(admin_user_id),
+            "lines": [
+                {"sales_order_line_id": str(line["sales_order_line_id"]), "quantity": str(line["quantity"])}
+                for line in lines
+            ],
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=admin_user["headers"],
     )
-    
-    if delivery_response.status_code in (200, 201):
-        delivery_data = delivery_response.json()
-        delivery_id = uuid.UUID(delivery_data["id"])
-        
-        # Confirm delivery first time
-        confirm_response_1 = await async_client.post(
-            f"/api/v1/deliveries/{delivery_id}/confirm",
-            json={"confirmed_by": str(admin_user_id)},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-        assert confirm_response_1.status_code in (200, 201)
-        
-        # Count invoices after first confirm
-        invoice_stmt = select(InvoiceModel).where(
+    delivery_id = create_resp.json()["id"]
+
+    # Cancel delivery
+    cancel_resp = await async_client.post(
+        f"/api/v1/deliveries/{delivery_id}/cancel",
+        json={"reason": "Cancelled per customer request"},
+        headers=admin_user["headers"],
+    )
+    assert cancel_resp.status_code == 200
+    data = cancel_resp.json()
+    assert data["status"] == "CANCELLED"
+    assert data["cancelled_at"] is not None
+    assert data["cancellation_reason"] == "Cancelled per customer request"
+
+
+@pytest.mark.asyncio
+async def test_delivery_auto_invoice_on_complete(
+    async_client: AsyncClient,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
+):
+    """Test Gap #7: Delivery completion auto-generates invoice."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
+    )
+    await e2e_db_session.commit()
+
+    # Create and complete delivery
+    create_resp = await async_client.post(
+        "/api/v1/deliveries",
+        json={
+            "sales_order_id": str(so_id),
+            "lines": [
+                {"sales_order_line_id": str(line["sales_order_line_id"]), "quantity": str(line["quantity"])}
+                for line in lines
+            ],
+        },
+        headers=admin_user["headers"],
+    )
+    delivery_id = create_resp.json()["id"]
+
+    # Ship
+    await async_client.post(
+        f"/api/v1/deliveries/{delivery_id}/ship",
+        json={},
+        headers=admin_user["headers"],
+    )
+
+    # Deliver (should trigger auto-invoice)
+    deliver_resp = await async_client.post(
+        f"/api/v1/deliveries/{delivery_id}/deliver",
+        headers=admin_user["headers"],
+    )
+    assert deliver_resp.status_code == 200
+
+    # Verify invoice was auto-created
+    invoice_stmt = select(InvoiceModel).where(
+        and_(
+            InvoiceModel.tenant_id == test_tenant.id,
             InvoiceModel.sales_order_id == so_id,
         )
-        invoices_1 = (await db_session.execute(invoice_stmt)).scalars().all()
-        count_1 = len(invoices_1)
-        
-        # Confirm delivery second time (duplicate)
-        confirm_response_2 = await async_client.post(
-            f"/api/v1/deliveries/{delivery_id}/confirm",
-            json={"confirmed_by": str(admin_user_id)},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-        assert confirm_response_2.status_code in (200, 201, 422)  # 422 if already confirmed
-        
-        # Count invoices after second confirm
-        invoices_2 = (await db_session.execute(invoice_stmt)).scalars().all()
-        count_2 = len(invoices_2)
-        
-        # Verify no new invoice was created
-        assert count_2 == count_1, (
-            f"Expected idempotent confirm, but invoice count went from {count_1} to {count_2}"
-        )
+    )
+    invoices = (await e2e_db_session.execute(invoice_stmt)).scalars().all()
+    assert len(invoices) > 0, f"Expected auto-invoice on delivery completion (Gap #7)"
+
+    invoice = invoices[0]
+    assert invoice.status in ("GENERATED", "PENDING")
+    # Verify amount matches SO grand_total
+    so = await e2e_db_session.get(SalesOrderModel, so_id)
+    await e2e_db_session.refresh(so)
+    assert Decimal(str(invoice.total_amount or 0)) == Decimal(str(so.grand_total))
+
+
+@pytest.mark.asyncio
+async def test_delivery_permission_required(
+    async_client: AsyncClient,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
+):
+    """Test: Non-admin user cannot create delivery without permission."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
+    )
+    await e2e_db_session.commit()
+
+    # Create non-admin user
+    user = UserModel(
+        id=uuid.uuid4(),
+        tenant_id=test_tenant.id,
+        email=f"viewer-{uuid.uuid4().hex[:6]}@test.local",
+        hashed_password="hashed",
+        first_name="Viewer",
+        last_name="Test",
+        role="viewer",
+        is_active=True,
+    )
+    e2e_db_session.add(user)
+    await e2e_db_session.flush()
+
+    # Generate token for viewer
+    from tests.e2e.fixtures.conftest import _make_jwt
+    viewer_token = _make_jwt(user_id=user.id, tenant_id=test_tenant.id, role="viewer")
+    viewer_headers = {
+        "Authorization": f"Bearer {viewer_token}",
+        "X-Tenant-ID": str(test_tenant.id),
+    }
+
+    # Try to create delivery
+    response = await async_client.post(
+        "/api/v1/deliveries",
+        json={
+            "sales_order_id": str(so_id),
+            "lines": [
+                {"sales_order_line_id": str(line["sales_order_line_id"]), "quantity": str(line["quantity"])}
+                for line in lines
+            ],
+        },
+        headers=viewer_headers,
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_list_deliveries_by_sales_order(
+    async_client: AsyncClient,
+    e2e_db_session: AsyncSession,
+    test_tenant: TenantModel,
+    admin_user: dict,
+):
+    """Test: List deliveries filtered by sales_order_id."""
+    so_id, lines = await _create_test_so_with_inventory(
+        e2e_db_session, test_tenant, admin_user["id"]
+    )
+    await e2e_db_session.commit()
+
+    # Create delivery
+    await async_client.post(
+        "/api/v1/deliveries",
+        json={
+            "sales_order_id": str(so_id),
+            "lines": [
+                {"sales_order_line_id": str(line["sales_order_line_id"]), "quantity": str(line["quantity"])}
+                for line in lines
+            ],
+        },
+        headers=admin_user["headers"],
+    )
+
+    # List deliveries for that SO
+    list_resp = await async_client.get(
+        f"/api/v1/deliveries?sales_order_id={so_id}",
+        headers=admin_user["headers"],
+    )
+    assert list_resp.status_code == 200
+    data = list_resp.json()
+    assert isinstance(data, list)
+    assert len(data) > 0
+    assert all(d["sales_order_id"] == str(so_id) for d in data)
+

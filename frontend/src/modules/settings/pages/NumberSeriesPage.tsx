@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
+import { useToast } from "@/hooks/use-toast"
 import { useNavigate } from "react-router-dom"
 import { ColumnDef } from "@tanstack/react-table"
 import { Settings2, Pencil, RefreshCw, AlertCircle } from "lucide-react"
@@ -49,12 +50,20 @@ export default function NumberSeriesPage() {
     queryFn: () => numberSeriesService.listConfigs(),
     retry: 1,
   })
+  const { toast } = useToast()
 
   /** Manual initialize handler — re-calls the list endpoint which seeds defaults */
   const handleInitialize = async () => {
     setInitializing(true)
     try {
-      await refetch()
+      const result = await refetch()
+      if (result.error) {
+        toast({
+          title: "Initialization failed",
+          description: (result.error as any)?.message || "Failed to initialize number series",
+          variant: "destructive",
+        })
+      }
       queryClient.invalidateQueries({ queryKey: ["number-series-configs"] })
     } finally {
       setInitializing(false)

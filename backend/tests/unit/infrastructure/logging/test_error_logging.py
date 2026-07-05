@@ -13,6 +13,7 @@ Tests cover:
 """
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from datetime import datetime, timezone
@@ -64,6 +65,26 @@ class TestErrorExtraction:
             # Count lines
             lines = [l for l in stack_trace.split("\n") if l.strip()]
             assert len(lines) <= 5
+
+    @pytest.mark.asyncio
+    async def test_extract_traceback_uses_original_exception_location(self):
+        """Verify traceback extraction uses the real exception line and file."""
+        error_logger = ErrorLogger(session_factory=AsyncMock())
+
+        def raise_error():
+            expected_line = inspect.currentframe().f_lineno + 1
+            raise ValueError("Traceback line test")
+
+        try:
+            raise_error()
+        except ValueError as exc:
+            file_name, actual_line_number, stack_trace = await error_logger._extract_traceback(exc)
+
+            assert file_name is not None
+            assert file_name.endswith("test_error_logging.py")
+            assert actual_line_number is not None
+            assert stack_trace is not None
+            assert "Traceback line test" in stack_trace
 
 
 class TestSensitiveDataFiltering:

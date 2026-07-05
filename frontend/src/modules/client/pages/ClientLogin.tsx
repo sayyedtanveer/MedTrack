@@ -28,6 +28,8 @@ type Mode = "login" | "forgot" | "reset"
 const getErrorMessage = (error: any, fallback: string) =>
   error?.response?.data?.detail || error?.message || fallback
 
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+
 const modeTabs: Array<{ value: Mode; label: string }> = [
   { value: "login", label: "Login" },
   { value: "forgot", label: "Forgot" },
@@ -235,6 +237,10 @@ export default function ClientLogin() {
                 className="space-y-4"
                 onSubmit={(event) => {
                   event.preventDefault()
+                  if (!isValidEmail(loginForm.email)) {
+                    setMessage("Please enter a valid email address before signing in.")
+                    return
+                  }
                   loginMutation.mutate(loginForm)
                 }}
               >
@@ -251,6 +257,9 @@ export default function ClientLogin() {
                       className="h-12 rounded-2xl bg-slate-50 pl-10 text-base shadow-sm focus-visible:bg-white"
                     />
                   </div>
+                  {!isValidEmail(loginForm.email) && loginForm.email.trim() !== "" && (
+                    <p className="text-sm font-medium text-destructive">Please enter a valid email address.</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="client-password">Password</Label>
@@ -300,6 +309,10 @@ export default function ClientLogin() {
                 className="space-y-4"
                 onSubmit={(event) => {
                   event.preventDefault()
+                  if (!isValidEmail(forgotForm.email)) {
+                    setMessage("Please enter a valid email address before requesting a reset.")
+                    return
+                  }
                   forgotMutation.mutate(forgotForm)
                 }}
               >
@@ -316,6 +329,9 @@ export default function ClientLogin() {
                       className="h-12 rounded-2xl bg-slate-50 pl-10 text-base shadow-sm focus-visible:bg-white"
                     />
                   </div>
+                  {!isValidEmail(forgotForm.email) && forgotForm.email.trim() !== "" && (
+                    <p className="text-sm font-medium text-destructive">Please enter a valid email address.</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="forgot-tenant">Tenant ID</Label>
