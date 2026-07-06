@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # ── Email (Resend) ───────────────────────────────
+    email_backend: str = "resend"
     resend_api_key: str = ""
     resend_from_email: str = "noreply@medtrack.app"
 

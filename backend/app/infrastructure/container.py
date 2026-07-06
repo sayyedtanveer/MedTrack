@@ -102,13 +102,18 @@ class Container:
         )
 
         # External
-        if settings.resend_api_key:
+        backend_name = (settings.email_backend or "resend").lower()
+        if backend_name == "resend" and settings.resend_api_key:
             from backend.app.infrastructure.external.resend_email_service import ResendEmailService
             email_service = ResendEmailService(
                 api_key=settings.resend_api_key,
                 from_email=settings.resend_from_email,
             )
         else:
+            if backend_name != "resend":
+                print(f"Unsupported email backend '{backend_name}', falling back to stub email service")
+            else:
+                print("Resend email backend selected but RESEND_API_KEY is missing, falling back to stub email service")
             email_service = StubEmailService()
 
         return cls(
