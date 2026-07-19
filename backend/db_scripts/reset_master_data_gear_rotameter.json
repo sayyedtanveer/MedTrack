@@ -1,0 +1,97 @@
+{
+  "uom": {
+    "code": "NOS",
+    "name": "Numbers",
+    "precision": 2
+  },
+  "location": {
+    "name": "Main Warehouse",
+    "code": "MAIN-WH",
+    "type": "warehouse"
+  },
+  "template": {
+    "code": "GEAR-ROTAMETER",
+    "name": "Gear Rotameter",
+    "description": "Finished product demo for BOM and work order understanding"
+  },
+  "variant": {
+    "code": "GEAR-ROTAMETER-STD",
+    "name": "Gear Rotameter - Standard",
+    "variant_key": "STANDARD",
+    "standard_cost": 0,
+    "selling_price": 0
+  },
+  "bom": {
+    "version": "v1.0"
+  },
+  "raw_materials": [
+    {
+      "code": "RM-BRASS-BODY",
+      "name": "Brass Body",
+      "stock": 24,
+      "reorder": 8,
+      "cost": 320
+    },
+    {
+      "code": "RM-GLASS-TUBE",
+      "name": "Glass Tube",
+      "stock": 24,
+      "reorder": 8,
+      "cost": 180
+    },
+    {
+      "code": "RM-FLOAT",
+      "name": "Float",
+      "stock": 20,
+      "reorder": 8,
+      "cost": 95
+    },
+    {
+      "code": "RM-NEEDLE-STEM",
+      "name": "Needle Valve Stem",
+      "stock": 14,
+      "reorder": 6,
+      "cost": 140
+    },
+    {
+      "code": "RM-ORING-SEAL",
+      "name": "O-Ring Seal",
+      "stock": 50,
+      "reorder": 20,
+      "cost": 18
+    },
+    {
+      "code": "RM-SCALE-PLATE",
+      "name": "Scale Plate",
+      "stock": 18,
+      "reorder": 6,
+      "cost": 75
+    }
+  ],
+  "bom_lines": [
+    {
+      "material_code": "RM-BRASS-BODY",
+      "quantity": 1
+    },
+    {
+      "material_code": "RM-GLASS-TUBE",
+      "quantity": 1
+    },
+    {
+      "material_code": "RM-FLOAT",
+      "quantity": 1
+    },
+    {
+      "material_code": "RM-NEEDLE-STEM",
+      "quantity": 1
+    },
+    {
+      "material_code": "RM-ORING-SEAL",
+      "quantity": 2
+    },
+    {
+      "material_code": "RM-SCALE-PLATE",
+      "quantity": 1
+    }
+  ]
+}

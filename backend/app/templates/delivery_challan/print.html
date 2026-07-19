@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+    {% if tenant.logo_url %}
+    <img src="{{ tenant.logo_url }}" alt="{{ tenant.company_name or tenant.name }}" class="company-logo">
+    {% endif %}
+    <div class="company-info">
+        <div class="company-name">{{ tenant.company_name or tenant.name }}</div>
+        <div class="company-details">
+            {{ tenant.address or '' }}<br>
+            {{ tenant.phone or '' }} | {{ tenant.email or '' }}
+        </div>
+        {% if tenant.gst_number %}
+        <div class="company-gst">GST: {{ tenant.gst_number }}</div>
+        {% endif %}
+        {% if tenant.pan_number %}
+        <div class="company-pan">PAN: {{ tenant.pan_number }}</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="document-title">Delivery Challan</div>
+
+<div class="document-meta">
+    <div class="meta-section">
+        <div class="meta-label">Challan Number:</div>
+        <div class="meta-value">{{ delivery_challan.challan_number }}</div>
+        
+        <div class="meta-label">Date:</div>
+        <div class="meta-value">{{ delivery_challan.date }}</div>
+        
+        <div class="meta-label">Customer:</div>
+        <div class="meta-value">{{ delivery_challan.customer }}</div>
+    </div>
+    
+    <div class="meta-section">
+        <div class="meta-label">Invoice Reference:</div>
+        <div class="meta-value">{{ delivery_challan.invoice_number or '-' }}</div>
+        
+        <div class="meta-label">Delivery Address:</div>
+        <div class="meta-value">{{ delivery_challan.delivery_address or customer_address }}</div>
+        
+        <div class="meta-label">Status:</div>
+        <div class="meta-value">
+            <span class="status-badge status-{{ delivery_challan.status|lower }}">{{ delivery_challan.status }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="section-title">Items Delivered</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Item Code</th>
+            <th>Description</th>
+            <th>Ordered Qty</th>
+            <th>Unit</th>
+            <th>Delivered Qty</th>
+            <th>Balance</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in items %}
+        <tr class="table-row">
+            <td>{{ item.item_code or '-' }}</td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.ordered_qty }}</td>
+            <td>{{ item.unit or '-' }}</td>
+            <td>{{ item.delivered_qty }}</td>
+            <td>{{ item.ordered_qty - item.delivered_qty }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="section-title">Transport Details</div>
+<div class="notes-content">
+    {% if delivery_challan.transporter_name %}
+    <div><strong>Transporter:</strong> {{ delivery_challan.transporter_name }}</div>
+    {% endif %}
+    {% if delivery_challan.vehicle_number %}
+    <div><strong>Vehicle Number:</strong> {{ delivery_challan.vehicle_number }}</div>
+    {% endif %}
+    {% if delivery_challan.lr_number %}
+    <div><strong>LR Number:</strong> {{ delivery_challan.lr_number }}</div>
+    {% endif %}
+</div>
+
+<div class="section-title">Delivery Notes</div>
+<div class="notes-content">{{ delivery_challan.notes or 'No additional notes.' }}</div>
+
+<div class="signatures">
+    {% if signatures.storekeeper %}
+    <div class="signature-box">
+        <div class="signature-label">Storekeeper</div>
+        {% if signatures.storekeeper.signature_image_url %}
+        <img src="{{ signatures.storekeeper.signature_image_url }}" alt="Storekeeper Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.storekeeper.name }}</div>
+        <div class="signature-date">{{ signatures.storekeeper.timestamp }}</div>
+    </div>
+    {% endif %}
+    
+    {% if signatures.transporter %}
+    <div class="signature-box">
+        <div class="signature-label">Transporter</div>
+        {% if signatures.transporter.signature_image_url %}
+        <img src="{{ signatures.transporter.signature_image_url }}" alt="Transporter Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.transporter.name }}</div>
+        <div class="signature-date">{{ signatures.transporter.timestamp }}</div>
+    </div>
+    {% endif %}
+    
+    {% if signatures.receiver %}
+    <div class="signature-box">
+        <div class="signature-label">Receiver</div>
+        {% if signatures.receiver.signature_image_url %}
+        <img src="{{ signatures.receiver.signature_image_url }}" alt="Receiver Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.receiver.name }}</div>
+        <div class="signature-date">{{ signatures.receiver.timestamp }}</div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="footer">
+    <div class="footer-text">
+        This is a computer-generated document. No signature required unless specified.
+    </div>
+    <div class="footer-text">
+        Generated on: {{ generated_at }}
+    </div>
+</div>
+{% endblock %}

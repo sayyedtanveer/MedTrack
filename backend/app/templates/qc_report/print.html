@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+    {% if tenant.logo_url %}
+    <img src="{{ tenant.logo_url }}" alt="{{ tenant.company_name or tenant.name }}" class="company-logo">
+    {% endif %}
+    <div class="company-info">
+        <div class="company-name">{{ tenant.company_name or tenant.name }}</div>
+        <div class="company-details">
+            {{ tenant.address or '' }}<br>
+            {{ tenant.phone or '' }} | {{ tenant.email or '' }}
+        </div>
+        {% if tenant.gst_number %}
+        <div class="company-gst">GST: {{ tenant.gst_number }}</div>
+        {% endif %}
+        {% if tenant.pan_number %}
+        <div class="company-pan">PAN: {{ tenant.pan_number }}</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="document-title">Quality Inspection Report</div>
+
+<div class="document-meta">
+    <div class="meta-section">
+        <div class="meta-label">Report Number:</div>
+        <div class="meta-value">{{ qc_report.report_number }}</div>
+        
+        <div class="meta-label">Inspection Date:</div>
+        <div class="meta-value">{{ qc_report.inspection_date }}</div>
+        
+        <div class="meta-label">Reference:</div>
+        <div class="meta-value">{{ qc_report.reference_type }} - {{ qc_report.reference_number }}</div>
+    </div>
+    
+    <div class="meta-section">
+        <div class="meta-label">Inspector:</div>
+        <div class="meta-value">{{ qc_report.inspector }}</div>
+        
+        <div class="meta-label">Result:</div>
+        <div class="meta-value">
+            <span class="status-badge status-{{ qc_report.result|lower }}">{{ qc_report.result }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="section-title">Inspection Parameters</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Parameter</th>
+            <th>Specification</th>
+            <th>Tolerance Min</th>
+            <th>Tolerance Max</th>
+            <th>Measured Value</th>
+            <th>Unit</th>
+            <th>Result</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for param in parameters %}
+        <tr class="table-row">
+            <td>{{ param.name }}</td>
+            <td>{{ param.specification or '-' }}</td>
+            <td>{{ param.tolerance_min or '-' }}</td>
+            <td>{{ param.tolerance_max or '-' }}</td>
+            <td>{{ param.measured_value or '-' }}</td>
+            <td>{{ param.unit or '-' }}</td>
+            <td>
+                {% if param.is_passed %}
+                <span class="status-badge status-passed">PASS</span>
+                {% else %}
+                <span class="status-badge status-failed">FAIL</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if qc_report.remarks %}
+<div class="section-title">Remarks</div>
+<div class="notes-content">{{ qc_report.remarks }}</div>
+{% endif %}
+
+{% if ncr %}
+<div class="section-title" style="color: #dc2626;">Non-Conformance Report</div>
+<div class="notes-content">
+    <div><strong>Type:</strong> {{ ncr.ncr_type }}</div>
+    <div><strong>Reason:</strong> {{ ncr.reason or '-' }}</div>
+    <div><strong>Action Taken:</strong> {{ ncr.action_taken or '-' }}</div>
+</div>
+{% endif %}
+
+<div class="signatures">
+    {% if signatures.inspector %}
+    <div class="signature-box">
+        <div class="signature-label">Inspector</div>
+        {% if signatures.inspector.signature_image_url %}
+        <img src="{{ signatures.inspector.signature_image_url }}" alt="Inspector Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.inspector.name }}</div>
+        <div class="signature-date">{{ signatures.inspector.timestamp }}</div>
+    </div>
+    {% endif %}
+    
+    {% if signatures.qc_manager %}
+    <div class="signature-box">
+        <div class="signature-label">QC Manager</div>
+        {% if signatures.qc_manager.signature_image_url %}
+        <img src="{{ signatures.qc_manager.signature_image_url }}" alt="QC Manager Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.qc_manager.name }}</div>
+        <div class="signature-date">{{ signatures.qc_manager.timestamp }}</div>
+    </div>
+    {% endif %}
+    
+    {% if signatures.production_manager %}
+    <div class="signature-box">
+        <div class="signature-label">Production Manager</div>
+        {% if signatures.production_manager.signature_image_url %}
+        <img src="{{ signatures.production_manager.signature_image_url }}" alt="Production Manager Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.production_manager.name }}</div>
+        <div class="signature-date">{{ signatures.production_manager.timestamp }}</div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="footer">
+    <div class="footer-text">
+        This is a computer-generated document. No signature required unless specified.
+    </div>
+    <div class="footer-text">
+        Generated on: {{ generated_at }}
+    </div>
+</div>
+
+<style>
+.status-passed { background-color: #d1fae5; color: #065f46; }
+.status-failed { background-color: #fee2e2; color: #991b1b; }
+</style>
+{% endblock %}

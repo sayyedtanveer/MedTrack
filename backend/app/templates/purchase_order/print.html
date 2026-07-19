@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+    {% if tenant.logo_url %}
+    <img src="{{ tenant.logo_url }}" alt="{{ tenant.company_name or tenant.name }}" class="company-logo">
+    {% endif %}
+    <div class="company-info">
+        <div class="company-name">{{ tenant.company_name or tenant.name }}</div>
+        <div class="company-details">
+            {{ tenant.address or '' }}<br>
+            {{ tenant.phone or '' }} | {{ tenant.email or '' }}
+        </div>
+        {% if tenant.gst_number %}
+        <div class="company-gst">GST: {{ tenant.gst_number }}</div>
+        {% endif %}
+        {% if tenant.pan_number %}
+        <div class="company-pan">PAN: {{ tenant.pan_number }}</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="document-title">Purchase Order</div>
+
+<div class="document-meta">
+    <div class="meta-section">
+        <div class="meta-label">PO Number:</div>
+        <div class="meta-value">{{ purchase_order.po_number }}</div>
+        
+        <div class="meta-label">Order Date:</div>
+        <div class="meta-value">{{ purchase_order.order_date }}</div>
+        
+        <div class="meta-label">Expected Delivery:</div>
+        <div class="meta-value">{{ purchase_order.expected_delivery }}</div>
+    </div>
+    
+    <div class="meta-section">
+        <div class="meta-label">Supplier:</div>
+        <div class="meta-value">{{ purchase_order.supplier }}</div>
+        
+        <div class="meta-label">Supplier GST:</div>
+        <div class="meta-value">{{ purchase_order.supplier_gst or '-' }}</div>
+        
+        <div class="meta-label">Status:</div>
+        <div class="meta-value">
+            <span class="status-badge status-{{ purchase_order.status|lower }}">{{ purchase_order.status }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="section-title">Items</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Item Code</th>
+            <th>Description</th>
+            <th>Quantity</th>
+            <th>Unit</th>
+            <th>Unit Price</th>
+            <th>Total</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in items %}
+        <tr class="table-row">
+            <td>{{ item.item_code or '-' }}</td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ item.unit or '-' }}</td>
+            <td>{{ item.unit_price }}</td>
+            <td>{{ item.line_total }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="document-meta">
+    <div class="meta-section">
+        <div class="meta-label">Subtotal:</div>
+        <div class="meta-value">{{ tax_breakdown.subtotal }}</div>
+        
+        <div class="meta-label">Tax ({{ tax_breakdown.tax_rate }}%):</div>
+        <div class="meta-value">{{ tax_breakdown.tax_amount }}</div>
+        
+        <div class="meta-label">Grand Total:</div>
+        <div class="meta-value" style="font-weight: bold; font-size: 14pt;">{{ tax_breakdown.grand_total }}</div>
+    </div>
+</div>
+
+<div class="section-title">Terms & Conditions</div>
+<div class="notes-content">{{ purchase_order.terms or 'Standard terms apply.' }}</div>
+
+<div class="section-title">Notes</div>
+<div class="notes-content">{{ purchase_order.notes or '-' }}</div>
+
+<div class="signatures">
+    {% if signatures.purchasing %}
+    <div class="signature-box">
+        <div class="signature-label">Purchasing Manager</div>
+        {% if signatures.purchasing.signature_image_url %}
+        <img src="{{ signatures.purchasing.signature_image_url }}" alt="Purchasing Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.purchasing.name }}</div>
+        <div class="signature-date">{{ signatures.purchasing.timestamp }}</div>
+    </div>
+    {% endif %}
+    
+    {% if signatures.supplier %}
+    <div class="signature-box">
+        <div class="signature-label">Supplier</div>
+        {% if signatures.supplier.signature_image_url %}
+        <img src="{{ signatures.supplier.signature_image_url }}" alt="Supplier Signature" class="signature-image">
+        {% endif %}
+        <div class="signature-name">{{ signatures.supplier.name }}</div>
+        <div class="signature-date">{{ signatures.supplier.timestamp }}</div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="footer">
+    <div class="footer-text">
+        This is a computer-generated document. No signature required unless specified.
+    </div>
+    <div class="footer-text">
+        Generated on: {{ generated_at }}
+    </div>
+</div>
+{% endblock %}
