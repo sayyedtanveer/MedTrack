@@ -15,9 +15,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Backgrou
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr
+from typing import Optional
 import secrets
 from datetime import datetime, timedelta, timezone
 import hashlib
+import uuid
 
 from backend.app.config import settings
 from backend.app.infrastructure.logging.logger import get_logger
@@ -48,6 +50,7 @@ hasher = BcryptPasswordHasher()
 class ForgotPasswordRequest(BaseModel):
     """Request to start password reset process."""
     email: EmailStr
+    tenant_id: Optional[str] = None  # UUID string; scopes lookup to one tenant
 
 
 class ForgotPasswordResponse(BaseModel):
@@ -88,54 +91,73 @@ async def request_password_reset(
 ):
     """
     Request a password reset (self-service).
-    
+
     **Security Notes:**
     - Sends reset token via email (not exposed in response in production)
     - Token expires in 1 hour
     - Works for all user roles (admin, user, etc.)
     - Does NOT disclose if email exists (prevents user enumeration)
-    
+    - When tenant_id is provided the lookup is scoped to that tenant only,
+      preventing cross-tenant password reset collisions.
+
     **Response:**
     - In development: includes reset_token for testing
     - In production: only returns success message
     """
-    
+
     email = request_body.email
-    
-    # Email always gets generic response (security: don't confirm email exists)
+
+    # Generic response — never reveal whether the email exists
     response = ForgotPasswordResponse(
         success=True,
-        message="If an account exists with this email, a password reset link has been sent."
+        message="If an account exists with this email, a password reset link has been sent.",
     )
-    
+
     try:
-        # Find user by email (any tenant, any role)
-        stmt = select(UserModel).where(UserModel.email == email)
+        # Build the user lookup query.
+        # Always filter to active, non-deleted users.
+        # When a tenant_id is provided, scope the lookup to that tenant to
+        # prevent cross-tenant password-reset collisions.
+        stmt = select(UserModel).where(
+            UserModel.email == email,
+            UserModel.is_deleted.is_(False),
+            UserModel.is_active.is_(True),
+        )
+
+        tenant_uuid: Optional[uuid.UUID] = None
+        if request_body.tenant_id:
+            try:
+                tenant_uuid = uuid.UUID(request_body.tenant_id)
+                stmt = stmt.where(UserModel.tenant_id == tenant_uuid)
+            except ValueError:
+                # Malformed tenant_id — treat as missing and fall through
+                logger.warning(
+                    "Invalid tenant_id in forgot-password request",
+                    extra={"tenant_id": request_body.tenant_id},
+                )
+
+        # Order by created_at descending so the most recently created account
+        # is preferred when multiple rows somehow match (safety net).
+        stmt = stmt.order_by(UserModel.created_at.desc())
+
         result = await session.execute(stmt)
-        try:
-            user = result.scalar_one_or_none()
-        except Exception:
-            # In case of duplicate rows (e.g. legacy data), fall back to the first active row.
-            rows = result.scalars().all()
-            user = next((row for row in rows if getattr(row, "is_active", True)), None)
-            if user is None and rows:
-                user = rows[0]
-        
+        user = result.scalars().first()
+
         if not user:
             # Still return generic response (don't leak that user doesn't exist)
             return response
-        
-        # Expire any existing reset tokens for this user
-        stmt = select(PasswordResetTokenModel).where(
-            (PasswordResetTokenModel.user_id == user.id) &
-            (PasswordResetTokenModel.used_at.is_(None))
+
+        # Expire any existing unused reset tokens for this user
+        existing_stmt = select(PasswordResetTokenModel).where(
+            PasswordResetTokenModel.user_id == user.id,
+            PasswordResetTokenModel.used_at.is_(None),
         )
-        result = await session.execute(stmt)
-        old_tokens = result.scalars().all()
-        
+        existing_result = await session.execute(existing_stmt)
+        old_tokens = existing_result.scalars().all()
+
         for token_row in old_tokens:
             token_row.used_at = _utc_now()
-        
+
         # Create new reset token
         reset_token = secrets.token_urlsafe(32)
         token_model = PasswordResetTokenModel(
@@ -146,7 +168,7 @@ async def request_password_reset(
         )
         session.add(token_model)
         await session.commit()
-        
+
         # Send password reset email
         email_service = request.app.state.container.email_service
         reset_url = f"{settings.frontend_url}/reset-password?token={reset_token}"
@@ -154,20 +176,31 @@ async def request_password_reset(
             await email_service.send_email(
                 to=user.email,
                 subject="MedTrack - Password Reset Request",
-                body=f"You requested a password reset. Use this link to reset your password: {reset_url}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, ignore this email.",
-                html_body=f"<h2>Password Reset</h2><p>You requested a password reset for your MedTrack account.</p><p><a href='{reset_url}'>Click here to reset your password</a></p><p>This link expires in 1 hour.</p><p>If you didn't request this, you can safely ignore this email.</p>",
+                body=(
+                    f"You requested a password reset. Use this link to reset your password:\n\n"
+                    f"{reset_url}\n\n"
+                    f"This link expires in 1 hour.\n\n"
+                    f"If you didn't request this, ignore this email."
+                ),
+                html_body=(
+                    f"<h2>Password Reset</h2>"
+                    f"<p>You requested a password reset for your MedTrack account.</p>"
+                    f"<p><a href='{reset_url}'>Click here to reset your password</a></p>"
+                    f"<p>This link expires in 1 hour.</p>"
+                    f"<p>If you didn't request this, you can safely ignore this email.</p>"
+                ),
             )
         except Exception as e:
             logger.warning(f"Failed to send password reset email to {email}: {e}")
-        
+
         # In development, return token for testing
         if settings.environment.lower() != "production":
             response.reset_token = reset_token
-        
+
         return response
-        
+
     except Exception as e:
-        print(f"Error in request_password_reset: {e}")
+        logger.error(f"Error in request_password_reset: {e}")
         # Still return generic response
         return response
 

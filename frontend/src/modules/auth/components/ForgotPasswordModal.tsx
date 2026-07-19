@@ -14,6 +14,9 @@ import { Label } from "@/components/ui/label"
 interface ForgotPasswordModalProps {
   isOpen: boolean
   onClose: () => void
+  /** Tenant UUID from the login form. When provided, the password reset lookup
+   *  is scoped to this tenant, preventing cross-tenant collisions. */
+  tenantId?: string
 }
 
 type Step = "request" | "reset" | "success"
@@ -28,7 +31,7 @@ const readErrorMessage = async (response: Response, fallback: string) => {
   }
 }
 
-export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordModalProps) {
+export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: ForgotPasswordModalProps) {
   const [step, setStep] = useState<Step>("request")
   const [email, setEmail] = useState("")
   const [resetToken, setResetToken] = useState("")
@@ -40,10 +43,17 @@ export default function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordM
   // Request password reset
   const requestMutation = useMutation({
     mutationFn: async (email: string) => {
+      // Build request body — include tenant_id if available to scope the lookup
+      // and prevent cross-tenant password reset collisions.
+      const body: { email: string; tenant_id?: string } = { email }
+      if (tenantId && tenantId.trim()) {
+        body.tenant_id = tenantId.trim()
+      }
+
       const response = await fetch("/api/v1/forgot-password/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify(body),
       })
       if (!response.ok) {
         throw new Error(await readErrorMessage(response, "Failed to request password reset"))

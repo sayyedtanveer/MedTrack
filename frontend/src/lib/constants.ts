@@ -346,7 +346,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     title: "Settings",
-    href: "/settings",
+    href: "/settings/company-profile",
     icon: Settings,
     roles: getRolesForModule("settings"),
     children: [

@@ -56,7 +56,7 @@ const setupStepDefinitions: SetupStepDefinition[] = [
     key: "company",
     title: "Company Profile",
     description: "Confirm your company identity and basic tenant details.",
-    path: "/settings/business-config",
+    path: "/settings/company-profile",
     icon: Building2,
   },
   {

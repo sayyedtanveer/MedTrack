@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react"
-import { RouteObject } from "react-router-dom"
+import { RouteObject, Navigate } from "react-router-dom"
 import { ProtectedRoute } from "@/app/routes/ProtectedRoute"
 import { getRolesForModule } from "@/lib/roles.config"
 
@@ -23,9 +23,9 @@ const settingsElement = (children: ReactNode) => (
 
 export const settingsRoutes: RouteObject[] = [
   {
-    // /settings → redirect to business-config (the main settings landing)
+    // /settings → redirect to company-profile (the new settings landing)
     path: "settings",
-    element: settingsElement(<BusinessConfigPage />),
+    element: <Navigate to="/settings/company-profile" replace />,
   },
   {
     path: "settings/business-config",

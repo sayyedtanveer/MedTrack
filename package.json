@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
-    "backend:dev": "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload",
-    "backend:prod": "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001",
+    "backend:dev": ".venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload",
+    "backend:prod": ".venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001",
     "frontend:dev": "cd frontend && npm run dev",
     "frontend:build": "cd frontend && npm run build",
     "frontend:preview": "cd frontend && npm run preview",

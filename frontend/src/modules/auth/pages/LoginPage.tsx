@@ -99,7 +99,11 @@ export default function LoginPage() {
         </Link>
       </CardFooter>
 
-      <ForgotPasswordModal isOpen={showForgotPassword} onClose={() => setShowForgotPassword(false)} />
+      <ForgotPasswordModal
+        isOpen={showForgotPassword}
+        onClose={() => setShowForgotPassword(false)}
+        tenantId={form.watch("tenant_id") || ""}
+      />
     </Card>
   )
 }

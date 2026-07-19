@@ -104,6 +104,26 @@ export default defineConfig(function (_a) {
                     changeOrigin: true,
                     secure: false,
                     ws: true,
+                },
+                '/docs': {
+                    target: apiTarget,
+                    changeOrigin: true,
+                    secure: false,
+                },
+                '/redoc': {
+                    target: apiTarget,
+                    changeOrigin: true,
+                    secure: false,
+                },
+                '/openapi.json': {
+                    target: apiTarget,
+                    changeOrigin: true,
+                    secure: false,
+                },
+                '/docs/oauth2-redirect': {
+                    target: apiTarget,
+                    changeOrigin: true,
+                    secure: false,
                 }
             }
         }

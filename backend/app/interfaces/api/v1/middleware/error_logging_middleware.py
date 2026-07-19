@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from backend.app.infrastructure.logging.logger import get_logger
 
@@ -45,7 +44,7 @@ class ErrorLoggingMiddleware(BaseHTTPMiddleware):
     - Integrates with background queue if DB fails
     """
 
-    async def dispatch(self, request: Request, call_next) -> JSONResponse:
+    async def dispatch(self, request: Request, call_next) -> Response:
         """
         Wrap request with exception handling.
         
@@ -77,13 +76,17 @@ class ErrorLoggingMiddleware(BaseHTTPMiddleware):
                 status_code, error_code = error_logger._map_exception_to_status_and_code(exc)
 
             # Build clean error response
+            code_value = "INTERNAL_ERROR"
+            if error_code is not None:
+                code_value = getattr(error_code, "value", None) or "INTERNAL_ERROR"
+
             return JSONResponse(
                 status_code=status_code,
                 content={
                     "success": False,
                     "error": {
                         "message": self._get_user_friendly_message(exc, status_code),
-                        "code": error_code.value,
+                        "code": code_value,
                         "trace_id": trace_id,
                     },
                 },
