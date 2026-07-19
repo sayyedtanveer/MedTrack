@@ -43,6 +43,16 @@ from backend.app.interfaces.api.v1.schemas.number_series_schemas import (
 
 router = APIRouter(prefix="/settings/number-series", tags=["Number Series"])
 
+
+@router.get("/", include_in_schema=True)
+async def list_configs_root(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Compatibility alias for GET /settings/number-series/ while the main route handles /settings/number-series."""
+    return await list_configs(request=request, tenant_id=tenant_id)
+
+
 # Supported entity types
 SUPPORTED_ENTITY_TYPES = [
     "material",

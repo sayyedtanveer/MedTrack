@@ -13,6 +13,14 @@ class CreateCategoryRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     is_active: bool = True
 
+
+class UpdateCategoryRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    code_prefix: Optional[str] = Field(None, min_length=2, max_length=6, pattern=r"^[A-Z0-9]{2,6}$")
+    description: Optional[str] = Field(None, max_length=2000)
+    is_active: Optional[bool] = None
+
+
 class CategoryResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -20,6 +28,7 @@ class CategoryResponse(BaseModel):
     code_prefix: str
     description: Optional[str]
     is_active: bool
+    material_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -62,6 +71,13 @@ class CreateUnitRequest(BaseModel):
     precision: int = Field(2, ge=0, le=6)
     is_active: bool = True
 
+
+class UpdateUnitRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    precision: Optional[int] = Field(None, ge=0, le=6)
+    is_active: Optional[bool] = None
+
+
 class UnitResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -69,5 +85,6 @@ class UnitResponse(BaseModel):
     name: str
     precision: int
     is_active: bool
+    usage_count: int = 0
 
     model_config = {"from_attributes": True}

@@ -365,10 +365,11 @@ class ErrorLogger:
         exc_type = type(exception).__name__
         exc_msg = str(exception).lower()
 
-        # Auth-related keywords in exception type or message
-        auth_keywords = ["auth", "jwt", "token", "credential", "sub", "tid", "role", "tenant", "user", "claim", "uuid"]
+        # Only treat clearly auth-related exceptions as 401.
+        auth_keywords = ["auth", "jwt", "token", "credential"]
         is_auth_related = any(keyword in exc_type.lower() or keyword in exc_msg for keyword in auth_keywords)
 
+        # Business-rule and validation exceptions should not be misclassified as auth failures.
         if is_auth_related:
             return 401, ErrorCode.AUTH_FAILED
 

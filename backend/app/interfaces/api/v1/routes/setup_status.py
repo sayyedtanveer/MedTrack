@@ -31,15 +31,6 @@ async def get_company_setup_status(
 
         company = bool(tenant and tenant.name and tenant.gst_number)
 
-        users_result = await session.execute(
-            select(UserModel.id).where(
-                UserModel.tenant_id == tenant_id,
-                UserModel.is_deleted.is_(False),
-                UserModel.is_active.is_(True),
-            )
-        )
-        user_count = len(users_result.scalars().all())
-
         supplier_result = await session.execute(
             select(SupplierModel.id).where(
                 SupplierModel.tenant_id == tenant_id,
@@ -96,6 +87,46 @@ async def get_company_setup_status(
         )
         opening_stock_count = len(opening_stock_result.scalars().all())
 
+        from backend.app.infrastructure.persistence.models.unit_of_measure_model import UnitOfMeasureModel
+        unit_result = await session.execute(
+            select(UnitOfMeasureModel.id).where(
+                UnitOfMeasureModel.tenant_id == tenant_id,
+                UnitOfMeasureModel.is_deleted.is_(False),
+                UnitOfMeasureModel.is_active.is_(True),
+            )
+        )
+        unit_count = len(unit_result.scalars().all())
+
+        from backend.app.infrastructure.persistence.models.material_category_model import MaterialCategoryModel
+        category_result = await session.execute(
+            select(MaterialCategoryModel.id).where(
+                MaterialCategoryModel.tenant_id == tenant_id,
+                MaterialCategoryModel.is_deleted.is_(False),
+                MaterialCategoryModel.is_active.is_(True),
+            )
+        )
+        category_count = len(category_result.scalars().all())
+
+        from backend.app.infrastructure.persistence.models.location_model import LocationModel
+        location_result = await session.execute(
+            select(LocationModel.id).where(
+                LocationModel.tenant_id == tenant_id,
+                LocationModel.is_deleted.is_(False),
+                LocationModel.is_active.is_(True),
+            )
+        )
+        location_count = len(location_result.scalars().all())
+
+        non_admin_user_result = await session.execute(
+            select(UserModel.id).where(
+                UserModel.tenant_id == tenant_id,
+                UserModel.is_deleted.is_(False),
+                UserModel.is_active.is_(True),
+                UserModel.role.notin_(["ADMIN", "TENANT_ADMIN"]),
+            )
+        )
+        non_admin_user_count = len(non_admin_user_result.scalars().all())
+
     step_status = {
         "company": company,
         "numberSeries": True,
@@ -105,6 +136,10 @@ async def get_company_setup_status(
         "product": product_count > 0,
         "bom": bom_count > 0,
         "openingStock": opening_stock_count > 0,
+        "units": unit_count > 0,
+        "categories": category_count > 0,
+        "locations": location_count > 0,
+        "users": non_admin_user_count > 0,
     }
 
     return CompanySetupStatusService.build_status_response(step_status)

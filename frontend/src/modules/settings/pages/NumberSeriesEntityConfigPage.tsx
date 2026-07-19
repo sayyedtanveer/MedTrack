@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useCallback, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -31,6 +31,9 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ArrowLeft, Save, Eye, History } from "lucide-react"
+import { BusinessAssistantPanel } from "@/components/shared/BusinessAssistantPanel"
+import { FieldHelpIcon } from "@/components/shared/FieldHelpIcon"
+import { makeNumberSeriesEntityAssistant } from "../business-assistant/numberSeriesAssistant"
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 
@@ -102,9 +105,11 @@ export default function NumberSeriesEntityConfigPage() {
   const [formState, setFormState] = useState<Partial<NumberSeriesConfig>>({})
   const [editedPrefixes, setEditedPrefixes] = useState<NumberSeriesPrefix[]>([])
   const [errors, setErrors] = useState<FieldErrors>({})
-  const [preview, setPreview] = useState<string>("")
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [initialized, setInitialized] = useState(false)
+  // Preview state (used by remote preview and render fallback)
+  const [preview, setPreview] = useState<string>("")
+  // Only the setter is used by the preview fetch; ignore the value to avoid unused variable
+  const [, setPreviewLoading] = useState<boolean>(false)
 
   // ─ Data fetching ───────────────────────────────────────────────────────────
   const { data: config, isLoading: configLoading } = useQuery({
@@ -149,6 +154,21 @@ export default function NumberSeriesEntityConfigPage() {
   }, [prefixes, editedPrefixes.length])
 
   // ─ Debounced preview ───────────────────────────────────────────────────────
+  // Compute preview locally from formState so it updates immediately as the
+  // user types — no API round-trip needed for the format preview.
+  const localPreview = useMemo(() => {
+    if (!formState || !initialized) return ""
+    const prefix = editedPrefixes.length > 0 ? editedPrefixes[0].prefix : (config?.prefix ?? "??")
+    const parts: string[] = [prefix]
+    if (formState.include_abbreviation) {
+      const abbrevLen = formState.abbreviation_length ?? 3
+      parts.push("ABCDEFGH".slice(0, Math.max(2, Math.min(6, abbrevLen))))
+    }
+    const seqLen = formState.sequence_length ?? 6
+    parts.push("0".repeat(Math.max(1, Math.min(10, seqLen))))
+    return parts.join(formState.separator ?? "-")
+  }, [formState, editedPrefixes, initialized, config?.prefix])
+
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchPreview = useCallback(async () => {
@@ -233,6 +253,7 @@ export default function NumberSeriesEntityConfigPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["number-series-config", entityType] })
       queryClient.invalidateQueries({ queryKey: ["number-series-prefixes", entityType] })
+      queryClient.invalidateQueries({ queryKey: ["number-series-audit", entityType] })
       queryClient.invalidateQueries({ queryKey: ["number-series"] })
       toast({
         title: "Configuration saved",
@@ -274,6 +295,8 @@ export default function NumberSeriesEntityConfigPage() {
   // ─ Computed ────────────────────────────────────────────────────────────────
   const entityLabel = useMemo(() => formatEntityType(entityType || ""), [entityType])
   const isLoading = configLoading || prefixesLoading
+  // Memoize the assistant config so it doesn't re-create on every render
+  const assistantConfig = useMemo(() => makeNumberSeriesEntityAssistant(entityLabel), [entityLabel])
 
   if (isLoading) {
     return (
@@ -286,16 +309,22 @@ export default function NumberSeriesEntityConfigPage() {
   return (
     <div className="max-w-3xl space-y-6 pb-8">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold">Number Series — {entityLabel}</h1>
-          <p className="text-sm text-muted-foreground">
-            Configure code generation settings for {entityLabel.toLowerCase()} entities
-          </p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">Number Series — {entityLabel}</h1>
+            <p className="text-sm text-muted-foreground">
+              Configure code generation settings for {entityLabel.toLowerCase()} entities
+            </p>
+          </div>
         </div>
+        <BusinessAssistantPanel
+          config={assistantConfig}
+          triggerLabel="Business Assistant"
+        />
       </div>
 
       <Tabs defaultValue="configuration" className="w-full">
@@ -318,11 +347,7 @@ export default function NumberSeriesEntityConfigPage() {
             </CardHeader>
             <CardContent>
               <div className="rounded-md bg-muted px-4 py-3 font-mono text-lg">
-                {previewLoading ? (
-                  <span className="text-muted-foreground animate-pulse">Generating...</span>
-                ) : (
-                  preview || "—"
-                )}
+                {localPreview || preview || "—"}
               </div>
             </CardContent>
           </Card>
@@ -341,14 +366,28 @@ export default function NumberSeriesEntityConfigPage() {
                   onCheckedChange={(checked) => updateField("auto_generate", checked === true)}
                   disabled={!canEdit}
                 />
-                <Label htmlFor="auto_generate" className="cursor-pointer">
+                <Label htmlFor="auto_generate" className="cursor-pointer flex items-center">
                   Auto-generate codes
+                  <FieldHelpIcon
+                    purpose="Automatically creates the code when a new record is saved."
+                    meaning="When enabled, users never type a code — MedTrack picks the next number in sequence."
+                    example="RM-000001"
+                    recommendation="Keep enabled in production. Only disable when migrating legacy data."
+                  />
                 </Label>
               </div>
 
               {/* Manual Override */}
               <div className="space-y-2">
-                <Label htmlFor="manual_override">Manual Override Policy</Label>
+                <Label htmlFor="manual_override" className="flex items-center">
+                  Manual Override Policy
+                  <FieldHelpIcon
+                    purpose="Controls who can enter a custom code instead of the auto-generated one."
+                    meaning="Never = nobody overrides. Admin Only = only admins can. Always = any user can."
+                    example="Never"
+                    recommendation="Use 'Never' in production. 'Admin Only' only during data migration."
+                  />
+                </Label>
                 <Select
                   value={formState.manual_override || "never"}
                   onValueChange={(val) =>
@@ -375,15 +414,29 @@ export default function NumberSeriesEntityConfigPage() {
                   onCheckedChange={(checked) => updateField("include_abbreviation", checked === true)}
                   disabled={!canEdit}
                 />
-                <Label htmlFor="include_abbreviation" className="cursor-pointer">
+                <Label htmlFor="include_abbreviation" className="cursor-pointer flex items-center">
                   Include abbreviation in code
+                  <FieldHelpIcon
+                    purpose="Adds a short text derived from the item name into the code."
+                    meaning="Code becomes PREFIX-ABC-000001 instead of PREFIX-000001."
+                    example="RM-STE-000001 (Steel → STE)"
+                    recommendation="Enable for Materials and Products where item names are meaningful."
+                  />
                 </Label>
               </div>
 
               {/* Abbreviation Length — only visible when include_abbreviation is on */}
               {formState.include_abbreviation && (
                 <div className="space-y-2">
-                  <Label htmlFor="abbreviation_length">Abbreviation Length</Label>
+                  <Label htmlFor="abbreviation_length" className="flex items-center">
+                    Abbreviation Length
+                    <FieldHelpIcon
+                      purpose="How many characters of the item name to include in the code."
+                      meaning="3 is standard. More characters = more descriptive but longer codes."
+                      example="3 → STE (from Steel)"
+                      recommendation="Use 3. Must be between 2 and 6."
+                    />
+                  </Label>
                   <Input
                     id="abbreviation_length"
                     type="number"
@@ -402,7 +455,15 @@ export default function NumberSeriesEntityConfigPage() {
 
               {/* Sequence Length */}
               <div className="space-y-2">
-                <Label htmlFor="sequence_length">Sequence Length</Label>
+                <Label htmlFor="sequence_length" className="flex items-center">
+                  Sequence Length
+                  <FieldHelpIcon
+                    purpose="How many digits the numeric counter uses in the generated code."
+                    meaning="6 digits supports up to 999,999 unique codes, zero-padded (000001, 000002...)."
+                    example="6 → 000001"
+                    recommendation="Use 6. Only increase to 8 if you expect over 1 million records."
+                  />
+                </Label>
                 <Input
                   id="sequence_length"
                   type="number"
@@ -420,7 +481,15 @@ export default function NumberSeriesEntityConfigPage() {
 
               {/* Separator */}
               <div className="space-y-2">
-                <Label htmlFor="separator">Separator</Label>
+                <Label htmlFor="separator" className="flex items-center">
+                  Separator
+                  <FieldHelpIcon
+                    purpose="The character placed between each segment of the generated code."
+                    meaning="Typically a hyphen (-). Separates prefix, abbreviation and sequence number."
+                    example="- gives RM-STE-000001"
+                    recommendation="Use '-' consistently across all entity types."
+                  />
+                </Label>
                 <Input
                   id="separator"
                   type="text"
@@ -444,8 +513,14 @@ export default function NumberSeriesEntityConfigPage() {
                   onCheckedChange={(checked) => updateField("lock_after_save", checked === true)}
                   disabled={!canEdit}
                 />
-                <Label htmlFor="lock_after_save" className="cursor-pointer">
+                <Label htmlFor="lock_after_save" className="cursor-pointer flex items-center">
                   Lock code after save (immutable)
+                  <FieldHelpIcon
+                    purpose="Prevents the generated code from being changed after the record is first saved."
+                    meaning="Essential for financial and audit compliance. Once locked, codes cannot be edited via the UI."
+                    example="✓ Enabled"
+                    recommendation="Always enable for all entity types in production."
+                  />
                 </Label>
               </div>
             </CardContent>
@@ -455,7 +530,15 @@ export default function NumberSeriesEntityConfigPage() {
           {editedPrefixes.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Sub-Type Prefixes</CardTitle>
+                <CardTitle className="flex items-center gap-1">
+                  Sub-Type Prefixes
+                  <FieldHelpIcon
+                    purpose="Per-category prefixes that make codes self-identifying by sub-type."
+                    meaning="E.g. Raw Materials get prefix RM, Finished Goods get FG. Each sub-type prefix must be unique."
+                    example="RM → RM-STE-000001"
+                    recommendation="Use 2–4 uppercase letters. Each sub-type prefix must be different."
+                  />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>

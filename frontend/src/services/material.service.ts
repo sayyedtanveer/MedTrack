@@ -132,6 +132,58 @@ export const materialService = {
     return data;
   },
 
+  async updateUnit(
+    id: string,
+    body: { name?: string; precision?: number; is_active?: boolean }
+  ): Promise<UnitOfMeasure> {
+    const { data } = await apiClient.put<UnitOfMeasure>(
+      `/inventory/master-data/units/${id}`,
+      body
+    );
+    return data;
+  },
+
+  async deleteUnit(id: string): Promise<void> {
+    await apiClient.delete(`/inventory/master-data/units/${id}`);
+  },
+
+  async createCategory(body: {
+    name: string;
+    code_prefix: string;
+    description?: string;
+    is_active?: boolean;
+  }): Promise<Category> {
+    const { data } = await apiClient.post<Category>(
+      "/inventory/master-data/categories",
+      body
+    );
+    return data;
+  },
+
+  async updateCategory(
+    id: string,
+    body: {
+      name?: string;
+      code_prefix?: string;
+      description?: string;
+      is_active?: boolean;
+    }
+  ): Promise<Category> {
+    const { data } = await apiClient.put<Category>(
+      `/inventory/master-data/categories/${id}`,
+      body
+    );
+    return data;
+  },
+
+  async deleteCategory(id: string): Promise<void> {
+    await apiClient.delete(`/inventory/master-data/categories/${id}`);
+  },
+
+  async deleteLocation(id: string): Promise<void> {
+    await apiClient.delete(`/inventory/master-data/locations/${id}`);
+  },
+
   // ── Inventory Extended ──────────────────────────────────────────────────
   async getStockLedger(params?: { material_id?: string; limit?: number }) {
     const { data } = await apiClient.get("/inventory/ledger", { params });

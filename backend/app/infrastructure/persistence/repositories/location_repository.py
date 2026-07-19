@@ -1,8 +1,13 @@
+import uuid
 from typing import Type
+
+from sqlalchemy import func, select
 
 from backend.app.domain.inventory.entities.location import Location, LocationType
 from backend.app.infrastructure.persistence.models.location_model import LocationModel
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.repositories.base_repository import BaseRepository
+
 
 class LocationRepository(BaseRepository[Location, LocationModel]):
     def _model_class(self) -> Type[LocationModel]:
@@ -38,3 +43,21 @@ class LocationRepository(BaseRepository[Location, LocationModel]):
             is_deleted=entity.is_deleted,
             deleted_at=entity.deleted_at,
         )
+
+    async def count_material_references(self, location_id: uuid.UUID) -> int:
+        """Count active materials where location_id = location_id and is_deleted = False."""
+        stmt = select(func.count(MaterialModel.id)).where(
+            MaterialModel.location_id == location_id,
+            MaterialModel.is_deleted.is_(False),
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
+
+    async def count_active_children(self, location_id: uuid.UUID) -> int:
+        """Count locations where parent_location_id = location_id and is_deleted = False."""
+        stmt = select(func.count(LocationModel.id)).where(
+            LocationModel.parent_location_id == location_id,
+            LocationModel.is_deleted.is_(False),
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one()

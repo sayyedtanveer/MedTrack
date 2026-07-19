@@ -28,6 +28,8 @@ class Tenant(BaseEntity):
         updated_at: Optional[datetime] = None,
         is_deleted: bool = False,
         deleted_at: Optional[datetime] = None,
+        timezone: Optional[str] = None,
+        default_warehouse_name: Optional[str] = None,
     ) -> None:
         # Tenant's own id IS its tenant_id
         resolved_id = id or uuid.uuid4()
@@ -43,6 +45,8 @@ class Tenant(BaseEntity):
         self._slug = slug
         self._plan = plan
         self._is_active = is_active
+        self._timezone = timezone
+        self._default_warehouse_name = default_warehouse_name
 
         self._validate()
 
@@ -62,6 +66,14 @@ class Tenant(BaseEntity):
     @property
     def is_active(self) -> bool:
         return self._is_active
+
+    @property
+    def timezone(self) -> Optional[str]:
+        return self._timezone
+
+    @property
+    def default_warehouse_name(self) -> Optional[str]:
+        return self._default_warehouse_name
 
     # ── Invariants ────────────────────────────────────────────────────────
     def _validate(self) -> None:

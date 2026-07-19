@@ -10,6 +10,11 @@ export interface CompanySetupStatusResponse {
   bom: boolean
   openingStock: boolean
   progress: number
+  units: boolean
+  categories: boolean
+  locations: boolean
+  users: boolean
+  readyToStart: boolean
 }
 
 export const setupStatusService = {

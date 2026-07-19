@@ -8,7 +8,10 @@ import {
   Circle,
   FileStack,
   Hash,
+  MapPin,
   Package,
+  Ruler,
+  Tag,
   Users,
   Warehouse,
 } from "lucide-react"
@@ -28,12 +31,17 @@ import { setupStatusService, type CompanySetupStatusResponse } from "@/services/
 type SetupStepKey =
   | "company"
   | "numberSeries"
+  | "units"
+  | "categories"
+  | "locations"
+  | "users"
   | "supplier"
   | "customer"
   | "material"
   | "product"
   | "bom"
   | "openingStock"
+  | "readyToStart"
 
 interface SetupStepDefinition {
   key: SetupStepKey
@@ -57,6 +65,34 @@ const setupStepDefinitions: SetupStepDefinition[] = [
     description: "Set prefix and sequence formats for documents and items.",
     path: "/settings/business-config/number-series",
     icon: Hash,
+  },
+  {
+    key: "units",
+    title: "Unit Master",
+    description: "Add at least one unit of measure (KG, Piece, Liter...) before creating materials.",
+    path: "/settings/master-data/units",
+    icon: Ruler,
+  },
+  {
+    key: "categories",
+    title: "Material Categories",
+    description: "Add at least one material category (Metal, Packaging...) used by Materials and Products.",
+    path: "/settings/master-data/categories",
+    icon: Tag,
+  },
+  {
+    key: "locations",
+    title: "Storage Locations",
+    description: "Configure your warehouse storage areas before assigning locations to materials.",
+    path: "/settings/master-data/locations",
+    icon: MapPin,
+  },
+  {
+    key: "users",
+    title: "Users",
+    description: "Add at least one operational user so your team can use the ERP.",
+    path: "/users",
+    icon: Users,
   },
   {
     key: "supplier",
@@ -99,6 +135,13 @@ const setupStepDefinitions: SetupStepDefinition[] = [
     description: "Record the initial inventory balance for the first period.",
     path: "/inventory/transactions",
     icon: Warehouse,
+  },
+  {
+    key: "readyToStart",
+    title: "Ready to Start Business",
+    description: "Review your setup summary and confirm the ERP is ready for live operations.",
+    path: "/settings/company-setup",
+    icon: CheckCircle2,
   },
 ]
 
@@ -168,6 +211,112 @@ export default function CompanySetupPage() {
           const Icon = step.icon
           const isComplete = Boolean(status?.[step.key])
 
+          // ── Special card: Ready to Start Business ──────────────────────────
+          if (step.key === "readyToStart") {
+            const REQUIRED_ITEMS = [
+              { key: "company" as SetupStepKey, label: "Company Profile", path: "/settings/company-profile" },
+              { key: "numberSeries" as SetupStepKey, label: "Number Series", path: "/settings/business-config/number-series" },
+              { key: "units" as SetupStepKey, label: "Units of Measure", path: "/settings/master-data/units" },
+              { key: "categories" as SetupStepKey, label: "Material Categories", path: "/settings/master-data/categories" },
+              { key: "locations" as SetupStepKey, label: "Storage Locations", path: "/settings/master-data/locations" },
+              { key: "supplier" as SetupStepKey, label: "Suppliers", path: "/procurement/suppliers" },
+              { key: "customer" as SetupStepKey, label: "Customers", path: "/sales/clients" },
+              { key: "material" as SetupStepKey, label: "Materials", path: "/inventory/materials" },
+              { key: "product" as SetupStepKey, label: "Products", path: "/products" },
+            ]
+            const RECOMMENDED_ITEMS = [
+              { key: "bom" as SetupStepKey, label: "Bill of Materials", path: "/bom" },
+              { key: "openingStock" as SetupStepKey, label: "Opening Stock", path: "/inventory/transactions" },
+              { key: "users" as SetupStepKey, label: "Users", path: "/users" },
+            ]
+            const requiredComplete = REQUIRED_ITEMS.filter(i => Boolean(status?.[i.key])).length
+
+            return (
+              <Card key={step.key} className="lg:col-span-2 border-primary/20">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-full bg-background p-2 shadow-sm">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <CardTitle className="text-base">Ready to Start Business</CardTitle>
+                      <CardDescription className="mt-1">Review your setup summary before going live.</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Summary bar */}
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-slate-700">
+                        {requiredComplete} of {REQUIRED_ITEMS.length} required checks complete
+                      </span>
+                      <Badge variant={requiredComplete === REQUIRED_ITEMS.length ? "default" : "secondary"}>
+                        {requiredComplete === REQUIRED_ITEMS.length ? "Ready" : "Pending"}
+                      </Badge>
+                    </div>
+                    <Progress value={Math.round((requiredComplete / REQUIRED_ITEMS.length) * 100)} className="h-2" />
+                  </div>
+
+                  {/* Required section */}
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Required</p>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {REQUIRED_ITEMS.map(item => {
+                        const done = Boolean(status?.[item.key])
+                        return (
+                          <div key={item.key} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">{done ? "✅" : "⏳"}</span>
+                              <span className="text-sm text-slate-700">{item.label}</span>
+                            </div>
+                            {!done && (
+                              <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700" onClick={() => navigate(item.path)}>
+                                Configure
+                              </Button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Recommended section */}
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Recommended</p>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {RECOMMENDED_ITEMS.map(item => {
+                        const done = Boolean(status?.[item.key])
+                        return (
+                          <div key={item.key} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">{done ? "✅" : "⏳"}</span>
+                              <span className="text-sm text-slate-700">{item.label}</span>
+                            </div>
+                            {!done && (
+                              <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700" onClick={() => navigate(item.path)}>
+                                Configure
+                              </Button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Go to Dashboard */}
+                  <div className="flex justify-end pt-2">
+                    <Button onClick={() => navigate("/")} className="gap-2">
+                      Go to Dashboard
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          }
+
+          // ── Normal step card ───────────────────────────────────────────────
           return (
             <Card key={step.key} className={isComplete ? "border-emerald-200 bg-emerald-50/70" : ""}>
               <CardHeader className="pb-3">

@@ -25,6 +25,26 @@ async def _get_db_session(request: Request):
         yield session
 
 
+@router.get("", include_in_schema=False)
+async def get_notifications_root(
+    unread_only: bool = Query(False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(_get_db_session),
+):
+    """Compatibility alias for GET /notifications and GET /notifications/."""
+    return await get_notifications(
+        unread_only=unread_only,
+        page=page,
+        page_size=page_size,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        session=session,
+    )
+
+
 @router.get("/")
 async def get_notifications(
     unread_only: bool = Query(False),

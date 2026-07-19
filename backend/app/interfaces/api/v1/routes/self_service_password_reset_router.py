@@ -112,7 +112,14 @@ async def request_password_reset(
         # Find user by email (any tenant, any role)
         stmt = select(UserModel).where(UserModel.email == email)
         result = await session.execute(stmt)
-        user = result.scalar_one_or_none()
+        try:
+            user = result.scalar_one_or_none()
+        except Exception:
+            # In case of duplicate rows (e.g. legacy data), fall back to the first active row.
+            rows = result.scalars().all()
+            user = next((row for row in rows if getattr(row, "is_active", True)), None)
+            if user is None and rows:
+                user = rows[0]
         
         if not user:
             # Still return generic response (don't leak that user doesn't exist)

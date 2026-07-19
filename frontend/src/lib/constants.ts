@@ -22,6 +22,11 @@ import {
   TrendingUp,
   Gauge,
   CalendarDays,
+  Building2,
+  Database,
+  Ruler,
+  Tag,
+  MapPin,
   LucideIcon,
 } from "lucide-react"
 import { UserRole, getRolesForModule } from "@/lib/roles.config"
@@ -346,10 +351,42 @@ export const NAV_ITEMS: NavItem[] = [
     roles: getRolesForModule("settings"),
     children: [
       {
+        title: "Company Profile",
+        href: "/settings/company-profile",
+        icon: Building2,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
+      },
+      {
         title: "Business Configuration",
         href: "/settings/business-config",
         icon: Settings,
         roles: getRolesForModule("settings"),
+      },
+      {
+        title: "Master Data",
+        href: "/settings/master-data/units",
+        icon: Database,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
+        children: [
+          {
+            title: "Units",
+            href: "/settings/master-data/units",
+            icon: Ruler,
+            roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
+          },
+          {
+            title: "Material Categories",
+            href: "/settings/master-data/categories",
+            icon: Tag,
+            roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
+          },
+          {
+            title: "Storage Locations",
+            href: "/settings/master-data/locations",
+            icon: MapPin,
+            roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
+          },
+        ],
       },
     ],
   },

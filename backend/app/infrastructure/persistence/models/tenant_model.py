@@ -37,6 +37,8 @@ class TenantModel(Base):
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     footer_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     signature_image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    timezone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    default_warehouse_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

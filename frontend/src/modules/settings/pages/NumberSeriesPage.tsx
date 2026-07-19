@@ -11,6 +11,8 @@ import { TableSkeleton } from "@/components/shared/LoadingSkeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { usePermissions } from "@/hooks/usePermissions"
+import { BusinessAssistantPanel } from "@/components/shared/BusinessAssistantPanel"
+import { numberSeriesListAssistant } from "../business-assistant/numberSeriesAssistant"
 
 /** Human-friendly labels for entity types */
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -154,6 +156,12 @@ export default function NumberSeriesPage() {
       <PageHeader
         title="Number Series"
         description="Configure how item codes and document numbers are generated for each entity type."
+        action={
+          <BusinessAssistantPanel
+            config={numberSeriesListAssistant}
+            triggerLabel="Business Assistant"
+          />
+        }
       />
 
       {isLoading ? (
