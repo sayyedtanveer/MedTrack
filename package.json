@@ -1,22 +1,33 @@
 {
   "name": "medtrack-erp",
   "version": "0.1.0",
-  "description": "MedTrack ERP - Multi-tenant Manufacturing System",
-  "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
-    "backend:dev": ".venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload",
-    "backend:prod": ".venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8001",
-    "frontend:dev": "cd frontend && npm run dev",
-    "frontend:build": "cd frontend && npm run build",
-    "frontend:preview": "cd frontend && npm run preview",
-    "build": "npm run frontend:build",
-    "test": "python -m pytest",
-    "test:e2e": "python test_e2e.py",
-    "test:bom": "python test_bom_api.py",
-    "test:login": "python debug_login.py"
+    "dev": "tsx server.ts",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs"
   },
   "dependencies": {
-    "concurrently": "^9.0.0"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "lucide-react": "^0.435.0",
+    "motion": "^11.11.17",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.23.1",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^4.0.0-alpha.20",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "@vitejs/plugin-react": "^4.3.1"
   }
 }

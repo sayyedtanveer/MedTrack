@@ -1,0 +1,8 @@
+{
+  "name": "MedTrack ERP",
+  "description": "A comprehensive multi-tenant Manufacturing ERP System for managing product templates, BOMs, work orders, inventory, and sales orders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
