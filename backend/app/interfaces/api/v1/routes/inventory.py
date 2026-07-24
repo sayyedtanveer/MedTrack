@@ -49,6 +49,7 @@ from backend.app.interfaces.api.v1.schemas.inventory_schemas import (
     TransactionRequest,
     TransactionResponse,
     UpdateMaterialRequest,
+    PurchaseHistoryPaginatedResponse,
 )
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
@@ -224,6 +225,7 @@ async def update_material(
                     is_batch_tracked=body.is_batch_tracked,
                     is_serialized=body.is_serialized,
                     is_active=body.is_active,
+                    current_cost=body.current_cost,
                     inspection_required=patch["inspection_required"]
                     if "inspection_required" in patch
                     else MISSING,
@@ -435,3 +437,31 @@ async def list_transactions(
         )
 
     return [TransactionResponse.model_validate(tx) for tx in results]
+
+
+@router.get(
+    "/materials/{material_id}/purchase-history",
+    response_model=PurchaseHistoryPaginatedResponse,
+    summary="Get purchase history for a material",
+    dependencies=[Depends(require_permission("inventory:read"))],
+)
+async def get_material_purchase_history(
+    material_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+):
+    container = get_container(request)
+    async with container.session_factory() as session:
+        material_repo = MaterialRepository(session)
+        material = await material_repo.get_by_id(material_id, tenant_id)
+        if not material:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
+
+        from backend.app.application.procurement.services.purchase_history_query_service import PurchaseHistoryQueryService
+        purchase_history_svc = PurchaseHistoryQueryService(session)
+        res = await purchase_history_svc.get_purchase_history(
+            material_id=material_id, tenant_id=tenant_id, page=page, page_size=page_size
+        )
+        return res

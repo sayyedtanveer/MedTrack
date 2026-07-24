@@ -18,9 +18,12 @@ import { formatCurrency } from '@/utils/currency';
 import { REALTIME_EVENT_NAME } from '@/components/notifications/RealtimeNotificationsBridge';
 import SalesWorkflowTimeline from '@/modules/sales/components/SalesWorkflowTimeline';
 import SalesOrderActionPanel from '@/modules/sales/components/SalesOrderActionPanel';
+import DispatchPanel from '@/modules/sales/components/DispatchPanel';
 import { SO_STATUS_COLOR_MAP } from '@/modules/sales/components/SalesOrderStatusConfig';
 import { financeService, type Invoice } from '@/services/finance.service';
 import { AuditHistoryTab } from '@/components/shared/AuditHistoryTab';
+import { useToast } from '@/hooks/use-toast';
+import { toast as sonnerToast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +39,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import workOrderService from '@/services/work-order.service';
+import { productService } from '@/services/product.service';
+import type { ItemVariantSearchItem } from '@/types/bom.types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Line Status Badge Colors (Req 19.3, 19.4)
 const LINE_STATUS_COLORS: Record<string, string> = {
@@ -50,6 +56,7 @@ const LINE_STATUS_COLORS: Record<string, string> = {
 export default function SalesOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { toast: _toast } = useToast();
   const [order, setOrder] = useState<SalesOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +76,14 @@ export default function SalesOrderDetailPage() {
     quantity: 1,
     tax_rate: 0
   });
+
+  const [variants, setVariants] = useState<ItemVariantSearchItem[]>([]);
+
+  useEffect(() => {
+    productService.searchVariants({ is_active: true, page_size: 100 })
+      .then(res => setVariants(res.items))
+      .catch(console.error);
+  }, []);
 
   const loadOrder = useCallback(async (silent = false) => {
     if (!id) return;
@@ -163,10 +178,11 @@ export default function SalesOrderDetailPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Action failed';
       if (action === 'confirm') {
-        // Show inline error for credit/inventory confirmation failures (Req 3.8, 11.8)
         setConfirmError(message);
+        sonnerToast.error('Order Confirmation Failed', { description: message });
       } else {
         setError(message);
+        sonnerToast.error('Action Failed', { description: message });
       }
     } finally {
       setActionLoading(false);
@@ -229,10 +245,22 @@ export default function SalesOrderDetailPage() {
 
     setActionLoading(true);
     try {
-      // Find product BOM (simplified - in production you'd query for the correct BOM)
+      // Fetch the active BOM for this product variant
+      let bomId = line.product_id; // fallback — will be replaced below
+      try {
+        const bomsResp = await fetch(`/api/v1/products/${line.product_id}/boms?is_active=true`);
+        if (bomsResp.ok) {
+          const bomsData = await bomsResp.json();
+          const activeBom = (bomsData.items ?? bomsData)?.[0];
+          if (activeBom?.id) bomId = activeBom.id;
+        }
+      } catch {
+        // If BOM fetch fails, fall through — backend will reject if BOM is invalid
+      }
+
       await workOrderService.create({
         product_id: line.product_id,
-        bom_id: line.product_id, // Simplified - should be actual BOM ID
+        bom_id: bomId,
         planned_quantity: remaining,
         start_date: new Date().toISOString().split('T')[0],
         due_date: order.delivery_date,
@@ -512,22 +540,76 @@ export default function SalesOrderDetailPage() {
           
           {order.status === OrderStatus.DRAFT && (
             <div className="mt-6 border-t pt-6">
-              <h4 className="font-semibold mb-4 text-gray-800">Add Line Item</h4>
+              <h4 className="font-semibold mb-2 text-gray-800">Add Line Item</h4>
+
+              {/* Guidance callout — explains the Product Variant → Material link requirement */}
+              <div className="mb-4 rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
+                <p className="font-medium mb-1">How products work in sales orders</p>
+                <p>
+                  You select a <strong>Product Variant</strong> (e.g. "Widget — Size L"). For the order to be
+                  confirmed and inventory reserved, each variant must have a{' '}
+                  <strong>Finished Goods material linked</strong> to it. Variants with ⚠ are not linked yet —
+                  go to <span className="font-mono">Products → [product] → Manage Variants → Edit</span> to
+                  link the inventory material before using them in orders.
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                 <div className="col-span-2">
                   <label className="text-sm font-medium text-gray-700 block mb-1">Product Variant *</label>
-                  <Input 
-                    placeholder="Search/select variant by item code"
+                  <Select 
                     value={newLine.product_id}
-                    onChange={(e) => setNewLine({ ...newLine, product_id: e.target.value })}
-                  />
+                    onValueChange={(val) => {
+                      const variant = variants.find(v => v.id === val);
+                      setNewLine({ 
+                        ...newLine, 
+                        product_id: val, 
+                        uom_id: variant?.base_unit_id || '' 
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a product variant" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {variants.map(v => {
+                        const hasNoMaterial = !v.stock_material_id && !(v as any).material_id;
+                        return (
+                          <SelectItem key={v.id} value={v.id}>
+                            <span className="flex items-center gap-1.5">
+                              {hasNoMaterial && (
+                                <span className="text-amber-500 font-bold">⚠</span>
+                              )}
+                              {v.name} ({v.code})
+                              {hasNoMaterial && (
+                                <span className="text-xs text-amber-600 ml-1">— no material linked</span>
+                              )}
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  {/* Inline warning if the selected variant has no material */}
+                  {newLine.product_id && (() => {
+                    const selected = variants.find(v => v.id === newLine.product_id);
+                    const hasNoMaterial = selected && !selected.stock_material_id && !(selected as any).material_id;
+                    return hasNoMaterial ? (
+                      <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        ⚠ This variant has no inventory material linked. Order confirmation will fail.
+                        Link a material in <strong>Products → Manage Variants</strong> first.
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">Unit of Measure *</label>
                   <Input 
-                    placeholder="Select UOM"
+                    placeholder="Auto-filled UOM"
                     value={newLine.uom_id}
-                    onChange={(e) => setNewLine({ ...newLine, uom_id: e.target.value })}
+                    readOnly
+                    className="bg-gray-100 text-gray-500 cursor-not-allowed"
+                    title="UOM is automatically inherited from the product"
                   />
                 </div>
                 <div>
@@ -593,6 +675,13 @@ export default function SalesOrderDetailPage() {
         confirmError={confirmError}
         onAction={handleStatusChange}
       />
+
+      {/* Dispatch Panel — shown for READY_FOR_DISPATCH, SHIPPED statuses */}
+      {(order.status === OrderStatus.READY_FOR_DISPATCH ||
+        order.status === OrderStatus.SHIPPED ||
+        order.status === OrderStatus.DELIVERED) && (
+        <DispatchPanel order={order} onOrderUpdate={() => void loadOrder(true)} />
+      )}
 
       {/* Invoice Display Section (Req 2.5, 2.6) */}
       {invoice && (order.status === OrderStatus.INVOICED || 

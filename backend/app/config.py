@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 10
 
+    # ── Cloudinary (image storage) ───────────────
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
+
     # ── Redis ────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
 

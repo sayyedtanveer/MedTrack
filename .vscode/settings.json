@@ -1,5 +1,6 @@
 {
     "chat.tools.terminal.autoApprove": {
         "c:/Users/sayye/source/repos/MedTrack/.venv/Scripts/python.exe": true
-    }
+    },
+    "typescript.autoClosingTags": false
 }

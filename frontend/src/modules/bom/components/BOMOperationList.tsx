@@ -15,7 +15,8 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Lock } from "lucide-react"
+import { Lock, Search } from "lucide-react"
+import { OperationFormDrawer } from "@/modules/manufacturing/components/OperationFormDrawer"
 
 interface BOMOperationListProps {
   bom: BOM
@@ -32,6 +33,10 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
   const [form, setForm] = useState<AttachForm>({ operation_id: "", sequence: "" })
   const [showForm, setShowForm] = useState(false)
   const [attachError, setAttachError] = useState<string | null>(null)
+  
+  // Search & Inline Create
+  const [opSearch, setOpSearch] = useState("")
+  const [showCreateOp, setShowCreateOp] = useState(false)
 
   // Fetch available operations
   const { data: operations, isLoading: loadingOps } = useQuery({
@@ -97,6 +102,10 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
     if (!attachedOps || attachedOps.length === 0) return "10"
     return String(Math.max(...attachedOps.map((o) => o.sequence)) + 10)
   }
+
+  const filteredOperations = (operations ?? []).filter(op =>
+    op.name.toLowerCase().includes(opSearch.toLowerCase())
+  )
 
   return (
     <div className="space-y-4">
@@ -276,28 +285,47 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Operation selector */}
                 <div className="space-y-1.5 sm:col-span-1">
-                  <Label>Operation</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Operation</Label>
+                    <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setShowCreateOp(true)}>
+                      + Create New
+                    </Button>
+                  </div>
                   {loadingOps ? (
                     <Skeleton className="h-9 w-full" />
                   ) : (
-                    <Select
-                      value={form.operation_id}
-                      onValueChange={(v) => setForm((f) => ({ ...f, operation_id: v }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select operation..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(operations ?? []).map((op) => (
-                          <SelectItem key={op.id} value={op.id}>
-                            <span className="font-medium">{op.name}</span>
-                            <span className="text-muted-foreground text-xs ml-2">
-                              @ {getWsName(op.workstation_id)}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input 
+                          placeholder="Search operations..." 
+                          className="pl-8" 
+                          value={opSearch}
+                          onChange={(e) => setOpSearch(e.target.value)}
+                        />
+                      </div>
+                      <Select
+                        value={form.operation_id}
+                        onValueChange={(v) => setForm((f) => ({ ...f, operation_id: v }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select operation..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filteredOperations.map((op) => (
+                            <SelectItem key={op.id} value={op.id}>
+                              <span className="font-medium">{op.name}</span>
+                              <span className="text-muted-foreground text-xs ml-2">
+                                @ {getWsName(op.workstation_id)}
+                              </span>
+                            </SelectItem>
+                          ))}
+                          {filteredOperations.length === 0 && (
+                            <div className="py-2 text-center text-sm text-muted-foreground">No operations found.</div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
                 </div>
 
@@ -372,6 +400,17 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
             </div>
           )}
         </div>
+      )}
+
+      {showCreateOp && (
+        <OperationFormDrawer 
+          isNew 
+          open={showCreateOp} 
+          onClose={() => {
+            setShowCreateOp(false)
+            qc.invalidateQueries({ queryKey: ["operations"] })
+          }} 
+        />
       )}
     </div>
   )

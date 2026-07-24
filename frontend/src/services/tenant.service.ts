@@ -15,7 +15,7 @@ export const tenantService = {
   async uploadLogo(file: File): Promise<{ url: string }> {
     const form = new FormData();
     form.append("file", file);
-    const { data } = await apiClient.post<{ url: string }>("/files", form, {
+    const { data } = await apiClient.post<{ url: string }>("/files/upload-logo", form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
     return { url: data.url };

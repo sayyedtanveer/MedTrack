@@ -41,6 +41,7 @@ class UpdateMaterialCommand:
     is_batch_tracked: Optional[bool] = None
     is_serialized: Optional[bool] = None
     is_active: Optional[bool] = None
+    current_cost: Optional[Decimal] = None
     inspection_required: Any = field(default=MISSING)
     inspection_template_id: Any = field(default=MISSING)
     # Code immutability: MISSING means "not provided" (retain existing), explicit value triggers check

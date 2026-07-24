@@ -59,6 +59,7 @@ from backend.app.application.sales.commands import (
     AddPriceListLineCommand,
     UpdatePriceListLineCommand,
     RemovePriceListLineCommand,
+    UpdatePriceListCommand,
 )
 
 from backend.app.application.sales.queries import (
@@ -101,6 +102,7 @@ from backend.app.application.sales.client_handlers import (
     AddPriceListLineCommandHandler,
     UpdatePriceListLineCommandHandler,
     RemovePriceListLineCommandHandler,
+    UpdatePriceListCommandHandler,
 )
 
 from backend.app.application.sales.query_handlers import (
@@ -143,6 +145,7 @@ __all__ = [
     "AddPriceListLineCommand",
     "UpdatePriceListLineCommand",
     "RemovePriceListLineCommand",
+    "UpdatePriceListCommand",
     # Queries
     "GetClientByIdQuery",
     "GetClientByCodeQuery",
@@ -178,6 +181,7 @@ __all__ = [
     "AddPriceListLineCommandHandler",
     "UpdatePriceListLineCommandHandler",
     "RemovePriceListLineCommandHandler",
+    "UpdatePriceListCommandHandler",
     # Query Handlers
     "GetClientByIdQueryHandler",
     "GetClientByCodeQueryHandler",

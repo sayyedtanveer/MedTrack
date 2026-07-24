@@ -12,6 +12,7 @@ const CompanyProfilePage = lazy(() => import("./pages/CompanyProfilePage"))
 const UnitMasterPage = lazy(() => import("./pages/UnitMasterPage"))
 const CategoryMasterPage = lazy(() => import("./pages/CategoryMasterPage"))
 const LocationMasterPage = lazy(() => import("./pages/LocationMasterPage"))
+const MasterDataPage = lazy(() => import("./pages/MasterDataPage"))
 
 const PageLoading = () => <div className="p-8 flex items-center justify-center">Loading...</div>
 const settingsRoles = getRolesForModule("settings")
@@ -51,6 +52,10 @@ export const settingsRoutes: RouteObject[] = [
   {
     path: "settings/company-profile",
     element: settingsElement(<CompanyProfilePage />),
+  },
+  {
+    path: "settings/master-data",
+    element: settingsElement(<MasterDataPage />),
   },
   {
     path: "settings/master-data/units",

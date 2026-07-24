@@ -4,7 +4,9 @@ import logging
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Any
+
+from sqlalchemy import select, func
 
 from backend.app.application.inventory.commands.inventory_commands import (
     MISSING,
@@ -57,6 +59,14 @@ class MaterialResult:
     inspection_template_id: Optional[uuid.UUID]
     is_active: bool
     is_low_stock: bool
+    current_cost: Decimal = Decimal("0")
+    
+    # Purchasing summary fields
+    latest_purchase_price: Optional[Decimal] = None
+    last_purchase_date: Optional[Any] = None
+    last_supplier_name: Optional[str] = None
+    last_supplier_id: Optional[uuid.UUID] = None
+    purchase_count: int = 0
 
 def _to_result(m: Material) -> MaterialResult:
     return MaterialResult(
@@ -82,6 +92,7 @@ def _to_result(m: Material) -> MaterialResult:
         inspection_template_id=m.inspection_template_id,
         is_active=m.is_active,
         is_low_stock=m.is_low_stock(),
+        current_cost=m.current_cost,
     )
 
 
@@ -263,6 +274,59 @@ class UpdateMaterialHandler:
         )
         Material.validate_name_for_type(next_name, next_type)
 
+        # ── Material type change validation ────────────────────────────────
+        # Block type changes when the material already has transactions or stock.
+        # This mirrors industry ERP behaviour (SAP/Oracle): item type is locked
+        # once the material has been transacted.
+        if cmd.material_type is not None and next_type != material.material_type:
+            from backend.app.infrastructure.persistence.models.inventory_transaction_model import InventoryTransactionModel
+
+            has_stock = Decimal(str(material.current_stock or 0)) > 0
+            if has_stock:
+                raise ValueError(
+                    f"Cannot change material type: this material has {material.current_stock} units in stock. "
+                    "Deactivate it and create a new material with the correct type."
+                )
+
+            tx_count = await self._uow.session.scalar(
+                select(func.count(InventoryTransactionModel.id)).where(
+                    InventoryTransactionModel.material_id == cmd.id,
+                    InventoryTransactionModel.tenant_id == cmd.tenant_id,
+                    InventoryTransactionModel.is_deleted.is_(False),
+                )
+            )
+            if tx_count and tx_count > 0:
+                raise ValueError(
+                    f"Cannot change material type: this material has {tx_count} inventory transaction(s). "
+                    "Deactivate it and create a new material with the correct type."
+                )
+
+            # No stock and no transactions — type change is safe.
+            # Update the item code prefix to match the new type so the code
+            # stays consistent with the type (e.g. RM- → FG-).
+            if material.code_locked and material.code:
+                from backend.app.application.inventory.services.item_code_service import ItemCodeService
+                item_code_service = ItemCodeService(self._uow.session)
+                # Map canonical type to item_type sub_type string
+                type_str = next_type.value if hasattr(next_type, "value") else str(next_type)
+                # Generate new code with new type prefix for the same name
+                try:
+                    new_code = await item_code_service.generate_for_entity(
+                        tenant_id=cmd.tenant_id,
+                        entity_type="material",
+                        entity_name=next_name,
+                        user_id=None,
+                        sub_type=type_str,
+                    )
+                    material.code = new_code
+                except Exception:
+                    # If code generation fails, keep the old code but still
+                    # allow the type change — log a warning.
+                    logger.warning(
+                        "Material type changed for %s but code prefix could not be updated automatically.",
+                        cmd.id,
+                    )
+
         if (
             cmd.name is not None
             or cmd.material_type is not None
@@ -287,6 +351,7 @@ class UpdateMaterialHandler:
             is_batch_tracked=cmd.is_batch_tracked,
             is_serialized=cmd.is_serialized,
             is_active=cmd.is_active,
+            current_cost=cmd.current_cost,
         )
         if cmd.inspection_required is not MISSING:
             material.inspection_required = cmd.inspection_required

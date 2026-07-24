@@ -48,6 +48,12 @@ class UpdateMaterialRequest(BaseModel):
     is_active: Optional[bool] = None
     inspection_required: Optional[bool] = None
     inspection_template_id: Optional[uuid.UUID] = None
+    current_cost: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        le=Decimal("999999999.9999"),
+        description="Standard Purchase Cost",
+    )
 
     @field_validator("code", "item_code", mode="before")
     @classmethod
@@ -123,6 +129,14 @@ class MaterialResponse(BaseModel):
     inspection_template_id: Optional[uuid.UUID] = None
     is_active: bool
     is_low_stock: bool
+    current_cost: Decimal = Decimal("0")
+    
+    # Purchasing summary fields
+    latest_purchase_price: Optional[Decimal] = None
+    last_purchase_date: Optional[date] = None
+    last_supplier_name: Optional[str] = None
+    last_supplier_id: Optional[uuid.UUID] = None
+    purchase_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -248,3 +262,23 @@ class SerialNumberResponse(BaseModel):
 class SerialNumberListResponse(BaseModel):
     items: List[SerialNumberResponse]
     total: int
+
+
+class PurchaseHistoryItemResponse(BaseModel):
+    date: Optional[str] = None
+    supplier_id: uuid.UUID
+    supplier_name: str
+    po_number: str
+    grn_number: str
+    quantity: float
+    uom: str
+    unit_price: float
+    total_value: float
+    currency: str
+
+
+class PurchaseHistoryPaginatedResponse(BaseModel):
+    items: List[PurchaseHistoryItemResponse]
+    total: int
+    page: int
+    page_size: int

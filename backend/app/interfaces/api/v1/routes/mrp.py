@@ -261,3 +261,64 @@ async def convert_to_po(
                 content={"error": str(exc)},
             )
     return {"purchase_orders": pos}
+
+
+# ── Material Requests (Purchase Requisitions) ─────────────────────────────── #
+
+
+@router.get("/mrp/material-requests")
+async def list_material_requests(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+):
+    """List open material requests (purchase requisitions) created from WO shortages.
+
+    These are created automatically by MaterialPlanningService when a WO is
+    released and a material shortage is detected.
+
+    Filter by status: open | fulfilled | cancelled
+    """
+    from sqlalchemy import select as _select
+    from backend.app.infrastructure.persistence.models.material_request_model import MaterialRequestModel
+    from backend.app.infrastructure.persistence.models.material_model import MaterialModel
+
+    container = get_container(request)
+    async with container.session_factory() as session:
+        stmt = (
+            _select(MaterialRequestModel, MaterialModel.code, MaterialModel.name)
+            .join(MaterialModel, MaterialModel.id == MaterialRequestModel.item_id)
+            .where(
+                MaterialRequestModel.tenant_id == tenant_id,
+                MaterialRequestModel.is_deleted.is_(False),
+                MaterialRequestModel.item_type == "material",
+            )
+        )
+        if status_filter:
+            stmt = stmt.where(MaterialRequestModel.status == status_filter)
+        else:
+            # Default: show open requests only
+            stmt = stmt.where(MaterialRequestModel.status == "open")
+
+        stmt = stmt.order_by(MaterialRequestModel.created_at.desc()).limit(50)
+        rows = (await session.execute(stmt)).all()
+
+    return [
+        {
+            "id": str(mr.id),
+            "material_id": str(mr.item_id),
+            "material_code": code,
+            "material_name": name,
+            "required_quantity": float(mr.required_quantity or 0),
+            "fulfilled_quantity": float(mr.fulfilled_quantity or 0),
+            "shortage_quantity": round(
+                float(mr.required_quantity or 0) - float(mr.fulfilled_quantity or 0), 4
+            ),
+            "required_by": mr.required_by.isoformat() if mr.required_by else None,
+            "status": mr.status,
+            "source_ref_type": mr.source_ref_type,
+            "source_ref_id": str(mr.source_ref_id) if mr.source_ref_id else None,
+            "created_at": mr.created_at.isoformat(),
+        }
+        for mr, code, name in rows
+    ]

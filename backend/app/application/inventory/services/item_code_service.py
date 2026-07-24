@@ -14,11 +14,17 @@ from backend.app.infrastructure.persistence.models.item_code_sequence_model impo
 from backend.app.infrastructure.persistence.models.item_template_model import ItemTemplateModel
 from backend.app.infrastructure.persistence.models.material_category_model import MaterialCategoryModel
 from backend.app.infrastructure.persistence.models.material_model import MaterialModel
+from backend.app.infrastructure.persistence.models.sales_models import ClientModel
 from backend.app.infrastructure.persistence.models.number_series_models import (
     NumberSeriesConfigModel,
     NumberSeriesPrefixModel,
     NumberSeriesSequenceModel,
 )
+# Ensure TenantModel is registered in SQLAlchemy's mapper so that the FK on
+# number_series_config.tenant_id → tenants.id can be resolved at flush time.
+# Without this import the mapper raises NoReferencedTableError when ItemCodeService
+# is used outside the full DI container.
+from backend.app.infrastructure.persistence.models.tenant_model import TenantModel as _TenantModel  # noqa: F401
 from backend.app.application.inventory.services.number_series_audit_service import (
     NumberSeriesAuditService,
 )
@@ -265,7 +271,12 @@ class ItemCodeService:
         Returns a tuple of (entity_id, entity_name) if a conflict is found,
         or None if the code is available.
         """
-        model = MaterialModel if target == "material" else ItemTemplateModel
+        if target == "material":
+            model = MaterialModel
+        elif target == "customer":
+            model = ClientModel
+        else:
+            model = ItemTemplateModel
         normalized = code.strip().upper()
         stmt = select(model.id, model.name).where(
             model.tenant_id == tenant_id,
@@ -332,7 +343,12 @@ class ItemCodeService:
                 return candidate
 
     async def code_exists(self, *, tenant_id: uuid.UUID, code: str, target: str) -> bool:
-        model = MaterialModel if target == "material" else ItemTemplateModel
+        if target == "material":
+            model = MaterialModel
+        elif target == "customer":
+            model = ClientModel
+        else:
+            model = ItemTemplateModel
         stmt = select(model.id).where(
             model.tenant_id == tenant_id,
             func.upper(model.code) == normalize_item_code(code),
@@ -348,7 +364,12 @@ class ItemCodeService:
         category_prefix: str,
         target: str,
     ) -> int:
-        model = MaterialModel if target == "material" else ItemTemplateModel
+        if target == "material":
+            model = MaterialModel
+        elif target == "customer":
+            model = ClientModel
+        else:
+            model = ItemTemplateModel
         like_prefix = f"{type_prefix}-{category_prefix}-"
         rows = (
             await self._session.execute(

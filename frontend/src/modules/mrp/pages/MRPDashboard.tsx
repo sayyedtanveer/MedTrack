@@ -1,6 +1,52 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link } from "react-router-dom"
-import { mrpApi, MRPSuggestion, MRPRunResult, CreatedPO } from "../../../services/mrp.service"
+import { mrpApi, MRPSuggestion, MRPRunResult, CreatedPO, MaterialRequest } from "../../../services/mrp.service"
+
+// ── Exception helpers ─────────────────────────────────────────────────────── #
+type ExceptionType = "overdue" | "no_supplier" | "lead_time_risk"
+
+function getExceptions(s: MRPSuggestion): ExceptionType[] {
+  const flags: ExceptionType[] = []
+  const today = new Date().toISOString().slice(0, 10)
+  if (s.need_by_date < today) flags.push("overdue")
+  if (!s.supplier_id || s.supplier_name === "No Supplier") flags.push("no_supplier")
+  const daysUntilNeed = Math.ceil(
+    (new Date(s.need_by_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+  )
+  if (daysUntilNeed >= 0 && daysUntilNeed <= s.lead_time_days && !flags.includes("overdue")) {
+    flags.push("lead_time_risk")
+  }
+  return flags
+}
+
+const exceptionMeta: Record<ExceptionType, { label: string; color: string; bg: string; title: string }> = {
+  overdue:        { label: "Overdue",      color: "#ef4444", bg: "rgba(239,68,68,0.15)",    title: "Need-by date has passed" },
+  no_supplier:    { label: "No Supplier",  color: "#f59e0b", bg: "rgba(245,158,11,0.15)",   title: "No supplier assigned — Convert to PO will use unknown supplier" },
+  lead_time_risk: { label: "Lead Risk",    color: "#f97316", bg: "rgba(249,115,22,0.15)",   title: "Less time remaining than lead time — order urgently" },
+}
+
+function ExceptionBadge({ type }: { type: ExceptionType }) {
+  const m = exceptionMeta[type]
+  return (
+    <span
+      title={m.title}
+      style={{
+        padding: "2px 7px",
+        borderRadius: 20,
+        fontSize: 10,
+        fontWeight: 700,
+        color: m.color,
+        background: m.bg,
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+        whiteSpace: "nowrap",
+        cursor: "help",
+      }}
+    >
+      {m.label}
+    </span>
+  )
+}
 
 // ── Status helpers ────────────────────────────────────────────────────────── #
 const statusMeta: Record<string, { label: string; color: string; bg: string }> = {
@@ -104,11 +150,16 @@ function SuggestionRow({
   onReject: (id: string) => void
 }) {
   const isActionable = s.status === "pending"
+  const exceptions = s.status === "pending" ? getExceptions(s) : []
   return (
     <tr
       style={{
         borderBottom: "1px solid rgba(255,255,255,0.05)",
-        background: selected ? "rgba(99,102,241,0.08)" : "transparent",
+        background: selected
+          ? "rgba(99,102,241,0.08)"
+          : exceptions.includes("overdue")
+          ? "rgba(239,68,68,0.04)"
+          : "transparent",
         transition: "background 0.15s",
       }}
     >
@@ -126,6 +177,11 @@ function SuggestionRow({
           {s.material_code}
         </div>
         <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{s.material_name}</div>
+        {exceptions.length > 0 && (
+          <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
+            {exceptions.map((ex) => <ExceptionBadge key={ex} type={ex} />)}
+          </div>
+        )}
       </td>
       <td className="mrp-td mrp-num">{s.gross_requirement.toFixed(2)}</td>
       <td className="mrp-td mrp-num">{s.current_stock.toFixed(2)}</td>
@@ -141,10 +197,17 @@ function SuggestionRow({
         {s.suggested_qty.toFixed(2)}
       </td>
       <td className="mrp-td">
-        <div style={{ fontSize: 12 }}>{s.need_by_date}</div>
+        <div style={{ fontSize: 12, color: exceptions.includes("overdue") ? "#ef4444" : undefined }}>
+          {s.need_by_date}
+        </div>
         <div style={{ fontSize: 10, color: "#6b7280" }}>Lead: {s.lead_time_days}d</div>
       </td>
-      <td className="mrp-td">{s.supplier_name}</td>
+      <td className="mrp-td">
+        <div style={{ fontSize: 12 }}>{s.supplier_name}</div>
+        {exceptions.includes("no_supplier") && (
+          <div style={{ fontSize: 10, color: "#f59e0b" }}>⚠ Assign supplier</div>
+        )}
+      </td>
       <td className="mrp-td">
         <StatusBadge s={s.status} />
       </td>
@@ -175,11 +238,13 @@ function SuggestionRow({
 // ── Main page ─────────────────────────────────────────────────────────────── #
 export default function MRPDashboard() {
   const [suggestions, setSuggestions] = useState<MRPSuggestion[]>([])
+  const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [runResult, setRunResult] = useState<MRPRunResult | null>(null)
   const [createdPOs, setCreatedPOs] = useState<CreatedPO[]>([])
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [activeTab, setActiveTab] = useState<"suggestions" | "requisitions">("suggestions")
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null)
 
   const showToast = (msg: string, type: "success" | "error" = "success") =>
@@ -197,15 +262,33 @@ export default function MRPDashboard() {
     }
   }, [])
 
+  const fetchMaterialRequests = useCallback(async () => {
+    try {
+      const data = await mrpApi.getMaterialRequests()
+      setMaterialRequests(data)
+    } catch {
+      // non-critical — don't surface error toast
+    }
+  }, [])
+
   useEffect(() => {
     fetchSuggestions()
-  }, [fetchSuggestions])
+    fetchMaterialRequests()
+  }, [fetchSuggestions, fetchMaterialRequests])
 
   // ── Filtering ──────────────────────────────────────────────────────────
   const filtered =
     statusFilter === "all"
       ? suggestions
       : suggestions.filter((s) => s.status === statusFilter)
+
+  // ── Exception summary counts ───────────────────────────────────────────
+  const exceptionCounts = {
+    overdue: suggestions.filter((s) => s.status === "pending" && getExceptions(s).includes("overdue")).length,
+    no_supplier: suggestions.filter((s) => s.status === "pending" && getExceptions(s).includes("no_supplier")).length,
+    lead_time_risk: suggestions.filter((s) => s.status === "pending" && getExceptions(s).includes("lead_time_risk")).length,
+  }
+  const totalExceptions = exceptionCounts.overdue + exceptionCounts.no_supplier + exceptionCounts.lead_time_risk
 
   // ── Selection ──────────────────────────────────────────────────────────
   const pendingIds = filtered.filter((s) => s.status === "pending").map((s) => s.id)
@@ -230,6 +313,7 @@ export default function MRPDashboard() {
       const r = await mrpApi.runMRP()
       setRunResult(r)
       await fetchSuggestions()
+      await fetchMaterialRequests()
       showToast(`MRP run complete — ${r.suggestions_count} suggestions generated`)
     } catch {
       showToast("MRP run failed", "error")
@@ -352,6 +436,125 @@ export default function MRPDashboard() {
         ))}
       </div>
 
+      {/* ── Exception summary banner ── */}
+      {totalExceptions > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+            background: "rgba(239,68,68,0.06)",
+            border: "1px solid rgba(239,68,68,0.2)",
+            borderRadius: 10,
+            padding: "10px 16px",
+            marginBottom: 16,
+            fontSize: 12,
+          }}
+        >
+          <span style={{ color: "#fca5a5", fontWeight: 600 }}>⚠ {totalExceptions} exception{totalExceptions !== 1 ? "s" : ""} in pending suggestions:</span>
+          {exceptionCounts.overdue > 0 && (
+            <span style={{ color: "#ef4444" }}>🔴 {exceptionCounts.overdue} overdue</span>
+          )}
+          {exceptionCounts.no_supplier > 0 && (
+            <span style={{ color: "#f59e0b" }}>⚠ {exceptionCounts.no_supplier} missing supplier</span>
+          )}
+          {exceptionCounts.lead_time_risk > 0 && (
+            <span style={{ color: "#f97316" }}>⏱ {exceptionCounts.lead_time_risk} lead time risk</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Tabs ── */}
+      <div className="mrp-tabs">
+        <button
+          className={`mrp-tab${activeTab === "suggestions" ? " mrp-tab--active" : ""}`}
+          onClick={() => setActiveTab("suggestions")}
+        >
+          📋 Suggestions ({kpis.total})
+        </button>
+        <button
+          className={`mrp-tab${activeTab === "requisitions" ? " mrp-tab--active" : ""}`}
+          onClick={() => setActiveTab("requisitions")}
+        >
+          📝 Material Requests ({materialRequests.length})
+        </button>
+      </div>
+
+      {activeTab === "requisitions" ? (
+        /* ── Requisitions panel ── */
+        <div className="mrp-table-wrap">
+          {materialRequests.length === 0 ? (
+            <div className="mrp-empty">
+              No open material requests. Requests are created automatically when a Work Order is released with a material shortage.
+            </div>
+          ) : (
+            <table className="mrp-table">
+              <thead>
+                <tr>
+                  <th className="mrp-th">Material</th>
+                  <th className="mrp-th mrp-num">Required Qty</th>
+                  <th className="mrp-th mrp-num">Fulfilled Qty</th>
+                  <th className="mrp-th mrp-num">Shortage</th>
+                  <th className="mrp-th">Required By</th>
+                  <th className="mrp-th">Source WO</th>
+                  <th className="mrp-th">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materialRequests.map((mr) => {
+                  const isOverdue = mr.required_by && mr.required_by < new Date().toISOString().slice(0, 10)
+                  return (
+                    <tr
+                      key={mr.id}
+                      style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+                    >
+                      <td className="mrp-td">
+                        <div style={{ fontWeight: 600, color: "#e5e7eb", fontFamily: "monospace", fontSize: 12 }}>
+                          {mr.material_code}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>{mr.material_name}</div>
+                      </td>
+                      <td className="mrp-td mrp-num">{mr.required_quantity.toFixed(2)}</td>
+                      <td className="mrp-td mrp-num" style={{ color: "#22c55e" }}>{mr.fulfilled_quantity.toFixed(2)}</td>
+                      <td className="mrp-td mrp-num" style={{ color: mr.shortage_quantity > 0 ? "#ef4444" : "#22c55e", fontWeight: 700 }}>
+                        {mr.shortage_quantity.toFixed(2)}
+                      </td>
+                      <td className="mrp-td">
+                        <span style={{ fontSize: 12, color: isOverdue ? "#ef4444" : undefined }}>
+                          {mr.required_by ?? "—"}
+                        </span>
+                        {isOverdue && <span style={{ fontSize: 10, color: "#ef4444", marginLeft: 4 }}>Overdue</span>}
+                      </td>
+                      <td className="mrp-td">
+                        {mr.source_ref_id ? (
+                          <Link
+                            to={`/work-orders/${mr.source_ref_id}`}
+                            style={{ fontSize: 11, color: "#818cf8", textDecoration: "none" }}
+                          >
+                            View WO →
+                          </Link>
+                        ) : "—"}
+                      </td>
+                      <td className="mrp-td">
+                        <span style={{
+                          padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+                          textTransform: "uppercase",
+                          color: mr.status === "open" ? "#f59e0b" : "#22c55e",
+                          background: mr.status === "open" ? "rgba(245,158,11,0.1)" : "rgba(34,197,94,0.1)",
+                        }}>
+                          {mr.status}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : (
+        <>
       {/* ── Toolbar ── */}
       <div className="mrp-toolbar">
         {/* Status filter */}
@@ -446,6 +649,8 @@ export default function MRPDashboard() {
       {/* ── Toast ── */}
       {toast && (
         <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />
+      )}
+      </>
       )}
     </div>
   )
@@ -615,6 +820,27 @@ const CSS = `
   color: #818cf8;
   font-weight: 600;
 }
+
+.mrp-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.mrp-tab {
+  padding: 9px 18px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+.mrp-tab:hover { color: #9ca3af; }
+.mrp-tab--active { color: #818cf8; border-bottom-color: #6366f1; font-weight: 600; }
 
 .mrp-table-wrap {
   background: rgba(255,255,255,0.02);

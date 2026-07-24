@@ -128,14 +128,18 @@ class AddLineToSalesOrderCommandHandler:
         if not order:
             raise ValueError(f"Order {command.sales_order_id} not found")
         
-        # Get unit price from pricing service
-        unit_price = await self.pricing_service.get_price(
-            tenant_id=command.tenant_id,
-            product_id=command.product_id,
-            product_type=command.product_type,
-            client_id=order.client_id,
-            price_date=order.order_date,
-        )
+        # Resolve unit price: use manual override if provided, else call PricingService
+        # REQ-SP-004 AC4: if unit_price override supplied, skip PricingService entirely
+        if command.unit_price is not None:
+            unit_price = command.unit_price
+        else:
+            unit_price = await self.pricing_service.get_price(
+                tenant_id=command.tenant_id,
+                product_id=command.product_id,
+                product_type=command.product_type,
+                client_id=order.client_id,
+                price_date=order.order_date,
+            )
         
         # Create line entity
         line_id = uuid4()

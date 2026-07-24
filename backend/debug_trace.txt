@@ -1,0 +1,199 @@
+Traceback (most recent call last):
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 591, in _prepare_and_execute
+    prepared_stmt, attributes = await adapt_connection._prepare(
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        operation, self._invalidate_schema_cache_asof
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 829, in _prepare
+    prepared_stmt = await self._connection.prepare(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        operation, name=self._prepared_statement_name_func()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\asyncpg\connection.py", line 638, in prepare
+    return await self._prepare(
+           ^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\asyncpg\connection.py", line 657, in _prepare
+    stmt = await self._get_statement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\asyncpg\connection.py", line 443, in _get_statement
+    statement = await self._protocol.prepare(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.UndefinedColumnError: column sales_clients.default_price_list_id does not exist
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1929, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 957, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 666, in execute
+    await_(self._prepare_and_execute(operation, parameters))
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 171, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 209, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 628, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 578, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 857, in _handle_exception
+    super()._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 850, in _handle_exception_no_connection
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: column sales_clients.default_price_list_id does not exist
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\sayye\source\repos\MedTrack\backend\app\interfaces\api\sales\routes.py", line 499, in list_clients
+    items = await handler.handle(
+            ^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\backend\app\application\sales\query_handlers.py", line 70, in handle
+    clients = await self.client_repo.find_by_status(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\backend\app\domain\sales\repositories\client_repository.py", line 130, in find_by_status
+    result = await self._session.execute(stmt)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 454, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 214, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2404, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2294, in _execute_internal
+    compile_state_cls.orm_execute_statement(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\orm\context.py", line 312, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1434, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 534, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1654, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<9 lines>...
+        param_dict=param_dict,
+    )
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1808, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1948, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2317, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1929, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 957, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 666, in execute
+    await_(self._prepare_and_execute(operation, parameters))
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 171, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 209, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 628, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 578, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 857, in _handle_exception
+    super()._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sayye\source\repos\MedTrack\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 850, in _handle_exception_no_connection
+    raise translated_error from error
+sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) column sales_clients.default_price_list_id does not exist
+[SQL: SELECT sales_clients.id, sales_clients.tenant_id, sales_clients.code, sales_clients.name, sales_clients.email, sales_clients.phone, sales_clients.address, sales_clients.gst_number, sales_clients.credit_limit, sales_clients.credit_used, sales_clients.payment_terms_days, sales_clients.is_active, sales_clients.default_price_list_id, sales_clients.is_deleted, sales_clients.deleted_at, sales_clients.created_at, sales_clients.updated_at 
+FROM sales_clients 
+WHERE sales_clients.tenant_id = $1::UUID AND sales_clients.is_active IS true AND sales_clients.is_deleted IS false ORDER BY sales_clients.created_at DESC 
+ LIMIT $2::INTEGER OFFSET $3::INTEGER]
+[parameters: (UUID('52323f77-709b-4cb8-818e-c1ad16262541'), 10, 0)]
+(Background on this error at: https://sqlalche.me/e/21/f405)

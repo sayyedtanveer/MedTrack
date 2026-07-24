@@ -19,6 +19,14 @@ from backend.app.infrastructure.persistence.models.work_order_model import (
 )
 from backend.app.infrastructure.persistence.models.operation_model import OperationModel
 from backend.app.infrastructure.persistence.models.workstation_model import WorkstationModel
+# Ensure all related ORM models are registered with SQLAlchemy's mapper before
+# any query runs. Without these imports the mapper fails to resolve lazy
+# string-based relationship references (e.g. "MaterialModel", "BOMOperationModel").
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel  # noqa: F401
+from backend.app.infrastructure.persistence.models.bom_operation_model import BOMOperationModel  # noqa: F401
+from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel  # noqa: F401
+from backend.app.infrastructure.persistence.models.item_template_model import ItemTemplateModel  # noqa: F401
+from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel  # noqa: F401
 
 
 class CapacityService:
@@ -37,7 +45,13 @@ class CapacityService:
     ) -> List[dict]:
         """Return load % per workstation for the given date range.
 
-        Load % = (total job card run hours scheduled) / (capacity_hours * working_days) * 100
+        Load % = (total scheduled hours) / (capacity_hours_per_day * working_days) * 100
+
+        Scheduled hours per job card =
+            (operation.estimated_time_minutes / 60) * work_order.planned_quantity
+
+        This correctly accounts for production quantity — a WO for 500 units
+        generates 500x the machine-hours of a WO for 1 unit.
         """
         # Fetch all active workstations
         ws_stmt = select(WorkstationModel).where(
@@ -49,32 +63,50 @@ class CapacityService:
 
         working_days = _count_working_days(start, end)
 
-        # Fetch job cards for work orders that overlap the date range
+        # Fetch job cards + their operations + workstations + parent WO planned_quantity.
+        # Use core column expressions (not ORM entity selects) to avoid SQLAlchemy
+        # eagerly loading relationships (lazy="joined") which produces duplicate JOINs.
+        # Cast status to TEXT explicitly to avoid the PostgreSQL type mismatch
+        # between the work_order_status enum column and VARCHAR parameters.
+        from sqlalchemy import cast, String, and_
         jc_stmt = (
-            select(JobCardModel, OperationModel, WorkstationModel)
+            select(
+                JobCardModel.id.label("jc_id"),
+                OperationModel.estimated_time_minutes.label("run_time_min"),
+                WorkstationModel.id.label("ws_id"),
+                WorkOrderModel.planned_quantity.label("planned_qty"),
+                WorkOrderModel.produced_quantity.label("produced_qty"),
+            )
+            .select_from(JobCardModel)
             .join(OperationModel, JobCardModel.operation_id == OperationModel.id)
             .join(WorkstationModel, OperationModel.workstation_id == WorkstationModel.id)
             .join(WorkOrderModel, JobCardModel.work_order_id == WorkOrderModel.id)
             .where(
-                WorkOrderModel.tenant_id == tenant_id,
-                WorkOrderModel.is_deleted.is_(False),
-                WorkOrderModel.status.notin_([WorkOrderStatus.CLOSED]),
-                WorkOrderModel.due_date >= start,
-                WorkOrderModel.start_date <= end,
+                and_(
+                    WorkOrderModel.tenant_id == tenant_id,
+                    WorkOrderModel.is_deleted.is_(False),
+                    cast(WorkOrderModel.status, String) != WorkOrderStatus.CLOSED.value,
+                    WorkOrderModel.due_date >= start,
+                    WorkOrderModel.start_date <= end,
+                )
             )
         )
-        jc_rows = (await self._session.execute(jc_stmt)).all()
+        jc_rows = (await self._session.execute(jc_stmt)).mappings().all()
 
-        # Accumulate planned hours per workstation
+        # Accumulate scheduled hours per workstation.
+        # estimated_time_minutes is per unit; multiply by planned_quantity.
         hours_by_ws: dict[uuid.UUID, float] = {}
-        for jc, op, ws in jc_rows:
-            # run_time is per unit (minutes), need WO planned_quantity
-            # We'll load the work-order planned_quantity via the join result
-            hours_by_ws.setdefault(ws.id, 0.0)
-            # Approximate: assume job card run_time already represents total hours
-            # run_time (min/unit) is stored on OperationModel
-            # We join the WO for quantity
-            hours_by_ws[ws.id] += float(op.run_time) / 60.0
+        for row in jc_rows:
+            hours_by_ws.setdefault(row["ws_id"], 0.0)
+            # Use remaining (planned - produced) quantity so completed production
+            # doesn't inflate future load; fall back to planned when 0.
+            remaining_qty = max(
+                float(row["planned_qty"] or 0) - float(row["produced_qty"] or 0),
+                0.0,
+            )
+            quantity = remaining_qty if remaining_qty > 0 else float(row["planned_qty"] or 1)
+            time_per_unit_minutes = float(row["run_time_min"] or 0)
+            hours_by_ws[row["ws_id"]] += (time_per_unit_minutes / 60.0) * quantity
 
         results = []
         for ws in ws_rows:
@@ -148,14 +180,17 @@ class CapacityService:
         start = start or today
         end = end or (today + timedelta(days=30))
 
+        from sqlalchemy import cast, String, and_
         stmt = (
             select(WorkOrderModel)
             .where(
-                WorkOrderModel.tenant_id == tenant_id,
-                WorkOrderModel.is_deleted.is_(False),
-                WorkOrderModel.status.notin_([WorkOrderStatus.CLOSED]),
-                WorkOrderModel.due_date >= start,
-                WorkOrderModel.start_date <= end,
+                and_(
+                    WorkOrderModel.tenant_id == tenant_id,
+                    WorkOrderModel.is_deleted.is_(False),
+                    cast(WorkOrderModel.status, String) != WorkOrderStatus.CLOSED.value,
+                    WorkOrderModel.due_date >= start,
+                    WorkOrderModel.start_date <= end,
+                )
             )
             .order_by(WorkOrderModel.start_date)
         )

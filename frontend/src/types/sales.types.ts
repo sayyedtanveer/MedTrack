@@ -19,12 +19,13 @@ export interface SalesClient {
   credit_used: number;
   payment_terms_days: number;
   is_active: boolean;
+  default_price_list_id?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateClientRequest {
-  code: string;
+  code?: string;
   name: string;
   email?: string;
   phone?: string;
@@ -43,6 +44,7 @@ export interface UpdateClientRequest {
   credit_limit?: number;
   payment_terms_days?: number;
   is_active?: boolean;
+  default_price_list_id?: string | null;
 }
 
 /**

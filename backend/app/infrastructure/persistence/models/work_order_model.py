@@ -57,8 +57,8 @@ class WorkOrderModel(Base):
     scrap_quantity: Mapped[float] = mapped_column(Numeric(15, 3), nullable=False, default=0)
 
     # Lifecycle — VARCHAR stores full operational state machine (domain WorkOrderStatus).
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=WorkOrderStatus.PLANNED.value
+    status: Mapped[WorkOrderStatus] = mapped_column(
+        SAEnum(WorkOrderStatus, name="work_order_status"), nullable=False, default=WorkOrderStatus.PLANNED
     )
     priority: Mapped[str] = mapped_column(
         SAEnum(WorkOrderPriority, name="work_order_priority"), nullable=False, default=WorkOrderPriority.NORMAL

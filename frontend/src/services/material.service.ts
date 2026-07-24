@@ -9,7 +9,8 @@ import {
   StockOperationInput,
   Category,
   Location,
-  UnitOfMeasure
+  UnitOfMeasure,
+  PurchaseHistoryPage,
 } from "@/types/material.types";
 
 export interface PaginatedMaterialsResponse {
@@ -218,5 +219,18 @@ export const materialService = {
   async cancelReservation(id: string) {
     const { data } = await apiClient.post(`/inventory/reservations/${id}/cancel`);
     return data;
-  }
+  },
+
+  // ── Purchase History ────────────────────────────────────────────────────
+  async getPurchaseHistory(
+    materialId: string,
+    page = 1,
+    pageSize = 25
+  ): Promise<PurchaseHistoryPage> {
+    const { data } = await apiClient.get(
+      `/inventory/materials/${materialId}/purchase-history`,
+      { params: { page, page_size: pageSize } }
+    );
+    return data;
+  },
 };

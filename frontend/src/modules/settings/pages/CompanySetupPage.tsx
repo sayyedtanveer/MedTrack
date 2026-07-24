@@ -14,6 +14,7 @@ import {
   Tag,
   Users,
   Warehouse,
+  Wrench,
 } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +35,7 @@ type SetupStepKey =
   | "units"
   | "categories"
   | "locations"
+  | "operations"
   | "users"
   | "supplier"
   | "customer"
@@ -86,6 +88,13 @@ const setupStepDefinitions: SetupStepDefinition[] = [
     description: "Configure your warehouse storage areas before assigning locations to materials.",
     path: "/settings/master-data/locations",
     icon: MapPin,
+  },
+  {
+    key: "operations",
+    title: "Operation Master",
+    description: "Create and manage reusable manufacturing operations.",
+    path: "/operations",
+    icon: Wrench,
   },
   {
     key: "users",
@@ -219,6 +228,7 @@ export default function CompanySetupPage() {
               { key: "units" as SetupStepKey, label: "Units of Measure", path: "/settings/master-data/units" },
               { key: "categories" as SetupStepKey, label: "Material Categories", path: "/settings/master-data/categories" },
               { key: "locations" as SetupStepKey, label: "Storage Locations", path: "/settings/master-data/locations" },
+              { key: "operations" as SetupStepKey, label: "Operation Master", path: "/operations" },
               { key: "supplier" as SetupStepKey, label: "Suppliers", path: "/procurement/suppliers" },
               { key: "customer" as SetupStepKey, label: "Customers", path: "/sales/clients" },
               { key: "material" as SetupStepKey, label: "Materials", path: "/inventory/materials" },

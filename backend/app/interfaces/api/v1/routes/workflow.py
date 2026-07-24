@@ -1,18 +1,25 @@
 """Workflow Orchestration REST API endpoints.
 
 Provides endpoints for end-to-end workflow management across modules.
+All endpoints use get_container(request) + session_factory() for DB access,
+which is the established pattern throughout this codebase and avoids the
+FastAPI query-parameter injection bug that occurs when a custom dependency
+function takes `request: Request` as a plain parameter.
 """
 from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import Dict, Any, Optional, List
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from pydantic import BaseModel
 
-from backend.app.interfaces.api.v1.dependencies.auth import get_current_tenant_id, get_current_user_id
+from backend.app.interfaces.api.v1.dependencies.auth import (
+    get_current_tenant_id,
+    get_current_user_id,
+    get_container,
+)
 from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
 from backend.app.application.manufacturing.services.workflow_orchestration_service import (
     WorkflowOrchestrationService,
@@ -24,11 +31,7 @@ from backend.app.application.sales.partial_fulfillment_service import (
 router = APIRouter(prefix="/workflow", tags=["Workflow Orchestration"])
 
 
-async def _get_db_session(request):
-    """Get database session from request."""
-    factory = request.app.state.container.session_factory
-    async with factory() as session:
-        yield session
+# ──────────────────────────── Sales Order Workflow ────────────────────────────
 
 
 @router.post(
@@ -38,22 +41,18 @@ async def _get_db_session(request):
 )
 async def approve_sales_order_workflow(
     sales_order_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Approve Sales Order and trigger workflow.
-    
-    Transition: APPROVED → WORK_ORDER_CREATED
-    Action: Create Work Orders for each line item
-    """
-    service = WorkflowOrchestrationService(session)
-    result = await service.on_sales_order_approved(
-        tenant_id=tenant_id,
-        sales_order_id=sales_order_id,
-    )
-    await session.commit()
+    """Approve Sales Order and trigger workflow (APPROVED → WORK_ORDER_CREATED)."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = WorkflowOrchestrationService(session)
+        result = await service.on_sales_order_approved(
+            tenant_id=tenant_id,
+            sales_order_id=sales_order_id,
+        )
+        await session.commit()
     return result
 
 
@@ -64,22 +63,18 @@ async def approve_sales_order_workflow(
 )
 async def complete_work_order_workflow(
     work_order_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Complete Work Order and trigger workflow.
-    
-    Transition: FG_RECEIVED → READY_FOR_DISPATCH
-    Action: Update linked Sales Order to READY_FOR_DISPATCH
-    """
-    service = WorkflowOrchestrationService(session)
-    result = await service.on_work_order_completed(
-        tenant_id=tenant_id,
-        work_order_id=work_order_id,
-    )
-    await session.commit()
+    """Complete Work Order and update linked SO to READY_FOR_DISPATCH."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = WorkflowOrchestrationService(session)
+        result = await service.on_work_order_completed(
+            tenant_id=tenant_id,
+            work_order_id=work_order_id,
+        )
+        await session.commit()
     return result
 
 
@@ -90,24 +85,20 @@ async def complete_work_order_workflow(
 )
 async def qc_approve_workflow(
     work_order_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     approved_by: uuid.UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Approve QC and trigger workflow.
-    
-    Transition: QC_APPROVED → FG_RECEIVED
-    Action: Automatically increase FG stock
-    """
-    service = WorkflowOrchestrationService(session)
-    result = await service.on_qc_approved(
-        tenant_id=tenant_id,
-        work_order_id=work_order_id,
-        received_by=approved_by,
-    )
-    await session.commit()
+    """Approve QC and trigger FG stock increase (QC_APPROVED → FG_RECEIVED)."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = WorkflowOrchestrationService(session)
+        result = await service.on_qc_approved(
+            tenant_id=tenant_id,
+            work_order_id=work_order_id,
+            received_by=approved_by,
+        )
+        await session.commit()
     return result
 
 
@@ -118,22 +109,18 @@ async def qc_approve_workflow(
 )
 async def deliver_order_workflow(
     sales_order_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Mark Order as delivered and trigger invoicing.
-    
-    Transition: DELIVERED → INVOICED
-    Action: Trigger invoice creation
-    """
-    service = WorkflowOrchestrationService(session)
-    result = await service.on_order_delivered(
-        tenant_id=tenant_id,
-        sales_order_id=sales_order_id,
-    )
-    await session.commit()
+    """Mark Order as delivered and trigger invoicing (DELIVERED → INVOICED)."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = WorkflowOrchestrationService(session)
+        result = await service.on_order_delivered(
+            tenant_id=tenant_id,
+            sales_order_id=sales_order_id,
+        )
+        await session.commit()
     return result
 
 
@@ -145,23 +132,19 @@ async def deliver_order_workflow(
 async def receive_payment_workflow(
     sales_order_id: uuid.UUID,
     payment_amount: Decimal,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Record payment and complete workflow.
-    
-    Transition: INVOICED → PAYMENT_RECEIVED → COMPLETED
-    Action: Update Sales Order status
-    """
-    service = WorkflowOrchestrationService(session)
-    result = await service.on_payment_received(
-        tenant_id=tenant_id,
-        sales_order_id=sales_order_id,
-        payment_amount=payment_amount,
-    )
-    await session.commit()
+    """Record payment and complete workflow (INVOICED → PAYMENT_RECEIVED → COMPLETED)."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = WorkflowOrchestrationService(session)
+        result = await service.on_payment_received(
+            tenant_id=tenant_id,
+            sales_order_id=sales_order_id,
+            payment_amount=payment_amount,
+        )
+        await session.commit()
     return result
 
 
@@ -171,69 +154,60 @@ async def receive_payment_workflow(
 )
 async def get_workflow_status(
     sales_order_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Get complete workflow status for a Sales Order.
-    
-    Returns status across all stages:
-    - Sales Order status
-    - Work Order status
-    - Material reservation status
-    - QC status
-    - Delivery status
-    - Invoice status
-    - Payment status
-    - Estimated dates (Req 28.8)
-    - Allocated quantities per line
-    """
-    service = WorkflowOrchestrationService(session)
-    result = await service.get_workflow_status(
-        tenant_id=tenant_id,
-        sales_order_id=sales_order_id,
-    )
-
-    # Extend with estimated dates and allocated quantities (Req 28.8)
+    """Get complete workflow status for a Sales Order across all lifecycle stages."""
     from sqlalchemy import select, and_
-    from backend.app.infrastructure.persistence.models.sales_models import (
-        SalesOrderModel, SalesOrderLineModel,
-    )
+    from backend.app.infrastructure.persistence.models.sales_models import SalesOrderModel
 
-    stmt = select(SalesOrderModel).where(
-        and_(
-            SalesOrderModel.id == sales_order_id,
-            SalesOrderModel.tenant_id == tenant_id,
-            SalesOrderModel.is_deleted.is_(False),
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = WorkflowOrchestrationService(session)
+        result = await service.get_workflow_status(
+            tenant_id=tenant_id,
+            sales_order_id=sales_order_id,
         )
-    )
-    so = (await session.execute(stmt)).scalar_one_or_none()
 
-    if so:
-        result["estimated_completion_date"] = (
-            so.estimated_completion_date.isoformat() if so.estimated_completion_date else None
+        stmt = select(SalesOrderModel).where(
+            and_(
+                SalesOrderModel.id == sales_order_id,
+                SalesOrderModel.tenant_id == tenant_id,
+                SalesOrderModel.is_deleted.is_(False),
+            )
         )
-        result["expected_dispatch_date"] = (
-            so.expected_dispatch_date.isoformat() if so.expected_dispatch_date else None
-        )
-        result["expected_delivery_date"] = (
-            so.expected_delivery_date.isoformat() if so.expected_delivery_date else None
-        )
-        result["delivery_date"] = so.delivery_date
+        so = (await session.execute(stmt)).scalar_one_or_none()
 
-        # Add per-line allocated/dispatched quantities
-        result["lines"] = [
-            {
-                "line_id": str(line.id),
-                "product_id": str(line.product_id),
-                "quantity": float(line.quantity),
-                "allocated_quantity": float(line.allocated_quantity),
-                "dispatched_quantity": float(line.dispatched_quantity),
-                "line_status": line.line_status,
-            }
-            for line in (so.lines or [])
-        ]
+        if so:
+            result["estimated_completion_date"] = (
+                so.estimated_completion_date.isoformat()
+                if getattr(so, "estimated_completion_date", None)
+                else None
+            )
+            result["expected_dispatch_date"] = (
+                so.expected_dispatch_date.isoformat()
+                if getattr(so, "expected_dispatch_date", None)
+                else None
+            )
+            result["expected_delivery_date"] = (
+                so.expected_delivery_date.isoformat()
+                if getattr(so, "expected_delivery_date", None)
+                else None
+            )
+            result["delivery_date"] = getattr(so, "delivery_date", None)
+
+            lines = getattr(so, "lines", None) or []
+            result["lines"] = [
+                {
+                    "line_id": str(line.id),
+                    "product_id": str(line.product_id),
+                    "quantity": float(line.quantity),
+                    "allocated_quantity": float(getattr(line, "allocated_quantity", 0) or 0),
+                    "dispatched_quantity": float(getattr(line, "dispatched_quantity", 0) or 0),
+                    "line_status": getattr(line, "line_status", None),
+                }
+                for line in lines
+            ]
 
     return result
 
@@ -244,109 +218,95 @@ async def get_workflow_status(
 )
 async def get_order_tracking(
     sales_order_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Get order tracking with estimated dates.
-
-    Returns current stage, estimated completion date, expected dispatch
-    date, and expected delivery date. The dates are calculated from
-    linked work order due dates and configurable lead times.
-
-    Requirements: 28.1–28.7
-    """
+    """Get order tracking with estimated dates (Req 28.1–28.7)."""
     from sqlalchemy import select, and_
     from datetime import date as date_type, timedelta
     from backend.app.infrastructure.persistence.models.sales_models import SalesOrderModel
     from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderModel
 
-    so_stmt = select(SalesOrderModel).where(
-        and_(
-            SalesOrderModel.id == sales_order_id,
-            SalesOrderModel.tenant_id == tenant_id,
-            SalesOrderModel.is_deleted.is_(False),
-        )
-    )
-    so = (await session.execute(so_stmt)).scalar_one_or_none()
-    if not so:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Sales Order {sales_order_id} not found")
-
-    # Get linked work orders
-    wo_stmt = select(WorkOrderModel).where(
-        and_(
-            WorkOrderModel.sales_order_id == sales_order_id,
-            WorkOrderModel.tenant_id == tenant_id,
-            WorkOrderModel.is_deleted.is_(False),
-        )
-    )
-    work_orders = (await session.execute(wo_stmt)).scalars().all()
-
-    # Calculate estimated completion date (Req 28.2)
-    # = max(due_date) among incomplete WOs
-    completed_statuses = {"FG_RECEIVED", "COMPLETED", "CLOSED", "CANCELLED", "REJECTED"}
-    incomplete_wos = [
-        wo for wo in work_orders if wo.status not in completed_statuses
-    ]
-
-    estimated_completion: date_type | None = None
-    if incomplete_wos:
-        due_dates = []
-        for wo in incomplete_wos:
-            if wo.due_date:
-                if isinstance(wo.due_date, str):
-                    try:
-                        due_dates.append(date_type.fromisoformat(wo.due_date))
-                    except (ValueError, TypeError):
-                        pass
-                else:
-                    due_dates.append(wo.due_date)
-        if due_dates:
-            estimated_completion = max(due_dates)
-    elif not work_orders:
-        # No linked WOs (stock-available path) — Req 28.6
-        estimated_completion = date_type.today()
-
-    # Use persisted dates if available and no recalculation needed
-    if estimated_completion is None and so.estimated_completion_date:
-        estimated_completion = so.estimated_completion_date
-
-    # Lead times (defaults per Req 28.3, 28.4)
-    dispatch_lead_days = 1
-    delivery_lead_days = 3
-
-    expected_dispatch: date_type | None = None
-    expected_delivery: date_type | None = None
-
-    if estimated_completion:
-        expected_dispatch = estimated_completion + timedelta(days=dispatch_lead_days)
-        expected_delivery = expected_dispatch + timedelta(days=delivery_lead_days)
-
-    # Use persisted dates as fallback
-    if expected_dispatch is None and so.expected_dispatch_date:
-        expected_dispatch = so.expected_dispatch_date
-    if expected_delivery is None and so.expected_delivery_date:
-        expected_delivery = so.expected_delivery_date
-
-    # Check if delivery date is at risk (Req 28.7)
-    customer_promise_date = so.delivery_date
-    at_risk = False
-    if expected_delivery and customer_promise_date:
-        try:
-            promise = (
-                date_type.fromisoformat(customer_promise_date)
-                if isinstance(customer_promise_date, str)
-                else customer_promise_date
+    container = get_container(request)
+    async with container.session_factory() as session:
+        so_stmt = select(SalesOrderModel).where(
+            and_(
+                SalesOrderModel.id == sales_order_id,
+                SalesOrderModel.tenant_id == tenant_id,
+                SalesOrderModel.is_deleted.is_(False),
             )
-            at_risk = expected_delivery > promise
-        except (ValueError, TypeError):
-            pass
+        )
+        so = (await session.execute(so_stmt)).scalar_one_or_none()
+        if not so:
+            raise HTTPException(status_code=404, detail=f"Sales Order {sales_order_id} not found")
 
-    # Determine current stage from SO status
-    service = WorkflowOrchestrationService(session)
-    current_stage = service._determine_workflow_stage(so.status, work_orders)
+        wo_stmt = select(WorkOrderModel).where(
+            and_(
+                WorkOrderModel.sales_order_id == sales_order_id,
+                WorkOrderModel.tenant_id == tenant_id,
+                WorkOrderModel.is_deleted.is_(False),
+            )
+        )
+        work_orders = (await session.execute(wo_stmt)).scalars().all()
+
+        completed_statuses = {"FG_RECEIVED", "COMPLETED", "CLOSED", "CANCELLED", "REJECTED"}
+        incomplete_wos = [wo for wo in work_orders if wo.status not in completed_statuses]
+
+        estimated_completion: Optional[date_type] = None
+        if incomplete_wos:
+            due_dates = []
+            for wo in incomplete_wos:
+                if wo.due_date:
+                    if isinstance(wo.due_date, str):
+                        try:
+                            due_dates.append(date_type.fromisoformat(wo.due_date))
+                        except (ValueError, TypeError):
+                            pass
+                    else:
+                        due_dates.append(wo.due_date)
+            if due_dates:
+                estimated_completion = max(due_dates)
+        elif not work_orders:
+            estimated_completion = date_type.today()
+
+        if estimated_completion is None:
+            ec = getattr(so, "estimated_completion_date", None)
+            if ec:
+                estimated_completion = ec
+
+        dispatch_lead_days = 1
+        delivery_lead_days = 3
+        expected_dispatch: Optional[date_type] = None
+        expected_delivery: Optional[date_type] = None
+
+        if estimated_completion:
+            expected_dispatch = estimated_completion + timedelta(days=dispatch_lead_days)
+            expected_delivery = expected_dispatch + timedelta(days=delivery_lead_days)
+
+        if expected_dispatch is None:
+            ed = getattr(so, "expected_dispatch_date", None)
+            if ed:
+                expected_dispatch = ed
+        if expected_delivery is None:
+            edv = getattr(so, "expected_delivery_date", None)
+            if edv:
+                expected_delivery = edv
+
+        customer_promise_date = getattr(so, "delivery_date", None)
+        at_risk = False
+        if expected_delivery and customer_promise_date:
+            try:
+                promise = (
+                    date_type.fromisoformat(customer_promise_date)
+                    if isinstance(customer_promise_date, str)
+                    else customer_promise_date
+                )
+                at_risk = expected_delivery > promise
+            except (ValueError, TypeError):
+                pass
+
+        service = WorkflowOrchestrationService(session)
+        current_stage = service._determine_workflow_stage(so.status, work_orders)
 
     return {
         "sales_order_id": str(sales_order_id),
@@ -376,18 +336,17 @@ async def get_order_tracking(
     }
 
 
-
 # ──────────────────────────── Partial Fulfillment Endpoints ────────────────────────────
 
 
 class CreateWOForRemainingRequest(BaseModel):
     """Request body for creating a new WO for remaining SO line quantity."""
-    pass  # No additional fields needed — line_id is in the path
+    pass
 
 
 class ShortCloseLineRequest(BaseModel):
     """Request body for short-closing a SO line."""
-    pass  # No additional fields needed — line_id is in the path
+    pass
 
 
 @router.post(
@@ -397,32 +356,24 @@ class ShortCloseLineRequest(BaseModel):
 )
 async def create_wo_for_remaining(
     line_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Create a new Work Order for the remaining unfulfilled quantity of a PARTIAL SO line.
-
-    Req 19.5: Creates a new WO with planned_quantity = ordered_quantity - allocated_quantity,
-    linked to the same sales order and product.
-    """
-    service = PartialFulfillmentService(session)
-    try:
-        result = await service.create_wo_for_remaining(
-            tenant_id=tenant_id,
-            sales_order_line_id=line_id,
-            created_by=user_id,
-        )
-        await session.commit()
-        return result
-    except ValueError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception:
-        await session.rollback()
-        raise
+    """Create a new WO for the remaining unfulfilled quantity of a PARTIAL SO line (Req 19.5)."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = PartialFulfillmentService(session)
+        try:
+            result = await service.create_wo_for_remaining(
+                tenant_id=tenant_id,
+                sales_order_line_id=line_id,
+                created_by=user_id,
+            )
+            await session.commit()
+            return result
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post(
@@ -432,29 +383,21 @@ async def create_wo_for_remaining(
 )
 async def short_close_line(
     line_id: uuid.UUID,
-    request,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(_get_db_session),
 ):
-    """
-    Short-close a PARTIAL SO line.
-
-    Req 19.6: Updates line status to SHORT_CLOSED, reduces ordered_quantity to
-    allocated_quantity, and recalculates the sales order totals.
-    """
-    service = PartialFulfillmentService(session)
-    try:
-        result = await service.short_close_line(
-            tenant_id=tenant_id,
-            sales_order_line_id=line_id,
-            closed_by=user_id,
-        )
-        await session.commit()
-        return result
-    except ValueError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception:
-        await session.rollback()
-        raise
+    """Short-close a PARTIAL SO line (Req 19.6)."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = PartialFulfillmentService(session)
+        try:
+            result = await service.short_close_line(
+                tenant_id=tenant_id,
+                sales_order_line_id=line_id,
+                closed_by=user_id,
+            )
+            await session.commit()
+            return result
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))

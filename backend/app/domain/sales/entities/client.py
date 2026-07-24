@@ -40,6 +40,7 @@ class Client(AggregateRoot):
         deleted_at: datetime | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
+        default_price_list_id: UUID | None = None,
     ):
         """Initialize Client."""
         super().__init__(
@@ -66,6 +67,7 @@ class Client(AggregateRoot):
         self.credit_limit = Decimal(str(credit_limit or "0"))
         self.credit_used = Decimal(str(credit_used or "0"))
         self.is_active = is_active
+        self.default_price_list_id = default_price_list_id
 
         self._validate()
 
@@ -161,10 +163,11 @@ class Client(AggregateRoot):
             "phone": self.phone,
             "address": self.address,
             "gst_number": self.gst_number,
-            "credit_limit": str(self.credit_limit),
-            "credit_used": str(self.credit_used),
+            "credit_limit": str(self.credit_limit) if self.credit_limit is not None else None,
+            "credit_used": str(self.credit_used) if self.credit_used is not None else "0",
             "payment_terms_days": self.payment_terms_days,
             "is_active": self.is_active,
+            "default_price_list_id": str(self.default_price_list_id) if self.default_price_list_id else None,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }

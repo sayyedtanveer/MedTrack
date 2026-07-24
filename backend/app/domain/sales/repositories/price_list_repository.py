@@ -3,7 +3,7 @@
 from typing import Type
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from backend.app.domain.sales.entities.price_list import PriceList, PriceListLine
@@ -132,12 +132,81 @@ class PriceListRepository(BaseRepository):
         client_id: UUID,
         include_inactive: bool = False,
     ) -> list[PriceList]:
-        """Find client-specific price lists.
+        """Find the client's assigned default price list (0 or 1 result).
 
-        A future client-price-list mapping table can plug in here. Until then,
-        client-specific pricing intentionally falls back to default lists.
+        Step 1: look up the client's default_price_list_id from sales_clients.
+        Step 2: if found, load the PriceList aggregate with lines.
+        Returns a list with 0 or 1 elements.
         """
-        return []
+        from backend.app.infrastructure.persistence.models.sales_models import ClientModel
+
+        # Step 1: fetch the FK from the client row
+        client_stmt = select(ClientModel.default_price_list_id).where(
+            ClientModel.id == client_id,
+            ClientModel.tenant_id == tenant_id,
+            ClientModel.is_deleted.is_(False),
+        )
+        result = await self._session.execute(client_stmt)
+        price_list_id = result.scalar_one_or_none()
+
+        if not price_list_id:
+            return []
+
+        # Step 2: load the referenced PriceList aggregate with lines
+        stmt = (
+            select(PriceListModel)
+            .options(selectinload(PriceListModel.lines))
+            .where(
+                PriceListModel.id == price_list_id,
+                PriceListModel.tenant_id == tenant_id,
+                PriceListModel.is_deleted.is_(False),
+            )
+        )
+        if not include_inactive:
+            stmt = stmt.where(PriceListModel.is_active.is_(True))
+
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return [self._to_entity(model)] if model else []
+
+    async def unset_all_defaults(self, tenant_id: UUID, exclude_id: UUID) -> None:
+        """Atomically unset is_default on all price lists for a tenant except one.
+
+        Used when promoting a new default to ensure the single-default invariant.
+        """
+        stmt = (
+            update(PriceListModel)
+            .where(
+                PriceListModel.tenant_id == tenant_id,
+                PriceListModel.id != exclude_id,
+                PriceListModel.is_default.is_(True),
+                PriceListModel.is_deleted.is_(False),
+            )
+            .values(is_default=False)
+        )
+        await self._session.execute(stmt)
+
+    async def find_by_exact_name(
+        self,
+        tenant_id: UUID,
+        name: str,
+        exclude_id: UUID | None = None,
+    ) -> PriceList | None:
+        """Find a price list matching a name exactly (case-insensitive), optionally excluding one ID."""
+        stmt = (
+            select(PriceListModel)
+            .options(selectinload(PriceListModel.lines))
+            .where(
+                PriceListModel.tenant_id == tenant_id,
+                PriceListModel.name.ilike(name),
+                PriceListModel.is_deleted.is_(False),
+            )
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(PriceListModel.id != exclude_id)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return self._to_entity(model) if model else None
 
     async def find_by_name(
         self,

@@ -11,7 +11,11 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const DEFAULT_PORT = Number(process.env.PORT || 3000);
+
+function getPortCandidates(startPort: number) {
+  return Array.from({ length: 10 }, (_, index) => startPort + index);
+}
 
 app.use(cors());
 app.use(express.json());
@@ -1190,7 +1194,13 @@ app.post("/api/v1/sales/orders/:id/ship", (req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        host: "0.0.0.0",
+        port: DEFAULT_PORT,
+        strictPort: false
+      },
       appType: "spa"
     });
     app.use(vite.middlewares);
@@ -1202,9 +1212,38 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[MedTrack ERP] Server is actively running on port ${PORT}`);
-  });
+  const portCandidates = getPortCandidates(DEFAULT_PORT);
+  let lastError: NodeJS.ErrnoException | null = null;
+
+  for (const port of portCandidates) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const server = app.listen(port, "0.0.0.0", () => {
+          console.log(`[MedTrack ERP] Server is actively running on port ${port}`);
+          resolve();
+        });
+
+        server.on("error", (error: NodeJS.ErrnoException) => {
+          if (error.code === "EADDRINUSE") {
+            reject(error);
+          } else {
+            reject(error);
+          }
+        });
+      });
+      return;
+    } catch (error) {
+      lastError = error as NodeJS.ErrnoException;
+      if (lastError.code !== "EADDRINUSE") {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error(`Unable to start server on ports ${portCandidates.join(", ")}`);
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
+});

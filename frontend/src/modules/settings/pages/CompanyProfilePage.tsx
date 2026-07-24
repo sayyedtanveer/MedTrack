@@ -52,15 +52,15 @@ const TIMEZONES = [
 ]
 
 const CURRENCIES = [
-  { code: "INR", name: "Indian Rupee" },
-  { code: "USD", name: "US Dollar" },
-  { code: "EUR", name: "Euro" },
-  { code: "GBP", name: "British Pound" },
-  { code: "AED", name: "UAE Dirham" },
-  { code: "SGD", name: "Singapore Dollar" },
-  { code: "JPY", name: "Japanese Yen" },
-  { code: "AUD", name: "Australian Dollar" },
-  { code: "CAD", name: "Canadian Dollar" },
+  { code: "INR", name: "Indian Rupee", symbol: "₹" },
+  { code: "USD", name: "US Dollar", symbol: "$" },
+  { code: "EUR", name: "Euro", symbol: "€" },
+  { code: "GBP", name: "British Pound", symbol: "£" },
+  { code: "AED", name: "UAE Dirham", symbol: "د.إ" },
+  { code: "SGD", name: "Singapore Dollar", symbol: "S$" },
+  { code: "JPY", name: "Japanese Yen", symbol: "¥" },
+  { code: "AUD", name: "Australian Dollar", symbol: "A$" },
+  { code: "CAD", name: "Canadian Dollar", symbol: "C$" },
 ]
 
 const LOGO_MAX_BYTES = 2 * 1024 * 1024 // 2 MB
@@ -489,7 +489,13 @@ export default function CompanyProfilePage() {
                   <Label htmlFor="currency_code">Currency</Label>
                   <Select
                     value={form.currency_code || ""}
-                    onValueChange={(val) => patch({ currency_code: val })}
+                    onValueChange={(val) => {
+                      const found = CURRENCIES.find((c) => c.code === val)
+                      patch({
+                        currency_code: val,
+                        currency_symbol: found?.symbol ?? form.currency_symbol,
+                      })
+                    }}
                   >
                     <SelectTrigger id="currency_code">
                       <SelectValue placeholder="Select currency" />
@@ -497,7 +503,7 @@ export default function CompanyProfilePage() {
                     <SelectContent>
                       {CURRENCIES.map((c) => (
                         <SelectItem key={c.code} value={c.code}>
-                          {c.code} — {c.name}
+                          {c.symbol} — {c.code} — {c.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -506,13 +512,25 @@ export default function CompanyProfilePage() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="currency_symbol">Currency Symbol</Label>
-                  <Input
-                    id="currency_symbol"
-                    value={form.currency_symbol}
-                    placeholder="e.g. ₹, $, €"
-                    maxLength={10}
-                    onChange={(e) => patch({ currency_symbol: e.target.value })}
-                  />
+                  <Select
+                    value={form.currency_symbol || ""}
+                    onValueChange={(val) => patch({ currency_symbol: val })}
+                  >
+                    <SelectTrigger id="currency_symbol">
+                      <SelectValue placeholder="Select or type symbol" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c.code} value={c.symbol}>
+                          {c.symbol} ({c.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {/* Manual override if needed */}
+                  {form.currency_symbol && !CURRENCIES.find((c) => c.symbol === form.currency_symbol) && (
+                    <p className="text-xs text-amber-600">Custom symbol: {form.currency_symbol}</p>
+                  )}
                 </div>
               </div>
 

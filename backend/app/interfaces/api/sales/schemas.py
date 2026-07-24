@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, validator
 
 class ClientCreateRequest(BaseModel):
     """Request to create a client."""
-    code: str = Field(..., min_length=1, max_length=50, description="Unique client code")
+    code: Optional[str] = Field(None, max_length=50, description="Unique client code")
     name: str = Field(..., min_length=1, max_length=255, description="Client name")
     email: Optional[str] = Field(None, max_length=255, description="Client email")
     phone: Optional[str] = Field(None, max_length=20, description="Phone number")
@@ -31,6 +31,7 @@ class ClientUpdateRequest(BaseModel):
     gst_number: Optional[str] = Field(None, max_length=50)
     credit_limit: Optional[Decimal] = Field(None)
     payment_terms_days: Optional[int] = Field(None, ge=0, le=365)
+    default_price_list_id: Optional[UUID] = Field(None, description="ID of default price list for this client. NULL clears assignment.")
 
 
 class ClientResponse(BaseModel):
@@ -46,6 +47,7 @@ class ClientResponse(BaseModel):
     credit_used: Decimal
     payment_terms_days: int
     is_active: bool
+    default_price_list_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
 
@@ -86,6 +88,16 @@ class PriceListRequest(BaseModel):
     is_default: bool = False
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
+
+
+class PriceListUpdateRequest(BaseModel):
+    """Request to update price list header fields."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    valid_from: Optional[date] = None
+    valid_to: Optional[date] = None
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 class PriceListLineResponse(BaseModel):
@@ -131,6 +143,11 @@ class SalesOrderLineCreateRequest(BaseModel):
     uom_id: UUID
     quantity: Decimal = Field(..., gt=0)
     tax_rate: Decimal = Field(0, ge=0, le=100)
+    unit_price: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        description="Manual price override. If provided, PricingService is skipped. Requirements: REQ-SP-004 AC4-AC5",
+    )
 
 
 class SalesOrderLineResponse(BaseModel):

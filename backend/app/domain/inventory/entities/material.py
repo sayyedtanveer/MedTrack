@@ -129,6 +129,7 @@ class Material(BaseEntity):
         inspection_required: bool = False,
         inspection_template_id: Optional[uuid.UUID] = None,
         is_active: bool = True,
+        current_cost: Decimal = Decimal("0"),
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
         is_deleted: bool = False,
@@ -158,6 +159,7 @@ class Material(BaseEntity):
         self._inspection_required = inspection_required
         self._inspection_template_id = inspection_template_id
         self._is_active = is_active
+        self._current_cost = Decimal(str(current_cost)) if current_cost is not None else Decimal("0")
 
     # ── Properties ──────────────────────────────────────────────────────────
     @property
@@ -291,6 +293,15 @@ class Material(BaseEntity):
         self._is_active = value
         self._touch()
 
+    @property
+    def current_cost(self) -> Decimal:
+        return self._current_cost
+
+    @current_cost.setter
+    def current_cost(self, value: Decimal) -> None:
+        self._current_cost = Decimal(str(value)) if value is not None else Decimal("0")
+        self._touch()
+
     # ── Stock Mutation Methods ──────────────────────────────────────────────
     def increase_stock(self, quantity: Decimal) -> None:
         """Add stock (IN transaction). quantity must be positive."""
@@ -372,6 +383,7 @@ class Material(BaseEntity):
         is_batch_tracked: Optional[bool] = None,
         is_serialized: Optional[bool] = None,
         is_active: Optional[bool] = None,
+        current_cost: Optional[Decimal] = None,
     ) -> None:
         """Bulk update of editable fields."""
         if name is not None:
@@ -394,4 +406,6 @@ class Material(BaseEntity):
             self._is_serialized = is_serialized
         if is_active is not None:
             self._is_active = is_active
+        if current_cost is not None:
+            self._current_cost = Decimal(str(current_cost))
         self._touch()

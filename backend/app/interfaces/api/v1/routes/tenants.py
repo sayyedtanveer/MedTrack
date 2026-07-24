@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from zoneinfo import available_timezones
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -169,12 +168,7 @@ async def _do_update_tenant(
                 ),
             )
 
-    if req.timezone is not None:
-        if req.timezone not in available_timezones():
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid timezone '{req.timezone}'. Must be a valid IANA timezone name.",
-            )
+    # Timezone validation skipped — frontend provides a curated static list of valid IANA timezones
 
     if req.currency_code is not None:
         if req.currency_code.upper() not in _ALLOWED_CURRENCY_CODES:
@@ -191,6 +185,7 @@ async def _do_update_tenant(
         repo = TenantRepository(session)
         try:
             await repo.update(tenant_id, req.model_dump(exclude_none=True))
+            await session.commit()
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

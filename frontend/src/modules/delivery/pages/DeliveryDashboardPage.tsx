@@ -28,9 +28,12 @@ import apiClient from "@/services/api-client"
 interface DispatchQueueItem {
   id: string
   order_number: string
-  client_name: string
-  total_quantity: number
-  due_date: string
+  customer_name: string | null   // backend field name
+  client_name?: string | null    // alias for display
+  grand_total: number
+  total_quantity?: number
+  ready_at: string | null
+  due_date?: string | null
 }
 
 interface DeliveryItem {
@@ -197,20 +200,30 @@ export default function DeliveryDashboardPage() {
                 <TableRow>
                   <TableHead>Order Number</TableHead>
                   <TableHead>Client</TableHead>
-                  <TableHead className="text-right">Total Qty</TableHead>
-                  <TableHead>Due Date</TableHead>
+                  <TableHead className="text-right">Grand Total</TableHead>
+                  <TableHead>Ready Since</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {dispatchQueue
-                  .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+                  .sort((a, b) => {
+                    const ta = a.ready_at ? new Date(a.ready_at).getTime() : 0
+                    const tb = b.ready_at ? new Date(b.ready_at).getTime() : 0
+                    return ta - tb
+                  })
                   .map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="font-mono font-medium">{item.order_number}</TableCell>
-                      <TableCell>{item.client_name}</TableCell>
-                      <TableCell className="text-right">{item.total_quantity}</TableCell>
-                      <TableCell>{new Date(item.due_date).toLocaleDateString()}</TableCell>
+                      <TableCell>{item.customer_name ?? item.client_name ?? "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {item.grand_total != null
+                          ? new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(item.grand_total)
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        {item.ready_at ? new Date(item.ready_at).toLocaleDateString() : "—"}
+                      </TableCell>
                       <TableCell className="text-right">
                         <Button
                           size="sm"

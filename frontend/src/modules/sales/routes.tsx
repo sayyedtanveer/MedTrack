@@ -12,7 +12,9 @@ import ClientsListPage from './pages/ClientsListPage';
 import ClientFormPage from './pages/ClientFormPage';
 import PriceListsPage from './pages/PriceListsPage';
 import PriceListFormPage from './pages/PriceListFormPage';
+import PriceListDetailPage from './pages/PriceListDetailPage';
 import DeliveriesPage from './pages/DeliveriesPage';
+import NewDeliveryPage from './pages/NewDeliveryPage';
 
 export const salesRoutes: RouteObject[] = [
   {
@@ -59,8 +61,16 @@ export const salesRoutes: RouteObject[] = [
         element: <PriceListFormPage />,
       },
       {
+        path: 'price-lists/:id',
+        element: <PriceListDetailPage />,
+      },
+      {
         path: 'price-lists/:id/edit',
         element: <PriceListFormPage />,
+      },
+      {
+        path: 'orders/:id/delivery/new',
+        element: <NewDeliveryPage />,
       },
       {
         path: 'deliveries',

@@ -33,12 +33,14 @@ FIELDS = [
     "min_stock", "max_stock", "reorder_level", "reorder_quantity", "barcode", "traceability_enabled",
     "qc_required", "approved_supplier", "supplier_item_code", "purchase_uom", "lead_time", "moq",
     "length_uom", "cuttable_inventory", "remaining_quantity_tracking", "decimal_precision", "reusable_remainder",
-    "opening_stock",
+    "opening_stock", "standard_cost",
 ]
 ALIASES = {"material code": "item_code", "code": "item_code", "item code": "item_code", "name": "material_name",
            "material": "material_name", "material name": "material_name", "category": "material_category",
            "unit": "uom", "uom": "uom", "batch tracked": "batch_tracking_enabled", "supplier": "approved_supplier",
-           "supplier code": "approved_supplier", "bin": "rack_bin", "rack/bin": "rack_bin"}
+           "supplier code": "approved_supplier", "bin": "rack_bin", "rack/bin": "rack_bin",
+           "standard purchase cost": "standard_cost", "purchase cost": "standard_cost", "cost": "standard_cost",
+           "current cost": "standard_cost"}
 
 def jload(v, default):
     try: return json.loads(v or "")
@@ -213,6 +215,10 @@ class MaterialOnboardingService:
         _opening = parse_decimal(data.get("opening_stock"), "opening_stock", issues, 0)
         if _opening is not None and _opening > Decimal("999999999.99"):
             issues.append({"field": "opening_stock", "severity": "error", "type": "invalid_number", "message": "Opening Stock must not exceed 999,999,999.99"})
+        # Standard cost validation: numeric, >= 0, max 999,999,999.9999
+        _std_cost = parse_decimal(data.get("standard_cost"), "standard_cost", issues, 0)
+        if _std_cost is not None and _std_cost > Decimal("999999999.9999"):
+            issues.append({"field": "standard_cost", "severity": "error", "type": "invalid_number", "message": "Standard Cost must not exceed 999,999,999.9999"})
         exact=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,func.upper(MaterialModel.code)==str(data.get("item_code") or "").upper(),MaterialModel.is_deleted.is_(False))) if data.get("item_code") else None
         barcode=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,MaterialModel.barcode==data["barcode"],MaterialModel.is_deleted.is_(False))) if data.get("barcode") else None
         supplier=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,MaterialModel.supplier_item_code==data["supplier_item_code"],MaterialModel.is_deleted.is_(False))) if data.get("supplier_item_code") else None
@@ -289,11 +295,15 @@ class MaterialOnboardingService:
         location=await self.session.scalar(select(LocationModel).where(LocationModel.tenant_id==tenant_id,LocationModel.is_deleted.is_(False),func.lower(LocationModel.name)==norm(d.get("rack_bin") or d.get("zone") or d.get("warehouse")))) if (d.get("rack_bin") or d.get("zone") or d.get("warehouse")) else None
         mat=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,func.upper(MaterialModel.code)==str(d.get("item_code") or "").upper(),MaterialModel.is_deleted.is_(False))) if d.get("item_code") else None
         repo=MaterialRepository(self.session); uow=SQLAlchemyUnitOfWork(session=self.session,event_dispatcher=None)
+        std_cost = Decimal(str(d["standard_cost"])) if d.get("standard_cost") else None
         if mat is None:
             result=await CreateMaterialHandler(repo,uow,ItemCodeService(self.session)).handle(CreateMaterialCommand(tenant_id=tenant_id,created_by=user_id,code=d.get("item_code") or None,name=d["material_name"],material_type=d.get("material_type") or "raw",category_id=cat.id,base_unit_id=unit.id,reorder_level=Decimal(str(d["reorder_level"])) if d.get("reorder_level") else None,location_id=location.id if location else None,is_batch_tracked=as_bool(d.get("batch_tracking_enabled"))))
             mat=await self.session.get(MaterialModel,result.id); row.classification="create"
+            # Apply standard_cost after create (CreateMaterialCommand doesn't carry it yet)
+            if std_cost is not None:
+                mat.current_cost = float(std_cost)
         else:
-            await UpdateMaterialHandler(repo,uow).handle(UpdateMaterialCommand(id=mat.id,tenant_id=tenant_id,name=d.get("material_name"),category_id=cat.id,base_unit_id=unit.id,material_type=d.get("material_type") or mat.material_type,reorder_level=Decimal(str(d["reorder_level"])) if d.get("reorder_level") else None,location_id=location.id if location else None,is_batch_tracked=optional_bool(d.get("batch_tracking_enabled")))); mat=await self.session.get(MaterialModel,mat.id)
+            await UpdateMaterialHandler(repo,uow).handle(UpdateMaterialCommand(id=mat.id,tenant_id=tenant_id,name=d.get("material_name"),category_id=cat.id,base_unit_id=unit.id,material_type=d.get("material_type") or mat.material_type,reorder_level=Decimal(str(d["reorder_level"])) if d.get("reorder_level") else None,location_id=location.id if location else None,is_batch_tracked=optional_bool(d.get("batch_tracking_enabled")),current_cost=std_cost)); mat=await self.session.get(MaterialModel,mat.id)
             if d.get("item_code") and d["item_code"] != mat.code:
                 if getattr(mat, "code_locked", False):
                     raise ValueError("Item code is immutable")

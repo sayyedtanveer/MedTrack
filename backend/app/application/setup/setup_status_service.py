@@ -19,6 +19,7 @@ class CompanySetupStatusService:
         "units",
         "categories",
         "locations",
+        "operations",
         "supplier",
         "customer",
         "material",

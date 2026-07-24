@@ -107,61 +107,151 @@ export default function SalesOrderActionPanel({
 
         {/* Contextual info panel for WORK_ORDER_CREATED status */}
         {order.status === OrderStatus.WORK_ORDER_CREATED && (
-          <div className="flex items-start gap-2 bg-violet-50 border border-violet-200 text-violet-800 px-4 py-3 rounded">
-            <Info className="h-5 w-5 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="font-medium">Manufacturing is being planned</p>
-              <p className="text-sm mt-1">
-                Work orders have been created for this sales order. Production planning is in progress.
-              </p>
-              {linkedWorkOrders.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {linkedWorkOrders.map((wo) => (
-                    <a
-                      key={wo.id}
-                      href={`/manufacturing/work-orders/${wo.id}`}
-                      className="inline-flex items-center gap-1 text-sm text-violet-700 hover:text-violet-900 underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      {wo.work_order_number}
-                    </a>
-                  ))}
-                </div>
-              )}
-              {linkedWorkOrders.length === 0 && (
-                <p className="text-sm mt-1 text-violet-600 italic">No work order links available.</p>
-              )}
+          <div className="rounded-md border border-violet-200 bg-violet-50 px-4 py-3 space-y-3">
+            <div className="flex items-start gap-2 text-violet-800">
+              <Info className="h-5 w-5 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium">Work Orders Created — Production Planning in Progress</p>
+                <p className="text-sm mt-1">
+                  Insufficient finished goods stock was found at confirmation. Work orders have been
+                  created to manufacture the required quantities. This order will move to{' '}
+                  <strong>Ready for Dispatch</strong> automatically once production is complete and QC approved.
+                </p>
+              </div>
             </div>
+
+            {/* Per-line shortfall breakdown */}
+            {order.lines.some(l => (l.shortfall_quantity ?? 0) > 0) && (
+              <div className="rounded border border-violet-200 bg-white overflow-hidden text-sm">
+                <table className="w-full">
+                  <thead className="bg-violet-100 text-violet-700">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left font-medium">Product</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Ordered</th>
+                      <th className="px-3 py-1.5 text-right font-medium">In Stock</th>
+                      <th className="px-3 py-1.5 text-right font-medium text-amber-700">To Produce</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.lines.filter(l => (l.shortfall_quantity ?? 0) > 0).map(l => (
+                      <tr key={l.id} className="border-t border-violet-100">
+                        <td className="px-3 py-1.5 text-gray-800">
+                          {l.product_name || l.product_code || l.product_id}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{l.quantity}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-green-700">
+                          {l.quantity - (l.shortfall_quantity ?? 0)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-amber-700">
+                          {l.shortfall_quantity}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* WO links */}
+            {linkedWorkOrders.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {linkedWorkOrders.map((wo) => (
+                  <a
+                    key={wo.id}
+                    href={`/work-orders/${wo.id}`}
+                    className="inline-flex items-center gap-1 text-sm text-violet-700 hover:text-violet-900 underline"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {wo.work_order_number}
+                    <Badge variant="outline" className="ml-1 text-[10px] py-0">{wo.status}</Badge>
+                  </a>
+                ))}
+              </div>
+            )}
+            {linkedWorkOrders.length === 0 && (
+              <p className="text-sm text-violet-600 italic">
+                Go to <strong>Manufacturing → Work Orders</strong> to release and track production.
+              </p>
+            )}
           </div>
         )}
 
-        {/* Contextual info panel for PRODUCTION status */}
-        {order.status === OrderStatus.PRODUCTION && (
-          <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-            <Info className="h-5 w-5 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="font-medium">Waiting for manufacturing to complete</p>
-              <p className="text-sm mt-1">
-                Production is currently in progress for linked work orders.
-              </p>
-              {linkedWorkOrders.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {linkedWorkOrders.map((wo) => (
-                    <a
-                      key={wo.id}
-                      href={`/manufacturing/work-orders/${wo.id}`}
-                      className="inline-flex items-center gap-1 text-sm text-yellow-700 hover:text-yellow-900 underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      {wo.work_order_number}
-                    </a>
-                  ))}
-                </div>
-              )}
-              {linkedWorkOrders.length === 0 && (
-                <p className="text-sm mt-1 text-yellow-600 italic">No work order links available.</p>
-              )}
+        {/* Contextual info panel for PRODUCTION / CONFIRMED-with-shortage status */}
+        {(order.status === OrderStatus.PRODUCTION || order.status === OrderStatus.CONFIRMED) && (
+          <div className="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 space-y-3">
+            <div className="flex items-start gap-2 text-yellow-800">
+              <Info className="h-5 w-5 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium">Production Required — Waiting for Manufacturing</p>
+                <p className="text-sm mt-1">
+                  This order cannot be dispatched yet. The following quantities are pending production.
+                  Once work orders are completed and QC approved, finished goods will be received into
+                  inventory and this order will move to <strong>Ready for Dispatch</strong> automatically.
+                </p>
+              </div>
             </div>
+
+            {/* Per-line shortfall breakdown */}
+            {order.lines.some(l => (l.shortfall_quantity ?? 0) > 0 || l.production_required) && (
+              <div className="rounded border border-yellow-200 bg-white overflow-hidden text-sm">
+                <table className="w-full">
+                  <thead className="bg-yellow-100 text-yellow-800">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left font-medium">Product</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Ordered</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Available</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Reserved</th>
+                      <th className="px-3 py-1.5 text-right font-medium text-red-700">Shortfall</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.lines.map(l => {
+                      const shortfall = l.shortfall_quantity ?? 0
+                      const allocated = l.allocated_qty ?? 0
+                      const available = allocated  // what was reserved from existing stock
+                      return (
+                        <tr key={l.id} className="border-t border-yellow-100">
+                          <td className="px-3 py-1.5 text-gray-800">
+                            {l.product_name || l.product_code || l.product_id}
+                          </td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{l.quantity}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-green-700">{available}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-blue-700">{allocated}</td>
+                          <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${shortfall > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                            {shortfall > 0 ? shortfall : '✓'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Next step guidance */}
+            <div className="text-sm text-yellow-800 bg-yellow-100 rounded px-3 py-2">
+              <strong>Next step:</strong> Go to{' '}
+              <a href="/work-orders" className="underline font-medium text-yellow-900 hover:text-yellow-700">
+                Manufacturing → Work Orders
+              </a>{' '}
+              to release the work order, issue materials to the storekeeper, run production, and submit for QC.
+            </div>
+
+            {linkedWorkOrders.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {linkedWorkOrders.map((wo) => (
+                  <a
+                    key={wo.id}
+                    href={`/work-orders/${wo.id}`}
+                    className="inline-flex items-center gap-1 text-sm text-yellow-800 hover:text-yellow-900 underline"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {wo.work_order_number}
+                    <Badge variant="outline" className="ml-1 text-[10px] py-0">{wo.status}</Badge>
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

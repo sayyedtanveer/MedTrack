@@ -99,7 +99,8 @@ export default function MaterialListPage() {
             )}
             {isLow && (
               <Link
-                to={`/procurement/purchase-orders/new?material_id=${product.id}&material_name=${encodeURIComponent(product.name)}&suggested_qty=${product.reorder_level ?? 0}`}
+                to="/procurement/purchase-orders"
+                state={{ shortagePrefill: { lines: [{ material_id: product.id, quantity: product.reorder_level ?? 0 }] } }}
                 className="text-xs text-blue-600 hover:underline"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -217,7 +218,8 @@ export default function MaterialListPage() {
                         )}
                         {isLow && (
                           <Link
-                            to={`/procurement/purchase-orders/new?material_id=${product.id}&material_name=${encodeURIComponent(product.name)}&suggested_qty=${product.reorder_level ?? 0}`}
+                            to="/procurement/purchase-orders"
+                            state={{ shortagePrefill: { lines: [{ material_id: product.id, quantity: product.reorder_level ?? 0 }] } }}
                             className="text-xs text-blue-600 hover:underline"
                             onClick={(e) => e.stopPropagation()}
                           >

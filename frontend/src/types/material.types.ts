@@ -21,6 +21,14 @@ export interface Material {
   inspection_template_id?: string | null;
   is_active: boolean;
   is_low_stock: boolean;
+  current_cost?: number;
+
+  // Purchasing summary (populated from completed GRNs via PurchaseHistoryQueryService)
+  latest_purchase_price?: number | null;
+  last_purchase_date?: string | null;
+  last_supplier_name?: string | null;
+  last_supplier_id?: string | null;
+  purchase_count?: number;
 }
 
 export interface StockInfo {
@@ -134,6 +142,26 @@ export interface UpdateMaterialInput {
   // Phase 2 item-code locking + override (backend may enforce rules)
   item_code?: string | null;
   code_locked?: boolean;
+}
+
+export interface PurchaseHistoryItem {
+  date: string | null;
+  supplier_id: string;
+  supplier_name: string;
+  po_number: string;
+  grn_number: string;
+  quantity: number;
+  uom: string;
+  unit_price: number;
+  total_value: number;
+  currency: string;
+}
+
+export interface PurchaseHistoryPage {
+  items: PurchaseHistoryItem[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface StockOperationInput {

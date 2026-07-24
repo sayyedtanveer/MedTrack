@@ -220,7 +220,7 @@ class CheckClientCreditQueryHandler:
             return {
                 "client_id": str(client.id),
                 "credit_limit": None,
-                "credit_used": str(credit_used),
+                "credit_used": str(credit_used) if credit_used is not None else "0",
                 "available_credit": None,
                 "is_valid_for_amount": True,
                 "message": "Client has unlimited credit",

@@ -89,7 +89,22 @@ class InventoryQueryHandler:
 
     async def get_material(self, query: GetMaterialQuery) -> Optional[MaterialResult]:
         material = await self._material_repo.get_by_id(query.id, query.tenant_id)
-        return _to_result(material) if material else None
+        if not material:
+            return None
+            
+        from backend.app.application.procurement.services.purchase_history_query_service import PurchaseHistoryQueryService
+        
+        session = self._material_repo._session
+        purchase_history_svc = PurchaseHistoryQueryService(session)
+        summary = await purchase_history_svc.get_purchasing_summary(query.id, query.tenant_id)
+        
+        result = _to_result(material)
+        result.latest_purchase_price = summary.get("latest_purchase_price")
+        result.last_purchase_date = summary.get("last_purchase_date")
+        result.last_supplier_name = summary.get("last_supplier_name")
+        result.last_supplier_id = summary.get("last_supplier_id")
+        result.purchase_count = summary.get("purchase_count", 0)
+        return result
 
     async def get_stock(self, query: GetStockQuery) -> Optional[StockInfo]:
         material = await self._material_repo.get_by_id(query.material_id, query.tenant_id)

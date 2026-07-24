@@ -1,7 +1,5 @@
 import { apiClient } from "./api-client"
 
-const BASE = "/api/v1"
-
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type WorkstationLoad = {
@@ -64,6 +62,22 @@ export type CreatedPO = {
   lines: number
 }
 
+// Material request (purchase requisition) created from WO shortages
+export type MaterialRequest = {
+  id: string
+  material_id: string
+  material_code: string
+  material_name: string
+  required_quantity: number
+  fulfilled_quantity: number
+  shortage_quantity: number
+  required_by: string | null
+  status: "open" | "fulfilled" | "cancelled"
+  source_ref_type: string | null
+  source_ref_id: string | null
+  created_at: string
+}
+
 // ── API ────────────────────────────────────────────────────────────────────
 
 export const mrpApi = {
@@ -73,12 +87,12 @@ export const mrpApi = {
     if (start) params.set("start", start)
     if (end) params.set("end", end)
     const qs = params.toString()
-    return apiClient.get<WorkstationLoad[]>(`${BASE}/capacity/load-chart${qs ? `?${qs}` : ""}`).then(res => res.data)
+    return apiClient.get<WorkstationLoad[]>(`/capacity/load-chart${qs ? `?${qs}` : ""}`).then(res => res.data)
   },
 
   getBottlenecks: (threshold?: number) => {
     const qs = threshold !== undefined ? `?threshold=${threshold}` : ""
-    return apiClient.get<Bottleneck[]>(`${BASE}/capacity/bottlenecks${qs}`).then(res => res.data)
+    return apiClient.get<Bottleneck[]>(`/capacity/bottlenecks${qs}`).then(res => res.data)
   },
 
   getSchedule: (start?: string, end?: string) => {
@@ -86,7 +100,7 @@ export const mrpApi = {
     if (start) params.set("start", start)
     if (end) params.set("end", end)
     const qs = params.toString()
-    return apiClient.get<GanttEntry[]>(`${BASE}/capacity/schedule${qs ? `?${qs}` : ""}`).then(res => res.data)
+    return apiClient.get<GanttEntry[]>(`/capacity/schedule${qs ? `?${qs}` : ""}`).then(res => res.data)
   },
 
   reschedule: (body: {
@@ -94,27 +108,33 @@ export const mrpApi = {
     new_start: string
     new_due: string
     direction?: "forward" | "backward"
-  }) => apiClient.post<GanttEntry>(`${BASE}/capacity/schedule`, body).then(res => res.data),
+  }) => apiClient.post<GanttEntry>(`/capacity/schedule`, body).then(res => res.data),
 
   // MRP
-  runMRP: () => apiClient.post<MRPRunResult>(`${BASE}/mrp/run`, {}).then(res => res.data),
+  runMRP: () => apiClient.post<MRPRunResult>(`/mrp/run`, {}).then(res => res.data),
 
   getSuggestions: (status?: string) => {
     const qs = status ? `?status=${status}` : ""
-    return apiClient.get<MRPSuggestion[]>(`${BASE}/mrp/suggestions${qs}`).then(res => res.data)
+    return apiClient.get<MRPSuggestion[]>(`/mrp/suggestions${qs}`).then(res => res.data)
   },
 
   approveSuggestion: (id: string) =>
-    apiClient.post<MRPSuggestion>(`${BASE}/mrp/suggestions/${id}/approve`, {}).then(res => res.data),
+    apiClient.post<MRPSuggestion>(`/mrp/suggestions/${id}/approve`, {}).then(res => res.data),
 
   rejectSuggestion: (id: string) =>
-    apiClient.post<MRPSuggestion>(`${BASE}/mrp/suggestions/${id}/reject`, {}).then(res => res.data),
+    apiClient.post<MRPSuggestion>(`/mrp/suggestions/${id}/reject`, {}).then(res => res.data),
 
   bulkApprove: (suggestion_ids: string[]) =>
-    apiClient.post<{ approved: number }>(`${BASE}/mrp/suggestions/bulk-approve`, { suggestion_ids }).then(res => res.data),
+    apiClient.post<{ approved: number }>(`/mrp/suggestions/bulk-approve`, { suggestion_ids }).then(res => res.data),
 
   convertToPO: (suggestion_ids?: string[]) =>
-    apiClient.post<{ purchase_orders: CreatedPO[] }>(`${BASE}/mrp/suggestions/convert-to-po`, {
+    apiClient.post<{ purchase_orders: CreatedPO[] }>(`/mrp/suggestions/convert-to-po`, {
       suggestion_ids: suggestion_ids ?? null,
     }).then(res => res.data),
+
+  // Material Requests (purchase requisitions from WO shortages)
+  getMaterialRequests: (status?: string) => {
+    const qs = status ? `?status=${status}` : ""
+    return apiClient.get<MaterialRequest[]>(`/mrp/material-requests${qs}`).then(res => res.data)
+  },
 }

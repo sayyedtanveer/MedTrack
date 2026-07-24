@@ -1,9 +1,14 @@
 """Sales order application commands (CQRS pattern)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
+
+
+# Sentinel used to distinguish "field not provided" from "explicitly set to None"
+# for default_price_list_id on UpdateClientCommand.
+_PRICE_LIST_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,7 @@ class AddLineToSalesOrderCommand:
     uom_id: UUID
     quantity: Decimal
     tax_rate: Decimal = Decimal("0")
+    unit_price: Decimal | None = None  # Manual override — skips PricingService when provided (REQ-SP-004 AC4-AC5)
 
 
 @dataclass(frozen=True)
@@ -154,8 +160,8 @@ class CreateClientCommand:
     """Create a new client."""
     
     tenant_id: UUID
-    code: str
     name: str
+    code: str | None = None
     email: str | None = None
     phone: str | None = None
     address: str | None = None
@@ -177,6 +183,9 @@ class UpdateClientCommand:
     gst_number: str | None = None
     credit_limit: Decimal | None = None
     payment_terms_days: int | None = None
+    # Uses _PRICE_LIST_UNSET sentinel so handlers can distinguish
+    # "caller did not provide this field" (sentinel) from "explicitly set to None" (clear assignment).
+    default_price_list_id: object = field(default_factory=lambda: _PRICE_LIST_UNSET)
 
 
 @dataclass(frozen=True)
@@ -197,6 +206,19 @@ class CreatePriceListCommand:
     is_default: bool = False
     valid_from: date | None = None
     valid_to: date | None = None
+
+
+@dataclass(frozen=True)
+class UpdatePriceListCommand:
+    """Update price list header (name, validity, is_default, is_active)."""
+
+    tenant_id: UUID
+    price_list_id: UUID
+    name: str | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+    is_default: bool | None = None
+    is_active: bool | None = None
 
 
 @dataclass(frozen=True)

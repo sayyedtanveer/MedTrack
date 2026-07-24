@@ -1,18 +1,32 @@
 /**
  * Client Form Page
  * Create or edit a sales client
+ * REQ-SP-003
  */
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { FormSkeleton } from '@/components/shared/LoadingSkeleton';
-import { clientsApi } from '@/services/sales.service';
-import { SalesClient, CreateClientRequest } from '@/types/sales.types';
+import { clientsApi, priceListsApi } from '@/services/sales.service';
+import { SalesClient, CreateClientRequest, PriceList } from '@/types/sales.types';
 import { ArrowLeft, Save } from 'lucide-react';
+
+import { numberSeriesService } from '@/services/number-series.service';
+
+const NONE_VALUE = '__none__';
+
+const INDIAN_PHONE_REGEX = /^(?:\+91[\-\s]?)?[6789]\d{9}$/;
 
 export default function ClientFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,30 +42,70 @@ export default function ClientFormPage() {
     gst_number: '',
     credit_limit: 0,
     payment_terms_days: 0,
+    default_price_list_id: null,
   });
   const [loading, setLoading] = useState(isEditing);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [previewCode, setPreviewCode] = useState<string>('');
+
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+
+  // Price lists for the dropdown
+  const [priceLists, setPriceLists] = useState<PriceList[]>([]);
+
+  // Load price lists on mount (all, so inactive assignments are still visible)
+  useEffect(() => {
+    priceListsApi.list(200, 0)
+      .then((r) => setPriceLists(r.items))
+      .catch(() => {/* non-critical — dropdown just stays empty */});
+  }, []);
+
+  // Fetch number series for client (customer) code
+  useEffect(() => {
+    if (!isEditing) {
+      numberSeriesService.previewCode('customer')
+        .then((res) => {
+          setPreviewCode(res.preview);
+        })
+        .catch(console.error);
+    }
+  }, [isEditing]);
 
   useEffect(() => {
     const loadClient = async () => {
       if (!isEditing || !id) return;
-
       try {
         setError(null);
         const client = await clientsApi.get(id);
-        setFormData(client);
+        setFormData({
+          ...client,
+          default_price_list_id: client.default_price_list_id ?? null,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load client');
       } finally {
         setLoading(false);
       }
     };
-
     loadClient();
   }, [isEditing, id]);
 
   const handleSave = async () => {
+    // Basic validations
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      setError("Please enter a valid email address.");
+      emailInputRef.current?.focus();
+      return;
+    }
+
+    if (formData.phone && !INDIAN_PHONE_REGEX.test(formData.phone.trim())) {
+      setError("Please enter a valid Indian phone number (e.g., +91 9876543210 or 10 digits starting with 6-9).");
+      phoneInputRef.current?.focus();
+      return;
+    }
+
     setSaving(true);
     try {
       if (isEditing && id) {
@@ -63,10 +117,14 @@ export default function ClientFormPage() {
           gst_number: formData.gst_number,
           credit_limit: formData.credit_limit,
           payment_terms_days: formData.payment_terms_days,
+          default_price_list_id: formData.default_price_list_id ?? null,
         });
       } else {
+        const payloadCode = formData.code?.trim();
+        const codeToSend = payloadCode && payloadCode !== previewCode ? payloadCode : undefined;
+
         await clientsApi.create({
-          code: formData.code || '',
+          ...(codeToSend ? { code: codeToSend } : {}),
           name: formData.name || '',
           email: formData.email,
           phone: formData.phone,
@@ -122,9 +180,9 @@ export default function ClientFormPage() {
           {/* Code */}
           {!isEditing && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Client Code *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Client Code (Auto-generated if empty)</label>
               <Input
-                placeholder="e.g., CLI001"
+                placeholder={previewCode || "e.g., CLI001"}
                 value={formData.code || ''}
                 onChange={(e) => setFormData({...formData, code: e.target.value})}
               />
@@ -146,6 +204,7 @@ export default function ClientFormPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
               <Input
+                ref={emailInputRef}
                 type="email"
                 placeholder="client@example.com"
                 value={formData.email || ''}
@@ -155,7 +214,8 @@ export default function ClientFormPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
               <Input
-                placeholder="+1 (555) 123-4567"
+                ref={phoneInputRef}
+                placeholder="+91 9876543210"
                 value={formData.phone || ''}
                 onChange={(e) => setFormData({...formData, phone: e.target.value})}
               />
@@ -204,6 +264,40 @@ export default function ClientFormPage() {
               onChange={(e) => setFormData({...formData, credit_limit: parseFloat(e.target.value)})}
             />
           </div>
+
+          {/* Default Price List — REQ-SP-003 */}
+          {isEditing && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Default Price List</label>
+              <Select
+                value={formData.default_price_list_id ?? NONE_VALUE}
+                onValueChange={(v) =>
+                  setFormData({
+                    ...formData,
+                    default_price_list_id: v === NONE_VALUE ? null : v,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No default price list" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE_VALUE}>— None —</SelectItem>
+                  {priceLists.map((pl) => (
+                    <SelectItem key={pl.id} value={pl.id}>
+                      {pl.name}
+                      {!pl.is_active && (
+                        <span className="ml-2 text-xs text-amber-600">(Inactive)</span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-gray-500 mt-1">
+                Determines which price list is used when creating sales orders for this client.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

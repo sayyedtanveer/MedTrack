@@ -13,6 +13,7 @@ export interface CompanySetupStatusResponse {
   units: boolean
   categories: boolean
   locations: boolean
+  operations: boolean
   users: boolean
   readyToStart: boolean
 }

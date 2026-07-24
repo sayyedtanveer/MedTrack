@@ -123,6 +123,7 @@ export interface ItemVariant {
   variant_key: string;
   attribute_values: Record<string, string>;
   base_unit_id?: string;
+  material_id?: string | null;
   standard_cost: number;
   selling_price?: number;
   is_active: boolean;

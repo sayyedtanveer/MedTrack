@@ -40,7 +40,7 @@ const SETUP_STEPS: SetupStep[] = [
     phase: "Phase 1",
     label: "Company Profile",
     description: "Set company name, address, GST number, and logo.",
-    href: "/settings/company",
+    href: "/settings/company-profile",
     icon: Building2,
     badge: "Setup",
   },

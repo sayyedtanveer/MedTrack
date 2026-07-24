@@ -70,6 +70,14 @@ class ClientModel(Base):
         Boolean, nullable=False, default=True
     )
 
+    # Pricing: default price list assigned to this client
+    default_price_list_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sales_price_lists.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

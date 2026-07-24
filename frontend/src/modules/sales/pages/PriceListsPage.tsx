@@ -8,10 +8,11 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { TableSkeleton } from '@/components/shared/LoadingSkeleton';
 import { priceListsApi } from '@/services/sales.service';
 import { PriceList } from '@/types/sales.types';
-import { Plus, Edit2, IndianRupee } from 'lucide-react';
+import { Plus, Edit2, IndianRupee, List } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 
 export default function PriceListsPage() {
@@ -22,6 +23,7 @@ export default function PriceListsPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const loadPriceLists = async () => {
@@ -64,6 +66,14 @@ export default function PriceListsPage() {
         </Button>
       </div>
 
+      {/* Search */}
+      <Input
+        placeholder="Search price lists by name…"
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="max-w-sm"
+      />
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
           {error}
@@ -72,7 +82,9 @@ export default function PriceListsPage() {
 
       {/* Price Lists */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {priceLists.length === 0 ? (
+        {priceLists.filter((pl) =>
+          pl.name.toLowerCase().includes(searchTerm.toLowerCase())
+        ).length === 0 ? (
           <Card className="col-span-full">
             <CardContent className="pt-12 text-center text-gray-500 pb-12">
               <IndianRupee className="h-12 w-12 mx-auto mb-4 text-gray-400" />
@@ -83,7 +95,9 @@ export default function PriceListsPage() {
             </CardContent>
           </Card>
         ) : (
-          priceLists.map((priceList) => (
+          priceLists.filter((pl) =>
+            pl.name.toLowerCase().includes(searchTerm.toLowerCase())
+          ).map((priceList) => (
             <Card key={priceList.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex justify-between items-start">
@@ -140,15 +154,26 @@ export default function PriceListsPage() {
                 )}
 
                 {/* Actions */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full mt-4"
-                  onClick={() => navigate(`/sales/price-lists/${priceList.id}/edit`)}
-                >
-                  <Edit2 className="mr-2 h-4 w-4" />
-                  Edit Price List
-                </Button>
+                <div className="flex gap-2 mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => navigate(`/sales/price-lists/${priceList.id}`)}
+                  >
+                    <List className="mr-2 h-4 w-4" />
+                    Manage Lines
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => navigate(`/sales/price-lists/${priceList.id}/edit`)}
+                  >
+                    <Edit2 className="mr-2 h-4 w-4" />
+                    Edit Details
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))

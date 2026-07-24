@@ -17,16 +17,12 @@ import {
   ShieldAlert,
   ShieldCheck,
   History,
-  Wrench,
   ArrowLeftRight,
   TrendingUp,
   Gauge,
   CalendarDays,
   Building2,
   Database,
-  Ruler,
-  Tag,
-  MapPin,
   LucideIcon,
 } from "lucide-react"
 import { UserRole, getRolesForModule } from "@/lib/roles.config"
@@ -107,12 +103,6 @@ export const NAV_ITEMS: NavItem[] = [
         href: "/shop-floor",
         icon: Factory,
         roles: SHOP_FLOOR_ROLES,
-      },
-      {
-        title: "Operations Master",
-        href: "/operations",
-        icon: Wrench,
-        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
       },
     ],
   },
@@ -228,6 +218,32 @@ export const NAV_ITEMS: NavItem[] = [
       UserRole.PLANNER,
       UserRole.STOREKEEPER,
       UserRole.OPERATOR,
+    ],
+    children: [
+      {
+        title: "MRP Dashboard",
+        href: "/mrp",
+        icon: BarChart3,
+        roles: [
+          UserRole.ADMIN,
+          UserRole.TENANT_ADMIN,
+          UserRole.MANAGER,
+          UserRole.PLANNER,
+          UserRole.STOREKEEPER,
+          UserRole.OPERATOR,
+        ],
+      },
+      {
+        title: "Capacity Chart",
+        href: "/mrp/capacity",
+        icon: Gauge,
+        roles: [
+          UserRole.ADMIN,
+          UserRole.TENANT_ADMIN,
+          UserRole.MANAGER,
+          UserRole.PLANNER,
+        ],
+      },
     ],
   },
 
@@ -364,29 +380,9 @@ export const NAV_ITEMS: NavItem[] = [
       },
       {
         title: "Master Data",
-        href: "/settings/master-data/units",
+        href: "/settings/master-data",
         icon: Database,
         roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
-        children: [
-          {
-            title: "Units",
-            href: "/settings/master-data/units",
-            icon: Ruler,
-            roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
-          },
-          {
-            title: "Material Categories",
-            href: "/settings/master-data/categories",
-            icon: Tag,
-            roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
-          },
-          {
-            title: "Storage Locations",
-            href: "/settings/master-data/locations",
-            icon: MapPin,
-            roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
-          },
-        ],
       },
     ],
   },

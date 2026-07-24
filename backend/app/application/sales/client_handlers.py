@@ -12,6 +12,8 @@ from backend.app.application.sales.commands import (
     AddPriceListLineCommand,
     UpdatePriceListLineCommand,
     RemovePriceListLineCommand,
+    UpdatePriceListCommand,
+    _PRICE_LIST_UNSET,
 )
 
 
@@ -98,6 +100,9 @@ class UpdateClientCommandHandler:
             client.credit_limit = command.credit_limit
         if command.payment_terms_days is not None:
             client.payment_terms_days = command.payment_terms_days
+        # Apply default_price_list_id only when explicitly provided (even None to clear).
+        if command.default_price_list_id is not _PRICE_LIST_UNSET:
+            client.default_price_list_id = command.default_price_list_id
         
         await self.client_repo.save(client)
         await self.uow.work()
@@ -246,3 +251,97 @@ class RemovePriceListLineCommandHandler:
         await self.price_list_repo.save(price_list)
         await self.uow.work()
 
+
+
+class UpdatePriceListCommandHandler:
+    """Handler for updating price list header fields.
+
+    Enforces the following business rule guards in order:
+
+    1. **Deactivating-default guard**: cannot deactivate the current default list without
+       first designating a new default.
+    2. **Single-default invariant**: when promoting a list to default, atomically unset
+       ``is_default`` on all other price lists for the same tenant within the same DB
+       transaction.
+    3. **Date ordering guard**: ``valid_to`` must be >= ``valid_from`` when provided.
+    4. **Name uniqueness guard**: the new name must not collide with another list owned
+       by the same tenant.
+
+    Requirements: REQ-SP-001 AC3, AC4, AC5, AC7
+    """
+
+    def __init__(self, price_list_repo: PriceListRepository, uow):
+        """Initialize handler."""
+        self.price_list_repo = price_list_repo
+        self.uow = uow
+
+    async def handle(self, cmd: UpdatePriceListCommand) -> None:
+        """Apply partial updates to a price list header with business-rule guards.
+
+        Args:
+            cmd: Update command carrying optional partial fields.
+
+        Raises:
+            ValueError: If the price list is not found or a business rule is violated.
+        """
+        # --- Load aggregate ---
+        price_list = await self.price_list_repo.get_by_id(
+            id=cmd.price_list_id,
+            tenant_id=cmd.tenant_id,
+        )
+        if not price_list:
+            raise ValueError("Price list not found")
+
+        # --- Guard 1: Deactivating-default ---
+        # If the caller is explicitly setting is_active=False and this list is currently
+        # the default, reject unless is_default is simultaneously being unset (i.e. another
+        # list is being promoted — that would be a separate command, so we reject here).
+        if cmd.is_active is False and price_list.is_default:
+            raise ValueError(
+                "Cannot deactivate the default price list without designating a new default first"
+            )
+
+        # --- Guard 3: Date ordering (evaluate against merged valid_from) ---
+        # Determine the effective valid_from: use the command value if provided, else keep existing.
+        effective_valid_from = cmd.valid_from if cmd.valid_from is not None else price_list.valid_from
+        if cmd.valid_to is not None and cmd.valid_to < effective_valid_from:
+            raise ValueError("valid_to must be >= valid_from")
+
+        # --- Guard 4: Name uniqueness ---
+        if cmd.name is not None:
+            duplicate = await self.price_list_repo.find_by_exact_name(
+                tenant_id=cmd.tenant_id,
+                name=cmd.name,
+                exclude_id=cmd.price_list_id,
+            )
+            if duplicate:
+                raise ValueError("A price list with this name already exists")
+
+        # --- Apply partial updates to the entity ---
+        if cmd.name is not None:
+            price_list.name = cmd.name
+
+        if cmd.valid_from is not None or cmd.valid_to is not None:
+            # Use set_validity_period to keep internal _touch() and validation in sync
+            price_list.set_validity_period(
+                valid_from=effective_valid_from,
+                valid_to=cmd.valid_to if cmd.valid_to is not None else price_list.valid_to,
+            )
+
+        if cmd.is_active is not None:
+            price_list.is_active = cmd.is_active
+
+        if cmd.is_default is not None:
+            price_list.is_default = cmd.is_default
+
+        # --- Guard 2: Single-default invariant ---
+        # If promoting this list to default, atomically unset all other defaults first.
+        if cmd.is_default is True:
+            await self.price_list_repo.unset_all_defaults(
+                tenant_id=cmd.tenant_id,
+                exclude_id=cmd.price_list_id,
+            )
+
+        # --- Persist ---
+        await self.price_list_repo.save(price_list)
+        await self.uow.work()

@@ -22,6 +22,7 @@ from backend.app.interfaces.api.v1.dependencies.auth import (
     get_current_tenant_id,
     get_current_user_id,
 )
+from backend.app.application.inventory.services.item_code_service import ItemCodeService
 from backend.app.application.rbac.service import role_has_permission
 from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
 
@@ -32,6 +33,7 @@ from backend.app.interfaces.api.sales.schemas import (
     ClientListResponse,
     ClientCreditCheckResponse,
     PriceListRequest,
+    PriceListUpdateRequest,
     PriceListLineRequest,
     PriceListResponse,
     PriceListListResponse,
@@ -46,6 +48,7 @@ from backend.app.interfaces.api.sales.schemas import (
     CancelOrderRequest,
     OrderStatusResponse,
 )
+from backend.app.application.sales.commands import _PRICE_LIST_UNSET
 from backend.app.application.sales import (
     # Commands
     CreateClientCommand,
@@ -55,6 +58,7 @@ from backend.app.application.sales import (
     AddPriceListLineCommand,
     UpdatePriceListLineCommand,
     RemovePriceListLineCommand,
+    UpdatePriceListCommand,
     CreateSalesOrderCommand,
     AddLineToSalesOrderCommand,
     RemoveLineFromSalesOrderCommand,
@@ -89,6 +93,7 @@ from backend.app.application.sales import (
     AddPriceListLineCommandHandler,
     UpdatePriceListLineCommandHandler,
     RemovePriceListLineCommandHandler,
+    UpdatePriceListCommandHandler,
     CreateSalesOrderCommandHandler,
     AddLineToSalesOrderCommandHandler,
     RemoveLineFromSalesOrderCommandHandler,
@@ -403,10 +408,34 @@ async def create_client(
         handler = CreateClientCommandHandler(client_repo, uow)
         try:
             email = await _ensure_client_email_available(session, tenant_id, body.email)
+            
+            # Fetch user role for policy validation
+            user = await session.get(UserModel, user_id)
+            user_is_admin = user.role == "admin" if user else False
+
+            item_code_service = ItemCodeService(session)
+            if body.code:
+                code_result = await item_code_service.validate_manual_code_with_policy(
+                    tenant_id=tenant_id,
+                    entity_type="customer",
+                    code=body.code,
+                    user_is_admin=user_is_admin,
+                    entity_name=body.name,
+                    user_id=user_id,
+                )
+                final_code = code_result.code
+            else:
+                final_code = await item_code_service.generate_for_entity(
+                    tenant_id=tenant_id,
+                    entity_type="customer",
+                    entity_name=body.name,
+                    user_id=user_id,
+                )
+
             client_id = await handler.handle(
                 CreateClientCommand(
                     tenant_id=tenant_id,
-                    code=body.code,
+                    code=final_code,
                     name=body.name,
                     email=email,
                     phone=body.phone,
@@ -479,6 +508,9 @@ async def list_clients(
             total = len(items)  # Would typically come from repository count method
             return ClientListResponse(items=items, total=total, limit=limit, offset=offset)
         except Exception as e:
+            import traceback
+            with open("C:/Users/sayye/source/repos/MedTrack/backend/debug_trace.txt", "w") as f:
+                f.write(traceback.format_exc())
             logger.exception(f"Error listing clients: {str(e)}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="List retrieval failed")
 
@@ -499,6 +531,22 @@ async def update_client(
         handler = UpdateClientCommandHandler(client_repo, uow)
         try:
             email = await _ensure_client_email_available(session, tenant_id, body.email, client_id)
+
+            # Determine which fields were explicitly provided in the request body
+            patch = body.model_dump(exclude_unset=True)
+
+            # Cross-tenant validation for default_price_list_id when a non-null value is sent
+            if "default_price_list_id" in patch and patch["default_price_list_id"] is not None:
+                price_list_repo = PriceListRepository(session)
+                pl = await price_list_repo.get_by_id(patch["default_price_list_id"], tenant_id)
+                if pl is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="Price list not found or belongs to a different tenant",
+                    )
+
+            # Build the command — pass the sentinel when the field was not sent,
+            # or the actual value (UUID or None) when it was explicitly included.
             await handler.handle(
                 UpdateClientCommand(
                     tenant_id=tenant_id,
@@ -510,6 +558,11 @@ async def update_client(
                     gst_number=body.gst_number,
                     credit_limit=body.credit_limit,
                     payment_terms_days=body.payment_terms_days,
+                    default_price_list_id=(
+                        patch["default_price_list_id"]
+                        if "default_price_list_id" in patch
+                        else _PRICE_LIST_UNSET
+                    ),
                 )
             )
             client = await client_repo.get_by_id(client_id, tenant_id)
@@ -755,8 +808,11 @@ async def add_order_line(
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
         
         price_list_repo = PriceListRepository(session)
+        from functools import partial
         from backend.app.domain.sales.services.pricing_service import PricingService
-        pricing_service = PricingService(price_list_repo)
+        from backend.app.infrastructure.services.sales_providers import get_variant_selling_price
+        variant_price_provider = partial(get_variant_selling_price, session)
+        pricing_service = PricingService(price_list_repo, variant_price_provider)
         
         handler = AddLineToSalesOrderCommandHandler(order_repo, pricing_service, uow)
         try:
@@ -769,6 +825,7 @@ async def add_order_line(
                     uom_id=body.uom_id,
                     quantity=body.quantity,
                     tax_rate=body.tax_rate,
+                    unit_price=body.unit_price,
                 )
             )
             order = await order_repo.get_by_id(order_id, tenant_id)
@@ -1080,6 +1137,7 @@ async def confirm_order(
                 detail="Insufficient stock — concurrent reservation conflict",
             )
         except ValueError as e:
+            logger.warning(f"Confirm order {order_id} rejected: {str(e)}")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
             logger.exception(f"Error confirming order {order_id}: {str(e)}")
@@ -1417,6 +1475,50 @@ async def list_price_lists(
         except Exception as e:
             logger.exception(f"Error listing price lists: {str(e)}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="List retrieval failed")
+
+
+@router.patch(
+    "/price-lists/{price_list_id}",
+    response_model=PriceListResponse,
+    dependencies=[Depends(require_permission("sales:write"))],
+)
+async def update_price_list(
+    price_list_id: UUID,
+    body: PriceListUpdateRequest,
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """Update price list header (name, validity, is_default, is_active)."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        price_list_repo = PriceListRepository(session)
+        uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
+        handler = UpdatePriceListCommandHandler(price_list_repo, uow)
+        try:
+            await handler.handle(
+                UpdatePriceListCommand(
+                    tenant_id=tenant_id,
+                    price_list_id=price_list_id,
+                    name=body.name,
+                    valid_from=body.valid_from,
+                    valid_to=body.valid_to,
+                    is_default=body.is_default,
+                    is_active=body.is_active,
+                )
+            )
+            updated = await price_list_repo.get_by_id(price_list_id, tenant_id)
+            return updated.to_dict() if updated else None
+        except ValueError as e:
+            err_msg = str(e)
+            if "not found" in err_msg.lower():
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err_msg)
+            elif "already exists" in err_msg.lower():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=err_msg)
+            else:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err_msg)
+        except Exception as e:
+            logger.exception(f"Error updating price list {price_list_id}: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Update failed")
 
 
 @router.post("/price-lists/{price_list_id}/lines", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("sales:write"))])

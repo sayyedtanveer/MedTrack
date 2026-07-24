@@ -38,6 +38,7 @@ class ClientRepository(BaseRepository):
             deleted_at=model.deleted_at,
             created_at=model.created_at,
             updated_at=model.updated_at,
+            default_price_list_id=model.default_price_list_id,
         )
 
     def _to_model(self, entity: Client) -> ClientModel:
@@ -59,6 +60,7 @@ class ClientRepository(BaseRepository):
             deleted_at=entity.deleted_at,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
+            default_price_list_id=entity.default_price_list_id,
         )
 
     async def get_by_code(self, tenant_id: UUID, code: str) -> Client | None:
@@ -77,8 +79,6 @@ class ClientRepository(BaseRepository):
             .where(
                 self._model_class().tenant_id == tenant_id,
                 self._model_class().code == code,
-                self._model_class().is_active.is_(True),
-                self._model_class().is_deleted.is_(False),
             )
         )
         result = await self._session.execute(stmt)

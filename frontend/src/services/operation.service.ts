@@ -56,7 +56,7 @@ export const operationService = {
     operation_type?: string
     include_inactive?: boolean
   }): Promise<{ items: Operation[]; total: number }> {
-    const { data } = await apiClient.get("/manufacturing/operations/", { params })
+    const { data } = await apiClient.get("/manufacturing/operations", { params })
     return data
   },
 
@@ -64,7 +64,7 @@ export const operationService = {
    * List operations available for BOM attachment (active only)
    */
   async listOperationsForBOM(): Promise<{ items: Operation[]; total: number }> {
-    const { data } = await apiClient.get("/manufacturing/operations/for-bom/")
+    const { data } = await apiClient.get("/manufacturing/operations/for-bom")
     return data
   },
 

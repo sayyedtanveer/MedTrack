@@ -65,11 +65,27 @@ interface AuditHistoryTabProps {
 }
 
 /**
+ * Safely format a timestamp string. Returns "Unknown Date" if the value is
+ * missing, null, or not a valid ISO date string.
+ */
+const safeFormatDate = (timestamp: string | null | undefined): string => {
+  if (!timestamp) return "Unknown Date"
+  try {
+    const d = new Date(timestamp)
+    if (isNaN(d.getTime())) return "Unknown Date"
+    return format(d, "MMM dd, yyyy HH:mm")
+  } catch {
+    return "Unknown Date"
+  }
+}
+
+/**
  * Format action_type to human-readable form:
  * - Replace underscores with spaces
  * - Title case each word
  */
-const formatActionType = (action: string): string => {
+const formatActionType = (action?: string): string => {
+  if (!action) return "Unknown"
   return action
     .split('_')
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -108,7 +124,7 @@ export function AuditHistoryTab({ entityType, entityId }: AuditHistoryTabProps) 
   // Extract unique action types for dropdown (once data loads)
   const uniqueActionTypes = useMemo(() => {
     if (!data?.items) return []
-    const types = new Set(data.items.map(item => item.action_type))
+    const types = new Set(data.items.map(item => item.action_type).filter(Boolean))
     return Array.from(types).sort()
   }, [data])
 
@@ -284,7 +300,7 @@ export function AuditHistoryTab({ entityType, entityId }: AuditHistoryTabProps) 
               filteredItems.map(item => (
                 <TableRow key={item.id}>
                   <TableCell className="whitespace-nowrap text-sm">
-                    {format(new Date(item.timestamp), "MMM dd, yyyy HH:mm")}
+                    {safeFormatDate(item.timestamp)}
                   </TableCell>
                   <TableCell className="text-sm">
                     {item.user_name || item.user_id}
