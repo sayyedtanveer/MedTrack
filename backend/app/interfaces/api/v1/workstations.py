@@ -26,7 +26,7 @@ async def create_workstation(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
 
         cmd = AddWorkstationCommand(
             tenant_id=tenant_id,
@@ -47,7 +47,7 @@ async def list_workstations(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
         workstations = await handlers._workstation_repo.list_workstations(tenant_id)
     return workstations
 
@@ -60,7 +60,7 @@ async def get_workstation(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
         workstation = await handlers._workstation_repo.get_by_id(workstation_id, tenant_id)
         if not workstation:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workstation not found")
@@ -76,7 +76,7 @@ async def update_workstation(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
         cmd = UpdateWorkstationCommand(
             tenant_id=tenant_id,
             workstation_id=workstation_id,
@@ -97,7 +97,7 @@ async def delete_workstation(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
         cmd = DeleteWorkstationCommand(tenant_id=tenant_id, workstation_id=workstation_id)
         try:
             await handlers.handle_delete_workstation(cmd)

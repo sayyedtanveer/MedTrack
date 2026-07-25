@@ -21,6 +21,7 @@ export default function OperationFormPage() {
   const canEdit = hasRole(["ADMIN", "MANAGER"])
 
   const [name, setName] = useState("")
+  const [operationCode, setOperationCode] = useState("")
   const [description, setDescription] = useState("")
   const [workstationId, setWorkstationId] = useState("")
   const [setupTime, setSetupTime] = useState<number>(0)
@@ -46,6 +47,7 @@ export default function OperationFormPage() {
       const op = operations.find((o) => o.id === id)
       if (op) {
         setName(op.name)
+        setOperationCode(op.operation_code ?? "")
         setDescription(op.description ?? "")
         setWorkstationId(op.workstation_id ?? "")
         if (op.setup_time !== undefined) {
@@ -64,6 +66,7 @@ export default function OperationFormPage() {
       if (!workstationId) throw new Error("Workstation is required")
       if (setupTime < 0 || runTime < 0) throw new Error("Times must be non-negative")
       const payload: CreateOperationInput = {
+        operation_code: operationCode.trim() || undefined,
         name: name.trim(),
         description: description.trim() || undefined,
         workstation_id: workstationId || undefined,
@@ -118,6 +121,18 @@ export default function OperationFormPage() {
             onChange={(e) => setName(e.target.value)}
             disabled={!canEdit}
             placeholder="e.g. Final Assembly"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="op-code">Operation Code <span className="text-muted-foreground text-xs">(optional — auto-generated if blank)</span></Label>
+          <Input
+            id="op-code"
+            value={operationCode}
+            onChange={(e) => setOperationCode(e.target.value.toUpperCase().slice(0, 10))}
+            disabled={!canEdit || !isNew}
+            placeholder="e.g. FA, CUT, ASSY"
+            maxLength={10}
           />
         </div>
 

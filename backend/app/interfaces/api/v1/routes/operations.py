@@ -49,11 +49,20 @@ async def create_operation(
     async with container.session_factory() as session:
         try:
             handler = OperationHandler(session)
+            # Auto-generate operation_code from name if not provided
+            op_code = payload.operation_code
+            if not op_code:
+                # Take first letters of each word, uppercase, max 6 chars
+                words = payload.name.strip().split()
+                if len(words) >= 2:
+                    op_code = "".join(w[0] for w in words)[:6].upper()
+                else:
+                    op_code = payload.name[:6].upper().replace(" ", "")
             operation = await handler.create_operation(
                 CreateOperationCommand(
                     tenant_id=tenant_id,
                     user_id=user_id,
-                    operation_code=payload.operation_code,
+                    operation_code=op_code,
                     name=payload.name,
                     operation_type=payload.operation_type,
                     description=payload.description,
@@ -62,6 +71,9 @@ async def create_operation(
                     qc_required=payload.qc_required or False,
                     color=payload.color,
                     icon_code=payload.icon_code,
+                    workstation_id=payload.workstation_id,
+                    setup_time=payload.setup_time or 0.0,
+                    run_time=payload.run_time or 0.0,
                 )
             )
             await session.commit()
@@ -194,6 +206,9 @@ async def update_operation(
                     color=payload.color,
                     icon_code=payload.icon_code,
                     is_active=payload.is_active,
+                    workstation_id=payload.workstation_id,
+                    setup_time=payload.setup_time,
+                    run_time=payload.run_time,
                 )
             )
             await session.commit()

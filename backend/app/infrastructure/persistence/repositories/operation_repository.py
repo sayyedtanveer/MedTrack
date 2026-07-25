@@ -40,6 +40,9 @@ class OperationRepository(BaseRepository[Operation, OperationModel]):
             updated_at=model.updated_at,
             is_deleted=model.is_deleted,
             deleted_at=model.deleted_at,
+            workstation_id=model.workstation_id,
+            setup_time=float(model.setup_time) if model.setup_time is not None else 0.0,
+            run_time=float(model.run_time) if model.run_time is not None else 0.0,
         )
 
     def _to_model(self, entity: Operation) -> OperationModel:
@@ -61,6 +64,9 @@ class OperationRepository(BaseRepository[Operation, OperationModel]):
             updated_at=entity.updated_at,
             is_deleted=entity.is_deleted,
             deleted_at=entity.deleted_at,
+            workstation_id=entity.workstation_id,
+            setup_time=entity.setup_time,
+            run_time=entity.run_time,
         )
 
     async def get_by_code(
@@ -217,6 +223,7 @@ class OperationRepository(BaseRepository[Operation, OperationModel]):
         result = await self._session.execute(stmt)
         return [self._to_entity(m) for m in result.scalars()]
 
-    def save(self, operation: Operation) -> None:
+    async def save(self, operation: Operation) -> None:
         model = self._to_model(operation)
-        self._session.add(model)
+        await self._session.merge(model)
+        await self._session.flush()

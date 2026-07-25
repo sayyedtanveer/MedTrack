@@ -379,6 +379,12 @@ export const NAV_ITEMS: NavItem[] = [
         roles: getRolesForModule("settings"),
       },
       {
+        title: "Company Setup",
+        href: "/settings/company-setup",
+        icon: Building2,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
+      },
+      {
         title: "Master Data",
         href: "/settings/master-data",
         icon: Database,

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { PackageSearch, Plus, Search, AlertCircle } from "lucide-react"
 import { productService } from "@/services/product.service"
+import { materialService } from "@/services/material.service"
 import { usePermissions } from "@/hooks/usePermissions"
 import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
@@ -33,6 +34,18 @@ export default function ProductTemplateListPage() {
     queryFn: () => productService.getTemplates({ query: debouncedQuery, page, page_size: 20 }),
     staleTime: 10_000,
   })
+
+  const { data: categories } = useQuery({
+    queryKey: ["categories"],
+    queryFn: materialService.getCategories,
+    staleTime: 60_000,
+  })
+
+  const getCategoryName = (id: string | null | undefined) => {
+    if (!id || !categories) return "—"
+    const cat = categories.find(c => c.id === id)
+    return cat ? cat.name : "—"
+  }
 
   useEffect(() => {
     if (isError && error && !isLoading) {
@@ -111,7 +124,7 @@ export default function ProductTemplateListPage() {
           columns={[
             { key: "code", header: "Code", cell: (tpl) => <span className="font-mono">{tpl.code}</span> },
             { key: "name", header: "Name", cell: (tpl) => <span className="font-medium">{tpl.name}</span> },
-            { key: "category", header: "Category", cell: () => <span className="text-muted-foreground">—</span> },
+            { key: "category", header: "Category", cell: (tpl) => <span className="text-muted-foreground">{getCategoryName(tpl.category_id)}</span> },
             {
               key: "status",
               header: "Status",
@@ -150,7 +163,7 @@ export default function ProductTemplateListPage() {
               </div>
               <div className="mt-4 flex items-center justify-between gap-3 text-sm">
                 <span className="text-slate-500">Category</span>
-                <span className="text-slate-700">—</span>
+                <span className="text-slate-700">{getCategoryName(tpl.category_id)}</span>
               </div>
               <div className="mt-4">
                 <Button

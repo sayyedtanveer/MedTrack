@@ -150,13 +150,13 @@ export const bomService = {
   // ── Workstations & Operations ──────────────────────────────────────────────
 
   async getWorkstations(): Promise<Workstation[]> {
-    const { data } = await apiClient.get("/workstations/");
-    return data;
+    const { data } = await apiClient.get("/workstations");
+    return data || [];
   },
 
   async getOperations(): Promise<Operation[]> {
-    const { data } = await apiClient.get("/operations/");
-    return data;
+    const { data } = await apiClient.get("/manufacturing/operations/for-bom");
+    return data.items || data;
   },
 
   // ── Materials (for component selector) ────────────────────────────────────

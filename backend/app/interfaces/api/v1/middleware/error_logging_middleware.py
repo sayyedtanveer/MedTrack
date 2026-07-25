@@ -132,6 +132,8 @@ class ErrorLoggingMiddleware(BaseHTTPMiddleware):
 
         # Map by status code first
         if status_code == 400:
+            if exc_msg and len(exc_msg) < 200 and is_safe_message(exc_msg) and "validation error" not in exc_msg.lower():
+                return exc_msg
             return "Invalid request. Please check your input and try again."
         elif status_code == 401:
             if "auth" in exc_type.lower():
@@ -140,8 +142,12 @@ class ErrorLoggingMiddleware(BaseHTTPMiddleware):
         elif status_code == 403:
             return "You do not have permission to access this resource."
         elif status_code == 404:
+            if exc_msg and len(exc_msg) < 200 and is_safe_message(exc_msg):
+                return exc_msg
             return "The requested resource was not found."
         elif status_code == 409:
+            if exc_msg and len(exc_msg) < 200 and is_safe_message(exc_msg):
+                return exc_msg
             return "A conflict occurred. Please check your data and try again."
         elif status_code >= 500:
             return "An unexpected error occurred. Please try again later."

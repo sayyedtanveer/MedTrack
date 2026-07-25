@@ -37,6 +37,8 @@ class OperationModel(Base):
     estimated_time_minutes: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(10, 2), nullable=True
     )
+    setup_time: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    run_time: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
 
     # Quality & Status
     qc_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -77,3 +79,6 @@ class OperationModel(Base):
 
     def __repr__(self) -> str:
         return f"<OperationModel(code={self.operation_code}, name={self.name})>"
+
+import backend.app.infrastructure.persistence.models.workstation_model
+import backend.app.infrastructure.persistence.models.bom_operation_model

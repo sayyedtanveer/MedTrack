@@ -219,6 +219,7 @@ apiClient.interceptors.response.use(
     // Create a new error with user-friendly message
     const enhancedError = new Error(errorMessage) as AxiosError
     Object.assign(enhancedError, error)
+    enhancedError.message = errorMessage // Restore the extracted message after Object.assign overrides it
     
     return Promise.reject(enhancedError)
   }

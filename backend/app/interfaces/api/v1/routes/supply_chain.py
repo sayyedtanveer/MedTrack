@@ -318,6 +318,34 @@ async def create_supplier(
 ):
     container = get_container(request)
     async with container.session_factory() as session:
+        from backend.app.application.inventory.services.item_code_service import ItemCodeService
+        code_svc = ItemCodeService(session)
+
+        # Handle supplier code logic
+        if body.code:
+            try:
+                result = await code_svc.validate_manual_code_with_policy(
+                    tenant_id=tenant_id,
+                    entity_type="supplier",
+                    code=body.code,
+                    user_is_admin=True, # Assuming admin if they can create suppliers
+                    entity_name=body.name,
+                    user_id=user_id,
+                )
+                body.code = result.code
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        else:
+            try:
+                body.code = await code_svc.generate_for_entity(
+                    tenant_id=tenant_id,
+                    entity_type="supplier",
+                    entity_name=body.name,
+                    user_id=user_id,
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
         exists = await session.execute(
             select(SupplierModel.id).where(
                 SupplierModel.tenant_id == tenant_id,

@@ -135,6 +135,9 @@ const workOrderService = {
   release: (id: string) =>
     apiClient.post<{ status: string }>(`${BASE}/${id}/release`, {}),
 
+  allocateMaterials: (id: string) =>
+    apiClient.post<{ status: string }>(`${BASE}/${id}/allocate-materials`, {}),
+
   start: (id: string) =>
     apiClient.post<{ status: string }>(`${BASE}/${id}/start`, {}),
 

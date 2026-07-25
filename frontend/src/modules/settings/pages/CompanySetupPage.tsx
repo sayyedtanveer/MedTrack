@@ -36,6 +36,7 @@ type SetupStepKey =
   | "categories"
   | "locations"
   | "operations"
+  | "workstations"
   | "users"
   | "supplier"
   | "customer"
@@ -95,6 +96,13 @@ const setupStepDefinitions: SetupStepDefinition[] = [
     description: "Create and manage reusable manufacturing operations.",
     path: "/operations",
     icon: Wrench,
+  },
+  {
+    key: "workstations" as SetupStepKey,
+    title: "Workstations",
+    description: "Define workstations, machines, and work centres used in manufacturing routing.",
+    path: "/manufacturing/workstations-master",
+    icon: Warehouse,
   },
   {
     key: "users",
@@ -229,6 +237,7 @@ export default function CompanySetupPage() {
               { key: "categories" as SetupStepKey, label: "Material Categories", path: "/settings/master-data/categories" },
               { key: "locations" as SetupStepKey, label: "Storage Locations", path: "/settings/master-data/locations" },
               { key: "operations" as SetupStepKey, label: "Operation Master", path: "/operations" },
+              { key: "workstations" as SetupStepKey, label: "Workstations", path: "/manufacturing/workstations-master" },
               { key: "supplier" as SetupStepKey, label: "Suppliers", path: "/procurement/suppliers" },
               { key: "customer" as SetupStepKey, label: "Customers", path: "/sales/clients" },
               { key: "material" as SetupStepKey, label: "Materials", path: "/inventory/materials" },
@@ -281,7 +290,7 @@ export default function CompanySetupPage() {
                               <span className="text-sm text-slate-700">{item.label}</span>
                             </div>
                             {!done && (
-                              <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700" onClick={() => navigate(item.path)}>
+                              <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700" onClick={() => navigate(item.path, { state: { fromSetup: true } })}>
                                 Configure
                               </Button>
                             )}
@@ -304,7 +313,7 @@ export default function CompanySetupPage() {
                               <span className="text-sm text-slate-700">{item.label}</span>
                             </div>
                             {!done && (
-                              <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700" onClick={() => navigate(item.path)}>
+                              <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600 hover:text-blue-700" onClick={() => navigate(item.path, { state: { fromSetup: true } })}>
                                 Configure
                               </Button>
                             )}
@@ -351,7 +360,7 @@ export default function CompanySetupPage() {
                 <Badge variant={isComplete ? "default" : "secondary"}>
                   {isComplete ? "Complete" : "Pending"}
                 </Badge>
-                <Button variant="outline" size="sm" onClick={() => navigate(step.path)}>
+                <Button variant="outline" size="sm" onClick={() => navigate(step.path, { state: { fromSetup: true } })}>
                   {isComplete ? "Review" : "Open"}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>

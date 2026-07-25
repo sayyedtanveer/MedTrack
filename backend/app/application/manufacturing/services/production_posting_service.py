@@ -81,7 +81,7 @@ class ProductionPostingService:
                     select(WorkOrderMaterialModel).where(
                         WorkOrderMaterialModel.work_order_id == wo.id,
                         WorkOrderMaterialModel.material_id == line.material_id,
-                    )
+                    ).limit(1)
                 )
             ).scalar_one_or_none()
             if wm is None or line.material_id is None:

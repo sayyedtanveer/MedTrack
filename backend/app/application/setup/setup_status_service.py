@@ -20,6 +20,7 @@ class CompanySetupStatusService:
         "categories",
         "locations",
         "operations",
+        "workstations",
         "supplier",
         "customer",
         "material",

@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from backend.app.application.manufacturing.commands.work_order_commands import (
     CreateWorkOrderCommand, ReleaseWorkOrderCommand, StartWorkOrderCommand,
+    AllocateMaterialsCommand,
     IssueMaterialCommand, RecordProductionCommand,
     CompleteWorkOrderCommand, CloseWorkOrderCommand,
     StartJobCardCommand, CompleteJobCardCommand,
@@ -155,6 +156,57 @@ class WorkOrderHandler:
             wo_number=wo.wo_number,
             product=str(wo.product_id),
         ))
+
+    async def handle_allocate_materials(self, cmd: AllocateMaterialsCommand) -> None:
+        wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)
+        if wo.status != WorkOrderStatus.MATERIAL_PENDING.value:
+            from backend.app.domain.manufacturing.entities.work_order import InvalidStatusTransitionError
+            raise InvalidStatusTransitionError(f"Cannot allocate materials for WO in status {wo.status}")
+            
+        from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderMaterialModel
+        from backend.app.application.manufacturing.services.inventory_service import InventoryService
+        from backend.app.application.inventory.services.inventory_reservation_service import InventoryReservationService
+        
+        stmt = select(WorkOrderMaterialModel).where(
+            WorkOrderMaterialModel.work_order_id == wo.id
+        )
+        wo_materials = (await self._session.execute(stmt)).scalars().all()
+        
+        inventory_svc = InventoryService(self._session)
+        reservation_svc = InventoryReservationService(self._session)
+        
+        all_reserved = True
+        
+        for wom in wo_materials:
+            required_qty = Decimal(str(wom.required_quantity or 0))
+            issued_qty = Decimal(str(wom.issued_quantity or 0))
+            remaining = required_qty - issued_qty
+            if remaining <= 0:
+                continue
+                
+            already_reserved = await inventory_svc.get_existing_reservation_qty_for_wo(
+                tenant_id=cmd.tenant_id,
+                work_order_id=wo.id,
+                material_id=wom.material_id,
+            )
+            need_to_reserve = max(Decimal("0"), remaining - already_reserved)
+            
+            if need_to_reserve > 0:
+                _reserved, shortage, _ = await reservation_svc.reserve_for_work_order(
+                    tenant_id=cmd.tenant_id,
+                    work_order_id=wo.id,
+                    material_id=wom.material_id,
+                    required_quantity=need_to_reserve,
+                    unit_id=wom.unit_id,
+                    created_by=wo.created_by,
+                )
+                if shortage > 0:
+                    all_reserved = False
+        
+        if all_reserved:
+            wo.status = WorkOrderStatus.MATERIAL_RESERVED.value
+            wo.updated_at = datetime.now(timezone.utc)
+            self._session.add(wo)
 
     async def _open_po_quantity(self, tenant_id: uuid.UUID, material_id: uuid.UUID) -> Decimal:
         from backend.app.infrastructure.persistence.models.purchase_order_model import (
@@ -600,7 +652,19 @@ class WorkOrderHandler:
     # ── Job Card ─────────────────────────────────────────────────────────────────
 
     async def handle_start_job_card(self, cmd: StartJobCardCommand) -> None:
-        jc = await self._get_job_card(cmd.job_card_id, cmd.work_order_id, cmd.tenant_id)
+        wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)
+        if wo.status not in ("IN_PRODUCTION", "QC_PENDING", "QC_APPROVED", "QC_REJECTED", "COMPLETED", "CLOSED"):
+            wo.status = "IN_PRODUCTION"
+            wo.updated_at = datetime.now(timezone.utc)
+
+        stmt = select(JobCardModel).where(
+            JobCardModel.id == cmd.job_card_id, JobCardModel.work_order_id == cmd.work_order_id
+        )
+        result = await self._session.execute(stmt)
+        jc = result.scalar_one_or_none()
+        if not jc:
+            raise ValueError(f"Job Card {cmd.job_card_id} not found")
+
         if jc.status != "PENDING":
             raise ValueError(f"Job card is already {jc.status}")
         jc.status = "IN_PROGRESS"
@@ -609,7 +673,19 @@ class WorkOrderHandler:
             jc.assigned_to = cmd.assigned_to
 
     async def handle_complete_job_card(self, cmd: CompleteJobCardCommand) -> None:
-        jc = await self._get_job_card(cmd.job_card_id, cmd.work_order_id, cmd.tenant_id)
+        wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)
+        if wo.status not in ("IN_PRODUCTION", "QC_PENDING", "QC_APPROVED", "QC_REJECTED", "COMPLETED", "CLOSED"):
+            wo.status = "IN_PRODUCTION"
+            wo.updated_at = datetime.now(timezone.utc)
+
+        stmt = select(JobCardModel).where(
+            JobCardModel.id == cmd.job_card_id, JobCardModel.work_order_id == cmd.work_order_id
+        )
+        result = await self._session.execute(stmt)
+        jc = result.scalar_one_or_none()
+        if not jc:
+            raise ValueError(f"Job Card {cmd.job_card_id} not found")
+
         if jc.status != "IN_PROGRESS":
             raise ValueError(f"Job card must be IN_PROGRESS to complete, current: {jc.status}")
         jc.status = "DONE"

@@ -86,6 +86,11 @@ class ReleaseWorkOrderCommand(BaseModel):
     work_order_id: uuid.UUID
 
 
+class AllocateMaterialsCommand(BaseModel):
+    tenant_id: uuid.UUID
+    work_order_id: uuid.UUID
+
+
 class StartWorkOrderCommand(BaseModel):
     tenant_id: uuid.UUID
     work_order_id: uuid.UUID

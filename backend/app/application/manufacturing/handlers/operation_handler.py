@@ -50,6 +50,9 @@ class OperationHandler:
             is_active=True,
             color=cmd.color,
             icon_code=cmd.icon_code,
+            workstation_id=cmd.workstation_id,
+            setup_time=cmd.setup_time or 0.0,
+            run_time=cmd.run_time or 0.0,
             created_by=cmd.user_id,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
@@ -61,7 +64,7 @@ class OperationHandler:
             raise ValueError(f"Validation errors: {', '.join(errors)}")
 
         # Persist
-        await self._repo.add(operation)
+        await self._repo.save(operation)
         await self._session.flush()
 
         return operation
@@ -89,6 +92,12 @@ class OperationHandler:
             operation.icon_code = cmd.icon_code
         if cmd.is_active is not None:
             operation.is_active = cmd.is_active
+        if cmd.workstation_id is not None:
+            operation.workstation_id = cmd.workstation_id
+        if cmd.setup_time is not None:
+            operation.setup_time = cmd.setup_time
+        if cmd.run_time is not None:
+            operation.run_time = cmd.run_time
 
         operation.updated_at = datetime.utcnow()
 
@@ -97,7 +106,7 @@ class OperationHandler:
         if errors:
             raise ValueError(f"Validation errors: {', '.join(errors)}")
 
-        await self._repo.update(operation)
+        await self._repo.save(operation)
         await self._session.flush()
 
         return operation
@@ -116,7 +125,7 @@ class OperationHandler:
         operation.is_deleted = True
         operation.deleted_at = datetime.utcnow()
 
-        await self._repo.update(operation)
+        await self._repo.save(operation)
         await self._session.flush()
 
     async def deactivate_operation(self, cmd: DeactivateOperationCommand) -> Operation:
@@ -128,7 +137,7 @@ class OperationHandler:
         operation.is_active = False
         operation.updated_at = datetime.utcnow()
 
-        await self._repo.update(operation)
+        await self._repo.save(operation)
         await self._session.flush()
 
         return operation
@@ -142,7 +151,7 @@ class OperationHandler:
         operation.is_active = True
         operation.updated_at = datetime.utcnow()
 
-        await self._repo.update(operation)
+        await self._repo.save(operation)
         await self._session.flush()
 
         return operation

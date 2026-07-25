@@ -127,6 +127,16 @@ async def get_company_setup_status(
         )
         operation_count = len(operation_result.scalars().all())
 
+        from backend.app.infrastructure.persistence.models.workstation_model import WorkstationModel
+        workstation_result = await session.execute(
+            select(WorkstationModel.id).where(
+                WorkstationModel.tenant_id == tenant_id,
+                WorkstationModel.is_deleted.is_(False),
+                WorkstationModel.is_active.is_(True),
+            )
+        )
+        workstation_count = len(workstation_result.scalars().all())
+
         non_admin_user_result = await session.execute(
             select(UserModel.id).where(
                 UserModel.tenant_id == tenant_id,
@@ -150,6 +160,7 @@ async def get_company_setup_status(
         "categories": category_count > 0,
         "locations": location_count > 0,
         "operations": operation_count > 0,
+        "workstations": workstation_count > 0,
         "users": non_admin_user_count > 0,
     }
 

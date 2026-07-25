@@ -2,14 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-from sqlalchemy import Column, String, Text, Boolean, DateTime, Integer, Numeric, JSONB, ForeignKey, Table
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy import Column, String, Text, Boolean, DateTime, Integer, Numeric, ForeignKey, Table
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import relationship
 
-from backend.app.infrastructure.persistence.models.base_model import BaseModel
+from backend.app.infrastructure.persistence.database import Base
 
-
-class SavedReport(BaseModel):
+class SavedReport(Base):
     """
     Stores custom report configurations for re-use.
     Users can build reports once and save them for repeated execution.
@@ -55,7 +54,7 @@ class SavedReport(BaseModel):
         return f"<SavedReport(id={self.id}, name={self.name}, report_type={self.report_type})>"
 
 
-class ReportSchedule(BaseModel):
+class ReportSchedule(Base):
     """
     Schedules automated report generation and email delivery.
     Supports daily, weekly, and monthly cadences.
@@ -89,7 +88,7 @@ class ReportSchedule(BaseModel):
         return f"<ReportSchedule(id={self.id}, schedule_type={self.schedule_type}, report_id={self.report_id})>"
 
 
-class ReportExecution(BaseModel):
+class ReportExecution(Base):
     """
     Audit trail of all report executions.
     Tracks execution time, output format, file location, and status.
@@ -124,7 +123,7 @@ class ReportExecution(BaseModel):
         return f"<ReportExecution(id={self.id}, status={self.status}, format={self.export_format})>"
 
 
-class DashboardMetric(BaseModel):
+class DashboardMetric(Base):
     """
     Caches dashboard metrics to improve performance.
     Pre-calculated KPIs are stored with expiry times.
@@ -140,7 +139,7 @@ class DashboardMetric(BaseModel):
     period_start: str = Column(String(10), nullable=False)  # YYYY-MM-DD
     period_end: str = Column(String(10), nullable=False)  # YYYY-MM-DD
     
-    metadata: Dict[str, Any] = Column(JSONB, nullable=True)  # Additional info (trend, status, etc.)
+    metric_metadata: Dict[str, Any] = Column("metadata", JSONB, nullable=True)  # Additional info (trend, status, etc.)
     
     cached_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at: datetime = Column(DateTime, nullable=False)  # When cache becomes invalid

@@ -60,3 +60,5 @@ class InventoryTransactionModel(Base):
 
     def __repr__(self) -> str:
         return f"<InventoryTransactionModel id={self.id} type={self.transaction_type} qty={self.quantity}>"
+
+import backend.app.infrastructure.persistence.models.unit_of_measure_model

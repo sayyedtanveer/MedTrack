@@ -14,6 +14,7 @@ export interface CompanySetupStatusResponse {
   categories: boolean
   locations: boolean
   operations: boolean
+  workstations: boolean
   users: boolean
   readyToStart: boolean
 }

@@ -24,6 +24,9 @@ class CreateOperationCommand:
     qc_required: bool = False
     color: Optional[str] = None
     icon_code: Optional[str] = None
+    workstation_id: Optional[uuid.UUID] = None
+    setup_time: float = 0.0
+    run_time: float = 0.0
 
 
 @dataclass
@@ -40,6 +43,9 @@ class UpdateOperationCommand:
     color: Optional[str] = None
     icon_code: Optional[str] = None
     is_active: Optional[bool] = None
+    workstation_id: Optional[uuid.UUID] = None
+    setup_time: Optional[float] = None
+    run_time: Optional[float] = None
 
 
 @dataclass

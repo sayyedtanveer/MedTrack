@@ -122,6 +122,14 @@ class WorkOrderMaterialModel(Base):
     work_order: Mapped["WorkOrderModel"] = relationship("WorkOrderModel", back_populates="materials")
     material: Mapped["MaterialModel"] = relationship("MaterialModel", lazy="joined")
 
+    @property
+    def material_code(self) -> str | None:
+        return self.material.code if getattr(self, "material", None) else None
+
+    @property
+    def material_name(self) -> str | None:
+        return self.material.name if getattr(self, "material", None) else None
+
 
 class JobCardModel(Base):
     """Operation snapshot — copied from BOM operation list at WO creation."""
@@ -152,6 +160,34 @@ class JobCardModel(Base):
     work_order: Mapped["WorkOrderModel"] = relationship("WorkOrderModel", back_populates="job_cards")
     operation: Mapped["OperationModel"] = relationship("OperationModel", lazy="joined")
 
+    @property
+    def operation_name(self) -> str:
+        return self.operation.name if getattr(self, "operation", None) else ""
+
+    @property
+    def actual_duration_seconds(self) -> float | None:
+        if self.started_at and self.completed_at:
+            dur = max(0.0, (self.completed_at - self.started_at).total_seconds())
+            dur -= float(self.total_downtime_seconds or 0)
+            return dur
+        return None
+
+    @property
+    def progress_percent(self) -> float:
+        if self.status in ("DONE", "COMPLETED"):
+            return 100.0
+        elif self.status == "IN_PROGRESS":
+            return 50.0
+        elif self.status == "PAUSED":
+            return 40.0
+        return 0.0
+
+    @property
+    def yield_percent(self) -> float:
+        produced = float(self.produced_quantity or 0)
+        total = produced + float(self.scrap_quantity or 0) + float(self.rejected_quantity or 0)
+        return float((produced / total) * 100) if total > 0 else 0.0
+
 
 class ProductionRecordModel(Base):
     __tablename__ = "production_records"
@@ -177,3 +213,5 @@ class WONumberSequenceModel(Base):
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     current_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+import backend.app.infrastructure.persistence.models.operation_model

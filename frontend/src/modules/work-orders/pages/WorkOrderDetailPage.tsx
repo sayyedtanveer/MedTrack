@@ -55,6 +55,9 @@ export default function WorkOrderDetailPage() {
   // Rework count
   const [reworkCount, setReworkCount] = useState(0);
 
+  // Material availability preview for pending state
+  const [availabilityPreview, setAvailabilityPreview] = useState<any>(null);
+
   const load = useCallback(async (silent = false) => {
     if (!id) return;
     if (!silent) setLoading(true);
@@ -63,6 +66,20 @@ export default function WorkOrderDetailPage() {
       const res = await workOrderService.get(id);
       setWo(res.data);
       
+      // Load availability preview if pending
+      if (res.data.status === 'MATERIAL_PENDING') {
+        try {
+          const availRes = await workOrderService.checkMaterialAvailability({
+            product_id: res.data.product_id,
+            bom_id: res.data.bom_id,
+            quantity: Number(res.data.planned_quantity),
+          });
+          setAvailabilityPreview(availRes.data);
+        } catch {
+          // Ignore
+        }
+      }
+
       // Load rework count from audit logs (Requirement 12.4)
       if (res.data.status === 'REWORK' || res.data.status === 'QC_REJECTED') {
         try {
@@ -125,6 +142,14 @@ export default function WorkOrderDetailPage() {
       switch (actionKey) {
         case 'release':
           await workOrderService.release(id);
+          break;
+        case 'allocate_materials':
+          const { data: allocateRes } = await workOrderService.allocateMaterials(id);
+          if (allocateRes.status === 'MATERIAL_PENDING') {
+            toast({ title: 'Allocation Incomplete', description: 'Insufficient stock in warehouse to allocate all materials. Please add stock.', variant: 'destructive' });
+          } else {
+            toast({ title: 'Materials Allocated', description: 'Stock has been successfully reserved for this work order.' });
+          }
           break;
         case 'start':
           await workOrderService.start(id);
@@ -623,7 +648,7 @@ export default function WorkOrderDetailPage() {
       )}
 
       {/* Material Issue UI (Requirement 10.3) */}
-      {wo.status === 'MATERIAL_RESERVED' && wo.materials.length > 0 && (
+      {(wo.status === 'MATERIAL_RESERVED' || wo.status === 'MATERIAL_PENDING') && wo.materials.length > 0 && (
         <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
           <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
             <h2 className="text-sm font-semibold text-slate-900">Material Issue</h2>
@@ -635,6 +660,7 @@ export default function WorkOrderDetailPage() {
                 <th className="px-4 py-3">Material Code</th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Required</th>
+                {wo.status === 'MATERIAL_PENDING' && <th className="px-4 py-3 text-amber-600">Shortage</th>}
                 <th className="px-4 py-3">Issued</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
@@ -642,13 +668,19 @@ export default function WorkOrderDetailPage() {
             <tbody className="divide-y divide-slate-100">
               {wo.materials.map((m: WorkOrderMaterial) => {
                 const remaining = Number(m.required_quantity) - Number(m.issued_quantity);
-                const canIssue = remaining > 0;
+                const canIssue = remaining > 0 && wo.status === 'MATERIAL_RESERVED';
+                const availLine = availabilityPreview?.lines?.find((l: any) => l.material_id === m.material_id);
                 
                 return (
                   <tr key={m.id}>
                     <td className="px-4 py-3 font-mono text-xs">{m.material_code}</td>
                     <td className="px-4 py-3 text-xs">{m.material_name}</td>
                     <td className="px-4 py-3 tabular-nums">{Number(m.required_quantity).toFixed(3)}</td>
+                    {wo.status === 'MATERIAL_PENDING' && (
+                      <td className="px-4 py-3 tabular-nums text-amber-600 font-medium">
+                        {availLine && Number(availLine.shortage_quantity) > 0 ? Number(availLine.shortage_quantity).toFixed(3) : '0.000'}
+                      </td>
+                    )}
                     <td className="px-4 py-3 tabular-nums text-emerald-600">{Number(m.issued_quantity).toFixed(3)}</td>
                     <td className="px-4 py-3">
                       {canIssue ? (
@@ -659,6 +691,8 @@ export default function WorkOrderDetailPage() {
                         >
                           Issue {remaining.toFixed(3)}
                         </button>
+                      ) : remaining > 0 ? (
+                        <span className="text-xs text-slate-500 font-medium italic">Pending Allocation</span>
                       ) : (
                         <span className="text-xs text-emerald-600 font-medium">✓ Issued</span>
                       )}

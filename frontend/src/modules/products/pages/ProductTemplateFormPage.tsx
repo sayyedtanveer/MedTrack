@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Save, Plus, Trash2 } from "lucide-react"
@@ -13,6 +13,64 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { VariantManager } from "../components/VariantManager"
+import { BusinessAssistantPanel, BusinessAssistantConfig } from "@/components/shared/BusinessAssistantPanel"
+
+const panelConfig: BusinessAssistantConfig = {
+  pageTitle: "Product Template & Variants",
+  about: "This page allows you to define a Master Product (Template) and auto-generate or manually create specific sellable versions (Variants).",
+  businessPurpose: "Centralize product data. Sales orders only sell Variants (e.g., Size L, Red) but defining a Template ensures consistent attributes and easier management.",
+  erpFlow: [
+    { label: "Item Master", active: true },
+    { label: "BOM Creation" },
+    { label: "Sales Order" },
+  ],
+  canDo: [
+    "Define base details for a product",
+    "Specify Dynamic Attributes (e.g., Color, Size)",
+    "Generate combinations of variants automatically",
+    "Map variants to Finished Good inventory materials",
+  ],
+  screenWalkthrough: [
+    { section: "Basic Information", purpose: "Set name, category, and base unit", impact: "Used across all variants" },
+    { section: "Dynamic Attributes", purpose: "Define variables like Color and Size", impact: "Enables automatic generation of variant combinations" },
+    { section: "Variants Tab (Edit Mode)", purpose: "Create, activate, and set prices for variants", impact: "Makes items available for Sales Orders" },
+  ],
+  fieldGuide: [
+    { field: "Dynamic Attribute - Label", purpose: "What the user sees in the UI", meaning: "Friendly name", example: "Storage Size" },
+    { field: "Dynamic Attribute - Key", purpose: "Internal database key", meaning: "Used by API", example: "storage_size", bestPractice: "Lowercase, underscores only" },
+    { field: "Dynamic Attribute - Allowed Options", purpose: "Variant choices", meaning: "Comma separated values", example: "128GB, 256GB" },
+  ],
+  buttonGuide: [
+    { button: "Generate Variants", what: "Creates variant combinations from attributes", continues: "Adds to Variant grid", reversible: true },
+    { button: "Save Template", what: "Saves basic information", continues: "Navigates to edit mode if new", reversible: true },
+  ],
+  beforeYouStart: ["Product Categories must exist", "Units of Measure must exist"],
+  afterSave: [
+    { label: "Add Variants" },
+    { label: "Set Selling Price" },
+    { label: "Link to BOM" },
+  ],
+  bestPractices: [
+    "Keep Dynamic Attributes simple (2-3 max) to avoid generating hundreds of variants",
+    "Always set a selling price for variants before using them in Sales Orders"
+  ],
+  commonMistakes: [
+    "Creating a template but forgetting to generate variants",
+    "Putting spaces or special characters in the Attribute Key"
+  ],
+  relatedScreens: [
+    { label: "Sales Orders", href: "/sales/orders" },
+    { label: "Inventory Materials", href: "/inventory/materials" },
+  ],
+  faqs: [
+    { question: "Why is the variant grid missing?", answer: "You must save the Template first. Variants can only be added to an existing template." },
+    { question: "Can I sell a template?", answer: "No, Sales Orders only accept Variants." },
+  ],
+  tips: ["Use 'Generate Variants' in edit mode to instantly create all possible combinations of your attributes."],
+  warnings: ["Changing dynamic attributes after generating variants will not automatically delete old variants."],
+  successResult: ["Template is created", "Variants can be added in the bottom section"],
+}
+
 
 export default function ProductTemplateFormPage() {
   const { id } = useParams()
@@ -32,21 +90,24 @@ export default function ProductTemplateFormPage() {
   const [attributes, setAttributes] = useState<{ key: string; label: string; values?: string[] }[]>([])
 
   // Load existing data if edit mode
-  const { data: templateData } = useQuery({
+  const { data: templateData, isSuccess } = useQuery({
     queryKey: ["products", "template", id],
-    queryFn: async () => {
-      const tpl = await productService.getTemplate(id!)
-      setCode(tpl.item_code || tpl.code)
-      setName(tpl.name)
-      setDescription(tpl.description || "")
-      setCategoryId(tpl.category_id || "")
-      setBaseUnitId(tpl.base_unit_id || "")
-      setIsActive(tpl.is_active)
-      setAttributes(tpl.attributes || [])
-      return tpl
-    },
+    queryFn: () => productService.getTemplate(id!),
     enabled: !isNew,
   })
+
+  // Initialize form state when data loads
+  useEffect(() => {
+    if (isSuccess && templateData) {
+      setCode(templateData.item_code || templateData.code || "")
+      setName(templateData.name || "")
+      setDescription(templateData.description || "")
+      setCategoryId(templateData.category_id || "")
+      setBaseUnitId(templateData.base_unit_id || "")
+      setIsActive(templateData.is_active ?? true)
+      setAttributes(templateData.attributes || [])
+    }
+  }, [isSuccess, templateData])
 
   // Load categories and units (assuming shared from materialService for now)
   const { data: units } = useQuery({ queryKey: ["units"], queryFn: materialService.getUnits, staleTime: 60_000 })
@@ -106,6 +167,7 @@ export default function ProductTemplateFormPage() {
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/products")} aria-label="Back to products"><ArrowLeft className="w-4 h-4" /></Button>
         <h1 className="text-xl font-semibold flex-1">{isNew ? "New Product Template" : "Edit Template"}</h1>
+        <BusinessAssistantPanel config={panelConfig} triggerLabel="Help" />
         {canEdit && (
           <Button onClick={save} disabled={mutation.isPending}>
             <Save className="w-4 h-4 mr-2" />
@@ -174,6 +236,14 @@ export default function ProductTemplateFormPage() {
             Define variant attributes and allowed values, e.g. Size = S, M, L or Voltage = 110V, 220V.
           </p>
           <div className="space-y-3 flex-1 overflow-y-auto">
+            {attributes.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1.4fr_auto] gap-2 mb-1 px-1 text-xs font-medium text-muted-foreground">
+                <div>Display Label (e.g. Color)</div>
+                <div>Internal Key (e.g. color)</div>
+                <div>Allowed Options (Comma separated)</div>
+                <div></div>
+              </div>
+            )}
             {attributes.map((attr, i) => (
               <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1.4fr_auto] gap-2 items-start">
                 <div className="flex-1 space-y-1">

@@ -191,7 +191,7 @@ export function WorkstationFormDrawer({ workstationId, isNew = false, open, onCl
 
           {/* Hourly Rate */}
           <div className="space-y-2">
-            <Label htmlFor="rate">Hourly Rate ($)</Label>
+            <Label htmlFor="rate">Hourly Rate (₹)</Label>
             <Input
               id="rate"
               type="number"

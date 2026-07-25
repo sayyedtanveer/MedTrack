@@ -342,7 +342,7 @@ async def attach_operation(
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
         bom_repo = BOMRepository(session)
         workstation_repo = WorkstationRepository(uow)
-        operation_repo = OperationRepository(uow)
+        operation_repo = OperationRepository(session)
         handlers = RoutingHandlers(uow, bom_repo, workstation_repo, operation_repo)
         
         try:
@@ -376,7 +376,7 @@ async def remove_operation(
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
         bom_repo = BOMRepository(session)
         workstation_repo = WorkstationRepository(uow)
-        operation_repo = OperationRepository(uow)
+        operation_repo = OperationRepository(session)
         handlers = RoutingHandlers(uow, bom_repo, workstation_repo, operation_repo)
         try:
             await handlers.handle_remove_operation_from_bom(

@@ -314,8 +314,23 @@ class ErrorLogger:
         
         Removes: password, token, secret, api_key, access_token, 
                  refresh_token, confirm_password
+        Also handles key/value pair dicts where key's value is a sensitive word.
         """
         if isinstance(data, dict):
+            # Check for key/value pair pattern: {"key": "token", "value": "..."}
+            # If this dict has a "key" (or "name") field whose value is sensitive,
+            # redact the corresponding "value" field
+            key_field = data.get("key") or data.get("name") or data.get("field")
+            if key_field and isinstance(key_field, str) and key_field.lower() in SENSITIVE_BODY_FIELDS:
+                result = {}
+                for k, v in data.items():
+                    if k.lower() in ("value", "val", "data", "content"):
+                        result[k] = "[REDACTED]"
+                    elif k.lower() in SENSITIVE_BODY_FIELDS:
+                        result[k] = "[REDACTED]"
+                    else:
+                        result[k] = self._filter_sensitive_fields(v)
+                return result
             return {
                 k: self._filter_sensitive_fields(v)
                 if k.lower() not in SENSITIVE_BODY_FIELDS

@@ -67,9 +67,9 @@ class TestOperationCost:
         equipment_cost = 50.00
         overhead_multiplier = 1.15  # 15% overhead
         
-        total = (labor_cost + equipment_cost) * overhead_multiplier
+        total = round((labor_cost + equipment_cost) * overhead_multiplier, 2)
         
-        assert total == 128.90
+        assert total == 129.38
 
 
 class TestOperationSequencing:

@@ -10,6 +10,8 @@ class Base(DeclarativeBase):
     """Shared declarative base for all SQLAlchemy ORM models."""
     pass
 
+import backend.app.infrastructure.persistence.models
+
 
 SLOW_QUERY_THRESHOLD_MS = 500
 

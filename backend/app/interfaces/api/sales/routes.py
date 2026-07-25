@@ -929,8 +929,10 @@ async def submit_order_for_approval(
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
-            logger.exception(f"Error submitting order {order_id} for approval: {str(e)}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Approval submission failed")
+            logger.exception(f"Error submitting order for approval: {str(e)}")
+            import traceback
+            tb = traceback.format_exc()
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Approval submission failed: {str(e)} - {tb}")
 
 
 @router.post(

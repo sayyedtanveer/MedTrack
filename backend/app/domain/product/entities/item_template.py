@@ -66,8 +66,11 @@ class ItemTemplate(BaseEntity):
         self._code_locked = code_locked
         # Status: use provided status or ACTIVE if is_active=True, else INACTIVE
         self._status = status or (ProductStatus.ACTIVE if is_active else ProductStatus.INACTIVE)
-        # Keep is_active for backward compatibility
-        self._is_active = is_active
+        # is_active: if status explicitly provided, derive from status; else use the passed value
+        if status is not None:
+            self._is_active = (status == ProductStatus.ACTIVE)
+        else:
+            self._is_active = is_active
 
         self._validate_attributes()
 
@@ -184,8 +187,8 @@ class ItemTemplate(BaseEntity):
         """
         ProductStatus.validate_transition(self._status, new_status)
         self._status = new_status
-        # Keep is_active in sync
-        self._is_active = (new_status in {ProductStatus.ACTIVE, ProductStatus.DRAFT})
+        # Keep is_active in sync — only ACTIVE status means is_active=True
+        self._is_active = (new_status == ProductStatus.ACTIVE)
         self._touch()
 
     def activate(self) -> None:

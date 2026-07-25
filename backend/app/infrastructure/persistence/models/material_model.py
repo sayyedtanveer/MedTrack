@@ -100,3 +100,6 @@ class MaterialModel(Base):
 
     def __repr__(self) -> str:
         return f"<MaterialModel id={self.id} code={self.code}>"
+
+import backend.app.infrastructure.persistence.models.user_model
+import backend.app.infrastructure.persistence.models.quality_model

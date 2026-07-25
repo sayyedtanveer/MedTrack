@@ -358,12 +358,12 @@ class KPIQueryService:
         )
         total_work_orders = result.scalar() or 0
 
-        # Running (IN_PRODUCTION)
+        # Running (IN_PROGRESS)
         result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT wo.id) FROM work_orders wo
                 {wc_join}
-                {base_where} AND wo.status = 'IN_PRODUCTION'
+                {base_where} AND wo.status = 'IN_PROGRESS'
             """),
             params,
         )

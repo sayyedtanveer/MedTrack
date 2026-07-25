@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class SupplierCreate(BaseModel):
-    code: str
+    code: Optional[str] = None
     name: str
     contact_person: Optional[str] = None
     email: Optional[str] = None

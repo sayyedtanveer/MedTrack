@@ -25,7 +25,7 @@ async def create_operation(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
 
 
         cmd = AddOperationCommand(
@@ -42,7 +42,7 @@ async def list_operations(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
         operations = await handlers._operation_repo.list_operations(tenant_id)
     return operations
 
@@ -56,7 +56,7 @@ async def update_operation(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
         cmd = UpdateOperationCommand(
             tenant_id=tenant_id,
             operation_id=operation_id,
@@ -77,7 +77,7 @@ async def delete_operation(
     container = get_container(request)
     async with container.session_factory() as session:
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(uow))
+        handlers = RoutingHandlers(uow, BOMRepository(session), WorkstationRepository(uow), OperationRepository(session))
         cmd = DeleteOperationCommand(tenant_id=tenant_id, operation_id=operation_id)
         try:
             await handlers.handle_delete_operation(cmd)

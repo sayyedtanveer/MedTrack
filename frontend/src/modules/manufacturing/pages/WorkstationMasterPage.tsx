@@ -84,7 +84,7 @@ export default function WorkstationMasterPage() {
       accessorKey: "hourly_rate",
       header: "Hourly Rate",
       cell: ({ row }) => (
-        <span className="font-mono">${row.original.hourly_rate.toFixed(2)}</span>
+        <span className="font-mono">₹{row.original.hourly_rate.toFixed(2)}</span>
       ),
     },
     {

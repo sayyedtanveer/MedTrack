@@ -39,3 +39,5 @@ class BOMOperationModel(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+import backend.app.infrastructure.persistence.models.bom_model

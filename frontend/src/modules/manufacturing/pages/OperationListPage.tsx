@@ -229,7 +229,7 @@ export default function OperationListPage() {
       accessorKey: "hourly_rate",
       header: "Hourly Rate",
       cell: ({ row }) => (
-        <span className="font-mono text-sm">${row.original.hourly_rate.toFixed(2)}</span>
+        <span className="font-mono text-sm">₹{row.original.hourly_rate.toFixed(2)}</span>
       ),
     },
     {

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { CardSkeleton } from '@/components/shared/LoadingSkeleton';
 import { StatusBadge } from '@/components/shared/StatusBadge';
+import { extractErrorMessage } from '@/services/api-client';
 import { ordersApi } from '@/services/sales.service';
 import { SalesOrder, OrderStatus } from '@/types/sales.types';
 import { ArrowLeft, Edit2, Plus, MoreVertical } from 'lucide-react';
@@ -175,8 +176,8 @@ export default function SalesOrderDetailPage() {
       }
       setOrder(updated);
       setError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Action failed';
+    } catch (err: any) {
+      const message = err?.isAxiosError ? extractErrorMessage(err) : (err instanceof Error ? err.message : 'Action failed');
       if (action === 'confirm') {
         setConfirmError(message);
         sonnerToast.error('Order Confirmation Failed', { description: message });
@@ -200,8 +201,8 @@ export default function SalesOrderDetailPage() {
       setError(null);
       setCancelDialogOpen(false);
       setCancelReason('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel order');
+    } catch (err: any) {
+      setError(err?.isAxiosError ? extractErrorMessage(err) : (err instanceof Error ? err.message : 'Failed to cancel order'));
     } finally {
       setActionLoading(false);
     }
@@ -224,8 +225,8 @@ export default function SalesOrderDetailPage() {
       setOrder(updated);
       setNewLine({ ...newLine, product_id: '', quantity: 1 });
       setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add line item');
+    } catch (err: any) {
+      setError(err?.isAxiosError ? extractErrorMessage(err) : (err instanceof Error ? err.message : 'Failed to add line item'));
     } finally {
       setActionLoading(false);
     }

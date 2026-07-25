@@ -136,8 +136,8 @@ export default function SuppliersListPage() {
   }
 
   const create = async () => {
-    if (!clean(form.code) || !clean(form.name)) {
-      toast({ title: "Supplier code and name are required", variant: "destructive" })
+    if (!clean(form.name)) {
+      toast({ title: "Supplier name is required", variant: "destructive" })
       return
     }
 
@@ -333,7 +333,7 @@ export default function SuppliersListPage() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="supplier-code">Supplier code *</Label>
+                  <Label htmlFor="supplier-code">Supplier code (optional)</Label>
                   <Input
                     id="supplier-code"
                     value={form.code}

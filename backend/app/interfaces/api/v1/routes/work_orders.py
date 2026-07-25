@@ -223,6 +223,27 @@ async def release_work_order(
             return await _error_response(e)
 
 
+@router.post("/{work_order_id}/allocate-materials", status_code=status.HTTP_200_OK, dependencies=[Depends(require_permission("manufacturing:write"))])
+async def allocate_materials(
+    work_order_id: uuid.UUID,
+    request: Request,
+):
+    container = get_container(request)
+    # tenant_id is available in request.state.tenant_id from auth dependency
+    tenant_id = request.state.tenant_id
+    async with container.session_factory() as session:
+        from backend.app.application.manufacturing.commands.work_order_commands import AllocateMaterialsCommand
+        uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
+        handler = WorkOrderHandler(session).with_uow(uow)
+        try:
+            await handler.handle_allocate_materials(AllocateMaterialsCommand(tenant_id=tenant_id, work_order_id=work_order_id))
+            wo = await session.get(WorkOrderModel, work_order_id)
+            await uow.commit()
+            return {"status": wo.status if wo is not None else "MATERIAL_PENDING"}
+        except InvalidStatusTransitionError as e:
+            return await _error_response(e)
+
+
 @router.post("/{work_order_id}/start", status_code=status.HTTP_200_OK, dependencies=[Depends(require_permission("manufacturing:write"))])
 async def start_work_order(
     work_order_id: uuid.UUID,

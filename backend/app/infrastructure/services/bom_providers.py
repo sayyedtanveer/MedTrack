@@ -60,7 +60,7 @@ class InfrastructureCostProvider(CostProvider):
         # times are in minutes, rate is per hour. Convert times to hours.
         total_minutes = Decimal(str(op_model.setup_time)) + Decimal(str(op_model.run_time))
         hours = total_minutes / Decimal('60.0')
-        rate = Decimal(str(op_model.workstation.hourly_rate))
+        rate = Decimal(str(op_model.workstation.hourly_rate)) if op_model.workstation else Decimal('0.0')
         return hours * rate
 
 class InfrastructureComponentDetailProvider(ComponentDetailProvider):

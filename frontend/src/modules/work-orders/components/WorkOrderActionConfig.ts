@@ -40,7 +40,14 @@ export const WO_STATUS_ACTIONS: Record<string, WorkOrderAction[]> = {
     },
   ],
   RELEASED: [],
-  MATERIAL_PENDING: [],
+  MATERIAL_PENDING: [
+    {
+      label: 'Allocate Materials',
+      actionKey: 'allocate_materials',
+      color: 'bg-blue-600 hover:bg-blue-700 text-white',
+      variant: 'primary',
+    },
+  ],
   MATERIAL_RESERVED: [], // Materials table with Issue buttons per line
   MATERIAL_ISSUED: [
     {

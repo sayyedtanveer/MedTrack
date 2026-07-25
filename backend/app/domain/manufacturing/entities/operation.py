@@ -40,6 +40,9 @@ class Operation:
     default_sequence: int  # Sequence number for ordering (10, 20, 30...)
     description: Optional[str] = None
     estimated_time_minutes: Optional[Decimal] = None  # Estimated duration
+    workstation_id: Optional[uuid.UUID] = None  # Workstation/resource
+    setup_time: float = 0.0  # Setup time in minutes
+    run_time: float = 0.0   # Run time per unit in minutes
     
     # Quality & operational flags
     qc_required: bool = False  # Quality control required?

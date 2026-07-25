@@ -272,7 +272,8 @@ class ApproveSalesOrderCommandHandler:
         order.approve(command.approver_id, command.notes)
 
         await self.sales_order_repo.save(order)
-        await self.uow.work()
+        # Deferred commit to allow confirm_handler to run in same transaction
+        # await self.uow.work()
 
 
 class RejectSalesOrderCommandHandler:

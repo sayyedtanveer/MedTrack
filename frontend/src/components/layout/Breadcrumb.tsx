@@ -15,11 +15,21 @@ const SEGMENT_LABELS: Record<string, string> = {
   "business-config": "Business Config",
   "number-series": "Number Series",
   "company-setup": "Company Setup",
+  "company-profile": "Company Profile",
+  "master-data": "Master Data",
+  "units": "Units of Measure",
+  "categories": "Material Categories",
+  "locations": "Storage Locations",
   "security": "Security",
   "manufacturing": "Manufacturing",
   "workstations": "Workstations",
+  "workstations-master": "Workstations",
   "operations": "Operations",
   "reports": "Reports",
+  "procurement": "Procurement",
+  "suppliers": "Suppliers",
+  "sales": "Sales",
+  "clients": "Clients",
   "new": "New",
   "edit": "Edit",
 }
@@ -36,7 +46,28 @@ function getSegmentLabel(segment: string): string {
 
 export function Breadcrumb() {
   const location = useLocation()
-  const paths = location.pathname.split("/").filter(Boolean)
+  const state = location.state as any
+  const rawPaths = location.pathname.split("/").filter(Boolean)
+
+  // Build standard breadcrumb items
+  let items = rawPaths.map((segment, index) => {
+    return {
+      label: getSegmentLabel(segment),
+      to: `/${rawPaths.slice(0, index + 1).join("/")}`
+    }
+  })
+
+  // If user navigated here from Company Setup, intercept the breadcrumb
+  if (state?.fromSetup) {
+    items = [
+      { label: "Settings", to: "/settings/company-profile" },
+      { label: "Company Setup", to: "/settings/company-setup" },
+      { label: getSegmentLabel(rawPaths[rawPaths.length - 1]), to: location.pathname }
+    ]
+  } else if (items.length > 0 && items[0].label === "Settings") {
+     // Fix the 'Settings' root link to go to company profile instead of 404
+     items[0].to = "/settings/company-profile"
+  }
 
   return (
     <nav
@@ -51,27 +82,25 @@ export function Breadcrumb() {
         <span>Dashboard</span>
       </Link>
 
-      {paths.map((segment, index) => {
-        const isLast = index === paths.length - 1
-        const to = `/${paths.slice(0, index + 1).join("/")}`
-        const label = getSegmentLabel(segment)
+      {items.map((item, index) => {
+        const isLast = index === items.length - 1
 
         return (
-          <div key={`${segment}-${index}`} className="flex items-center gap-1">
+          <div key={`${item.to}-${index}`} className="flex items-center gap-1">
             <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />
             {isLast ? (
               <span
                 className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-900"
                 aria-current="page"
               >
-                {label}
+                {item.label}
               </span>
             ) : (
               <Link
-                to={to}
+                to={item.to}
                 className="rounded-full px-2 py-1 transition-colors hover:bg-slate-50 hover:text-slate-900"
               >
-                {label}
+                {item.label}
               </Link>
             )}
           </div>

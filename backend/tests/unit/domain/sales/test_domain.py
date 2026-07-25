@@ -5,15 +5,15 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from app.domain.sales.value_objects import (
+from backend.app.domain.sales.value_objects import (
     OrderNumber,
     OrderStatus,
     PaymentStatus,
     LineStatus,
     Money,
 )
-from app.domain.sales.entities import Client, SalesOrder, SalesOrderLine, PriceList, PriceListLine
-from app.domain.sales.entities.sales_order import InvalidStatusTransitionError
+from backend.app.domain.sales.entities import Client, SalesOrder, SalesOrderLine, PriceList, PriceListLine
+from backend.app.domain.sales.entities.sales_order import InvalidStatusTransitionError
 
 
 class TestOrderNumber:

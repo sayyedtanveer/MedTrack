@@ -12,7 +12,7 @@ from backend.app.domain.manufacturing.entities.operation import Operation
 
 class CreateOperationRequest(BaseModel):
     """Request to create a new operation."""
-    operation_code: str = Field(..., min_length=1, max_length=10, description="Business code (10, 20, 30)")
+    operation_code: Optional[str] = Field(None, min_length=1, max_length=10, description="Business code (10, 20, 30). Auto-generated from name if not provided.")
     name: str = Field(..., min_length=1, max_length=100, description="Operation name")
     operation_type: str = Field(default="other", description="Type of operation")
     description: Optional[str] = Field(None, max_length=500, description="Description")
@@ -21,6 +21,9 @@ class CreateOperationRequest(BaseModel):
     qc_required: Optional[bool] = Field(default=False, description="Quality control required")
     color: Optional[str] = Field(None, max_length=20, description="Hex color or named color")
     icon_code: Optional[str] = Field(None, max_length=50, description="Icon identifier")
+    workstation_id: Optional[uuid.UUID] = Field(None, description="Workstation/resource")
+    setup_time: Optional[float] = Field(default=0.0, ge=0, description="Setup time in minutes")
+    run_time: Optional[float] = Field(default=0.0, ge=0, description="Run time per unit in minutes")
 
 
 class UpdateOperationRequest(BaseModel):
@@ -33,6 +36,9 @@ class UpdateOperationRequest(BaseModel):
     color: Optional[str] = Field(None, max_length=20)
     icon_code: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = Field(None)
+    workstation_id: Optional[uuid.UUID] = Field(None)
+    setup_time: Optional[float] = Field(None, ge=0)
+    run_time: Optional[float] = Field(None, ge=0)
 
 
 class OperationResponse(BaseModel):
@@ -48,6 +54,9 @@ class OperationResponse(BaseModel):
     is_active: bool
     color: Optional[str]
     icon_code: Optional[str]
+    workstation_id: Optional[str] = None
+    setup_time: float = 0.0
+    run_time: float = 0.0
     created_at: Optional[str]
     updated_at: Optional[str]
 
@@ -66,6 +75,9 @@ class OperationResponse(BaseModel):
             is_active=entity.is_active,
             color=entity.color,
             icon_code=entity.icon_code,
+            workstation_id=str(entity.workstation_id) if entity.workstation_id else None,
+            setup_time=entity.setup_time or 0.0,
+            run_time=entity.run_time or 0.0,
             created_at=entity.created_at.isoformat() if entity.created_at else None,
             updated_at=entity.updated_at.isoformat() if entity.updated_at else None,
         )

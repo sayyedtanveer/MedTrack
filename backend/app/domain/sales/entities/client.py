@@ -83,10 +83,10 @@ class Client(AggregateRoot):
             raise ValueError("Credit limit cannot be negative")
         if self.credit_used < 0:
             raise ValueError("Credit used cannot be negative")
-        if self.credit_used > self.credit_limit:
+        if self.credit_limit > 0 and self.credit_used > self.credit_limit:
             raise ValueError("Credit used cannot exceed credit limit")
 
-    def check_available_credit(self, amount: Decimal) -> bool:
+    def has_sufficient_credit(self, amount: Decimal) -> bool:
         """
         Check if client has sufficient available credit.
         
@@ -94,8 +94,10 @@ class Client(AggregateRoot):
             amount: Amount to check
             
         Returns:
-            True if amount <= (credit_limit - credit_used)
+            True if amount <= (credit_limit - credit_used) or if credit_limit is 0 (unlimited)
         """
+        if self.credit_limit == 0:
+            return True
         available = self.credit_limit - self.credit_used
         return amount <= available
 
@@ -107,14 +109,14 @@ class Client(AggregateRoot):
             amount: Amount to allocate
             
         Raises:
-            ValueError: If would exceed credit limit
+            ValueError: If would exceed credit limit (when limit > 0)
         """
         amount = Decimal(str(amount))
         if amount < 0:
             raise ValueError("Amount cannot be negative")
 
         new_total = self.credit_used + amount
-        if new_total > self.credit_limit:
+        if self.credit_limit > 0 and new_total > self.credit_limit:
             raise ValueError(
                 f"Credit allocation would exceed limit: "
                 f"{new_total} > {self.credit_limit}"
