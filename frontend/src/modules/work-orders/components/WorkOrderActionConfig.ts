@@ -58,20 +58,7 @@ export const WO_STATUS_ACTIONS: Record<string, WorkOrderAction[]> = {
     },
   ],
   IN_PRODUCTION: [], // Record Production form shown instead
-  QC_PENDING: [
-    {
-      label: 'Approve QC',
-      actionKey: 'qc_approve',
-      color: 'bg-green-600 hover:bg-green-700 text-white',
-      variant: 'primary',
-    },
-    {
-      label: 'Reject QC',
-      actionKey: 'qc_reject',
-      color: 'bg-red-600 hover:bg-red-700 text-white',
-      variant: 'danger',
-    },
-  ],
+  QC_PENDING: [], // Handled exclusively via the dedicated QC Dashboard
   QC_APPROVED: [
     {
       label: 'Receive FG',

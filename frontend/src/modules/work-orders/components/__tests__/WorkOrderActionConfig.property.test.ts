@@ -78,17 +78,9 @@ describe('Property 2: Work Order Status-to-Action Mapping', () => {
     expect(WO_STATUS_ACTIONS['IN_PRODUCTION']).toHaveLength(0);
   });
 
-  it('QC_PENDING shows exactly "Approve QC" and "Reject QC" actions', () => {
+  it('QC_PENDING shows no action buttons (handled on QC dashboard)', () => {
     const actions = WO_STATUS_ACTIONS['QC_PENDING'];
-    expect(actions).toHaveLength(2);
-    
-    const labels = actions.map(a => a.label);
-    expect(labels).toContain('Approve QC');
-    expect(labels).toContain('Reject QC');
-    
-    const actionKeys = actions.map(a => a.actionKey);
-    expect(actionKeys).toContain('qc_approve');
-    expect(actionKeys).toContain('qc_reject');
+    expect(actions).toHaveLength(0);
   });
 
   it('QC_APPROVED shows only "Receive FG" action', () => {

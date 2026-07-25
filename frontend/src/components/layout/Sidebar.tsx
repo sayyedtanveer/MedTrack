@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { ChevronRight, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { useUIStore } from "@/app/store/uiStore"
@@ -13,6 +14,7 @@ export function Sidebar() {
   const { name: tenantName } = useTenantStore()
   const { role } = usePermissions()
   const location = useLocation()
+  const [expandedState, setExpandedState] = useState<Record<string, boolean>>({})
 
   const normalizedRole = normalizeRole(role)
   const visibleNavItems = getVisibleNavItems(normalizedRole)
@@ -110,11 +112,17 @@ export function Sidebar() {
             const isContextActive = Boolean(activeChild) || isDirectActive
 
             if (hasChildren && isSidebarOpen) {
+              const isExpanded = expandedState[item.title] !== undefined ? expandedState[item.title] : isContextActive
+
               return (
                 <div key={item.href} className="space-y-1">
                   <div
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setExpandedState(prev => ({ ...prev, [item.title]: !isExpanded }))
+                    }}
                     className={cn(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200 cursor-pointer",
                       isContextActive
                         ? "bg-white/5 text-white shadow-sm"
                         : "text-slate-400 hover:bg-white/5 hover:text-white",
@@ -124,11 +132,22 @@ export function Sidebar() {
                     <span className={getIconShellClass(item, isDirectActive, Boolean(activeChild))}>
                       <item.icon className="h-5 w-5" />
                     </span>
-                    <span className="truncate">{item.title}</span>
-                    {isContextActive && <ChevronRight className="ml-auto h-4 w-4 text-white/60" />}
+                    <span className="truncate flex-1 select-none">{item.title}</span>
+                    <ChevronRight 
+                      className={cn(
+                        "ml-auto h-4 w-4 transition-transform duration-200", 
+                        isContextActive ? "text-white/60" : "text-slate-500 group-hover:text-white/60",
+                        isExpanded ? "rotate-90" : ""
+                      )} 
+                    />
                   </div>
 
-                  <div className="ml-6 space-y-1 border-l border-white/10 pl-3">
+                  <div 
+                    className={cn(
+                      "ml-6 border-l border-white/10 pl-3 transition-all duration-300 overflow-hidden",
+                      isExpanded ? "max-h-[500px] opacity-100 py-1 space-y-1" : "max-h-0 opacity-0 py-0"
+                    )}
+                  >
                     {childItems.map((child) => {
                       const isChildActive = isNavItemActive(child)
 

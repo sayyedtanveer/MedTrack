@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -123,7 +123,7 @@ class QCHandler:
         
         # Transition WO to QC_APPROVED, then fire FGReceiveCommandHandler (Gap #3).
         wo_model.status = WorkOrderStatus.QC_APPROVED.value
-        wo_model.updated_at = date.today()
+        wo_model.updated_at = datetime.now(timezone.utc)
 
         await FGReceiveCommandHandler(self._session).handle(
             wo_id=command.work_order_id,
@@ -208,7 +208,7 @@ class QCHandler:
         
         # Transition WO to QC_REJECTED
         wo_model.status = WorkOrderStatus.QC_REJECTED.value
-        wo_model.updated_at = date.today()
+        wo_model.updated_at = datetime.now(timezone.utc)
         
         await self._session.flush()
         return inspection
@@ -238,7 +238,7 @@ class QCHandler:
         
         # Transition WO to REWORK
         wo_model.status = WorkOrderStatus.REWORK.value
-        wo_model.updated_at = date.today()
+        wo_model.updated_at = datetime.now(timezone.utc)
         
         # TODO: If additional material required, issue more stock
         # This will be handled by Storekeeper flow (Phase 2)
@@ -274,7 +274,7 @@ class QCHandler:
         # Transition WO to REJECTED
         wo_model.status = WorkOrderStatus.REJECTED.value
         wo_model.scrap_quantity = command.scrap_quantity
-        wo_model.updated_at = date.today()
+        wo_model.updated_at = datetime.now(timezone.utc)
         
         # Inventory mutation: ISSUED → REJECTED
         # Note: This rejects the issued materials, not the FG
@@ -317,6 +317,6 @@ class QCHandler:
         
         # Close WO after scrap
         wo_model.status = WorkOrderStatus.CLOSED.value
-        wo_model.updated_at = date.today()
+        wo_model.updated_at = datetime.now(timezone.utc)
         
         await self._session.flush()

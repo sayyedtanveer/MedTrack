@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (

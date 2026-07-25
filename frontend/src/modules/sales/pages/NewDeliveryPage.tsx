@@ -11,6 +11,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useSearchParams, useNavigate } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
 import { apiClient } from "@/services/api-client"
 import { deliveryService as _deliveryService } from "@/services/delivery.service"
 import { ordersApi } from "@/services/sales.service"
@@ -35,6 +36,7 @@ export default function NewDeliveryPage() {
   const soId = soIdFromParams ?? soIdFromQuery ?? ""
 
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const [order, setOrder] = useState<SalesOrder | null>(null)
   const [loading, setLoading] = useState(true)
@@ -116,6 +118,9 @@ export default function NewDeliveryPage() {
       }
       const { data } = await apiClient.post("/deliveries", payload)
       toast.success(`Delivery note ${data.delivery_number} created`)
+      queryClient.invalidateQueries({ queryKey: ["active-deliveries"] })
+      queryClient.invalidateQueries({ queryKey: ["delivery-dispatch-queue"] })
+      queryClient.invalidateQueries({ queryKey: ["deliveries", order.id] })
       navigate("/delivery/dashboard")
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || "Failed to create delivery note")

@@ -38,7 +38,9 @@ async def apply_schema_fixes():
         "UPDATE notifications SET notification_type = 'INFO' WHERE notification_type IS NULL;",
         "ALTER TABLE notifications ALTER COLUMN notification_type SET NOT NULL;",
         "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();",
-        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMP WITH TIME ZONE NULL;",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS deep_link VARCHAR(500) NULL;",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_role VARCHAR(50) NULL;",
+        "ALTER TABLE notifications ALTER COLUMN user_id DROP NOT NULL;",
     ]
     
     try:

@@ -5,13 +5,13 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Play, Pause, CheckCircle, Package } from "lucide-react"
-import axios from "axios"
+import apiClient from "@/services/api-client"
 
 export default function WorkerDashboardPage() {
   const { data: workerQueue, isLoading } = useQuery({
     queryKey: ["worker-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/worker/queue")
+      const response = await apiClient.get("/work-orders/worker/queue")
       return response.data
     }
   })

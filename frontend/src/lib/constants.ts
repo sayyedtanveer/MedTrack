@@ -55,12 +55,6 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
   },
   {
-    title: "System Map",
-    href: "/system-map",
-    icon: Network,
-    roles: getRolesForModule("systemMap"),
-  },
-  {
     title: "Products",
     href: "/products",
     icon: PackageSearch,
@@ -71,6 +65,34 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/bom/list",
     icon: Layers,
     roles: getRolesForModule("bom"),
+  },
+
+  // ── Inventory ────────────────────────────────────────────────────────
+  {
+    title: "Inventory",
+    href: "/inventory",
+    icon: Package,
+    roles: INVENTORY_ROLES,
+    children: [
+      {
+        title: "Materials",
+        href: "/inventory/materials",
+        icon: Package,
+        roles: INVENTORY_ROLES,
+      },
+      {
+        title: "Transactions",
+        href: "/inventory/transactions",
+        icon: ArrowLeftRight,
+        roles: INVENTORY_ROLES,
+      },
+      {
+        title: "Stock Movements",
+        href: "/inventory/movements",
+        icon: History,
+        roles: INVENTORY_ROLES,
+      },
+    ],
   },
 
   // ── Manufacturing ────────────────────────────────────────────────────
@@ -141,16 +163,50 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
 
+  // ── Sales ────────────────────────────────────────────────────────────
+  {
+    title: "Sales",
+    href: "/sales",
+    icon: ShoppingCart,
+    roles: SALES_ROLES,
+    children: [
+      {
+        title: "Sales Dashboard",
+        href: "/sales",
+        icon: LayoutDashboard,
+        roles: SALES_ROLES,
+      },
+      {
+        title: "Sales Orders",
+        href: "/sales/orders",
+        icon: ClipboardList,
+        roles: SALES_ROLES,
+      },
+      {
+        title: "Clients",
+        href: "/sales/clients",
+        icon: Users,
+        roles: SALES_ROLES,
+      },
+      {
+        title: "Price Lists",
+        href: "/sales/price-lists",
+        icon: FileText,
+        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER, UserRole.SALES],
+      },
+    ],
+  },
+
   // ── Quality ──────────────────────────────────────────────────────────
   {
     title: "Quality",
-    href: "/procurement/quality",
+    href: "/dashboard/qc",
     icon: ShieldCheck,
     roles: QUALITY_ROLES,
     children: [
       {
         title: "QC Dashboard",
-        href: "/procurement/quality",
+        href: "/dashboard/qc",
         icon: ShieldCheck,
         roles: QUALITY_ROLES,
       },
@@ -175,34 +231,6 @@ export const NAV_ITEMS: NavItem[] = [
         href: "/delivery/dispatch-queue",
         icon: PackageSearch,
         roles: DELIVERY_ROLES,
-      },
-    ],
-  },
-
-  // ── Inventory ────────────────────────────────────────────────────────
-  {
-    title: "Inventory",
-    href: "/inventory",
-    icon: Package,
-    roles: INVENTORY_ROLES,
-    children: [
-      {
-        title: "Materials",
-        href: "/inventory/materials",
-        icon: Package,
-        roles: INVENTORY_ROLES,
-      },
-      {
-        title: "Transactions",
-        href: "/inventory/transactions",
-        icon: ArrowLeftRight,
-        roles: INVENTORY_ROLES,
-      },
-      {
-        title: "Stock Movements",
-        href: "/inventory/movements",
-        icon: History,
-        roles: INVENTORY_ROLES,
       },
     ],
   },
@@ -247,40 +275,6 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
 
-  // ── Sales ────────────────────────────────────────────────────────────
-  {
-    title: "Sales",
-    href: "/sales",
-    icon: ShoppingCart,
-    roles: SALES_ROLES,
-    children: [
-      {
-        title: "Sales Dashboard",
-        href: "/sales",
-        icon: LayoutDashboard,
-        roles: SALES_ROLES,
-      },
-      {
-        title: "Sales Orders",
-        href: "/sales/orders",
-        icon: ClipboardList,
-        roles: SALES_ROLES,
-      },
-      {
-        title: "Clients",
-        href: "/sales/clients",
-        icon: Users,
-        roles: SALES_ROLES,
-      },
-      {
-        title: "Price Lists",
-        href: "/sales/price-lists",
-        icon: FileText,
-        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER, UserRole.SALES],
-      },
-    ],
-  },
-
   {
     title: "Finance",
     href: "/finance",
@@ -312,12 +306,6 @@ export const NAV_ITEMS: NavItem[] = [
         roles: FINANCE_FULL_ACCESS_ROLES,
       },
     ],
-  },
-  {
-    title: "Shop floor",
-    href: "/shop-floor",
-    icon: Factory,
-    roles: SHOP_FLOOR_ROLES,
   },
 
   // ── Reports ──────────────────────────────────────────────────────────
@@ -391,6 +379,12 @@ export const NAV_ITEMS: NavItem[] = [
         roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
       },
     ],
+  },
+  {
+    title: "System Map",
+    href: "/system-map",
+    icon: Network,
+    roles: getRolesForModule("systemMap"),
   },
 ]
 

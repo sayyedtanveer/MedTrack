@@ -92,8 +92,8 @@ async def get_delivery(
 )
 async def ship_delivery(
     delivery_id: uuid.UUID,
-    body: DeliveryShipRequest,
     request: Request,
+    body: DeliveryShipRequest = DeliveryShipRequest(),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ):

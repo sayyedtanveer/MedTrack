@@ -433,6 +433,8 @@ export default function DispatchPanel({ order, onOrderUpdate }: DispatchPanelPro
   const handleDeliveryCreated = useCallback(
     (_delivery: Delivery) => {
       void queryClient.invalidateQueries({ queryKey: ['deliveries', order.id] });
+      void queryClient.invalidateQueries({ queryKey: ['active-deliveries'] });
+      void queryClient.invalidateQueries({ queryKey: ['delivery-dispatch-queue'] });
     },
     [queryClient, order.id]
   );

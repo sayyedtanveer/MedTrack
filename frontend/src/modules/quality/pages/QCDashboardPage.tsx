@@ -17,12 +17,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { CheckCircle, XCircle, RefreshCw, ClipboardCheck, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import axios from "axios"
-
-// ── API calls ─────────────────────────────────────────────────────────────────
+import apiClient from "@/services/api-client"
 
 async function approveQC(workOrderId: string, remarks?: string) {
-  const { data } = await axios.post("/api/v1/quality-control/approve", {
+  const { data } = await apiClient.post("/quality-control/approve", {
     work_order_id: workOrderId,
     remarks: remarks || null,
   })
@@ -30,7 +28,7 @@ async function approveQC(workOrderId: string, remarks?: string) {
 }
 
 async function rejectQC(workOrderId: string, reason: string) {
-  const { data } = await axios.post("/api/v1/quality-control/reject", {
+  const { data } = await apiClient.post("/quality-control/reject", {
     work_order_id: workOrderId,
     reason,
   })
@@ -38,7 +36,7 @@ async function rejectQC(workOrderId: string, reason: string) {
 }
 
 async function sendToRework(workOrderId: string, reworkReason: string) {
-  const { data } = await axios.post("/api/v1/quality-control/send-to-rework", {
+  const { data } = await apiClient.post("/quality-control/send-to-rework", {
     work_order_id: workOrderId,
     rework_reason: reworkReason,
   })
@@ -46,7 +44,7 @@ async function sendToRework(workOrderId: string, reworkReason: string) {
 }
 
 async function scrapBatch(workOrderId: string, scrapReason: string) {
-  const { data } = await axios.post("/api/v1/quality-control/scrap", {
+  const { data } = await apiClient.post("/quality-control/scrap", {
     work_order_id: workOrderId,
     scrap_reason: scrapReason,
   })
@@ -79,7 +77,7 @@ export default function QCDashboardPage() {
   const { data: inspectionQueue, isLoading: inspectionLoading } = useQuery<WOQueueItem[]>({
     queryKey: ["qc-inspection-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/qc/inspection-queue")
+      const response = await apiClient.get("/work-orders/qc/inspection-queue")
       return response.data
     },
   })
@@ -87,7 +85,7 @@ export default function QCDashboardPage() {
   const { data: rejectedQueue, isLoading: rejectedLoading } = useQuery<WOQueueItem[]>({
     queryKey: ["qc-rejected-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/qc/rejected-queue")
+      const response = await apiClient.get("/work-orders/qc/rejected-queue")
       return response.data
     },
   })
@@ -95,7 +93,7 @@ export default function QCDashboardPage() {
   const { data: reworkQueue, isLoading: reworkLoading } = useQuery<WOQueueItem[]>({
     queryKey: ["qc-rework-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/qc/rework-queue")
+      const response = await apiClient.get("/work-orders/qc/rework-queue")
       return response.data
     },
   })
@@ -236,7 +234,7 @@ export default function QCDashboardPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">QC Dashboard</h1>
           <p className="text-muted-foreground mt-2">
-            Inspection queue, rejected batches, and rework operations.
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Finished Goods QC:</span> Use this dashboard to inspect completed manufacturing work orders before they are approved for sale.
           </p>
         </div>
       </div>

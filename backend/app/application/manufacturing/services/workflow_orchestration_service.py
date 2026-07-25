@@ -522,7 +522,7 @@ class WorkflowOrchestrationService:
             invoice = await finance_service.create_invoice_from_sales_order(
                 tenant_id=tenant_id,
                 sales_order_id=sales_order_id,
-                created_by=uuid.UUID("00000000-0000-0000-0000-000000000000"),  # system user
+                created_by=sales_order.created_by,
                 notes="Auto-generated invoice on delivery",
             )
         except Exception as e:
@@ -655,7 +655,7 @@ class WorkflowOrchestrationService:
             completion_result = await self._complete_sales_order(
                 tenant_id=tenant_id,
                 sales_order=sales_order,
-                completed_by=uuid.UUID("00000000-0000-0000-0000-000000000000"),
+                completed_by=sales_order.created_by,
                 reason="Full payment received and sales order workflow completed",
                 metadata={"cumulative_paid": float(cumulative_paid)},
             )

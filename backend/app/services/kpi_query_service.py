@@ -326,6 +326,17 @@ class KPIQueryService:
             date_filter += " AND wo.start_date <= :date_to"
             params["date_to"] = filters.date_to
 
+        # For completed, we care about when it was completed (updated_at)
+        completed_date_filter = ""
+        if filters.date_from:
+            completed_date_filter += " AND wo.updated_at >= :date_from"
+        if filters.date_to:
+            from datetime import timedelta
+            completed_date_filter += " AND wo.updated_at < :date_to_plus_one"
+            params["date_to_plus_one"] = filters.date_to + timedelta(days=1)
+        if not filters.date_from and not filters.date_to:
+            completed_date_filter = " AND wo.updated_at::date = :today"
+
         product_filter = ""
         if filters.product_id:
             product_filter = " AND wo.product_id = :product_id"
@@ -342,47 +353,51 @@ class KPIQueryService:
             wc_filter = " AND op.work_center_id = :work_center_id"
             params["work_center_id"] = filters.work_center_id
 
+        # base_where applies tenant, deleted, product, and work center filters
+        # BUT DOES NOT include the date filter, because current state metrics 
+        # (like running or QC queue) shouldn't be filtered out if they started yesterday.
         base_where = f"""
             WHERE wo.tenant_id = :tid AND wo.is_deleted = false
-            {date_filter}{product_filter}{wc_filter}
+            {product_filter}{wc_filter}
         """
 
-        # Total work orders count
+        # Total work orders count (apply date filter)
         result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT wo.id) FROM work_orders wo
                 {wc_join}
                 {base_where}
+                {date_filter}
             """),
             params,
         )
         total_work_orders = result.scalar() or 0
 
-        # Running (IN_PROGRESS)
+        # Running (IN_PRODUCTION) - Current Snapshot
         result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT wo.id) FROM work_orders wo
                 {wc_join}
-                {base_where} AND wo.status = 'IN_PROGRESS'
+                {base_where} AND wo.status = 'IN_PRODUCTION'
             """),
             params,
         )
         running = result.scalar() or 0
 
-        # Completed today
+        # Completed in period
         result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT wo.id) FROM work_orders wo
                 {wc_join}
                 {base_where}
                 AND wo.status IN ('COMPLETED', 'CLOSED')
-                AND wo.updated_at::date = :today
+                {completed_date_filter}
             """),
             params,
         )
         completed_today = result.scalar() or 0
 
-        # Delayed (past due_date, not completed)
+        # Delayed (past due_date, not completed) - Current Snapshot
         result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT wo.id) FROM work_orders wo
@@ -395,7 +410,7 @@ class KPIQueryService:
         )
         delayed = result.scalar() or 0
 
-        # QC queue
+        # QC queue - Current Snapshot
         result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT wo.id) FROM work_orders wo
@@ -406,7 +421,7 @@ class KPIQueryService:
         )
         qc_queue = result.scalar() or 0
 
-        # Material shortages (MATERIAL_PENDING)
+        # Material shortages (MATERIAL_PENDING) - Current Snapshot
         result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT wo.id) FROM work_orders wo
@@ -417,7 +432,7 @@ class KPIQueryService:
         )
         material_shortages = result.scalar() or 0
 
-        # Production quantities
+        # Production quantities (apply date filter)
         result = await self._session.execute(
             text(f"""
                 SELECT
@@ -427,6 +442,7 @@ class KPIQueryService:
                 FROM work_orders wo
                 {wc_join}
                 {base_where}
+                {date_filter}
             """),
             params,
         )
@@ -726,8 +742,8 @@ class KPIQueryService:
                     wo.product_id,
                     iv.name as product_name,
                     COUNT(*) as total_inspections,
-                    COUNT(*) FILTER (WHERE qi.result = 'PASS') as passed,
-                    COUNT(*) FILTER (WHERE qi.result = 'FAIL') as failed
+                    COUNT(*) FILTER (WHERE qi.result = 'pass') as passed,
+                    COUNT(*) FILTER (WHERE qi.result = 'fail') as failed
                 FROM quality_inspections qi
                 INNER JOIN work_orders wo
                     ON wo.id = qi.reference_id AND qi.reference_type = 'work_order'

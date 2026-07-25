@@ -133,6 +133,38 @@ async def list_work_orders(
 
 
 @router.get(
+    "/planner/planning-queue",
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
+async def planner_planning_queue(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Get planning queue for planner dashboard."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        from backend.app.application.manufacturing.services.planner_service import PlannerService
+        service = PlannerService(session)
+        return await service.get_planning_queue(tenant_id=tenant_id)
+
+
+@router.get(
+    "/planner/overdue-queue",
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
+async def planner_overdue_queue(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Get overdue work orders for planner dashboard."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        from backend.app.application.manufacturing.services.planner_service import PlannerService
+        service = PlannerService(session)
+        return await service.get_overdue_queue(tenant_id=tenant_id)
+
+
+@router.get(
     "/planner/shortage-queue",
     dependencies=[Depends(require_permission("manufacturing:read"))],
 )
@@ -144,9 +176,40 @@ async def planner_shortage_queue(
     container = get_container(request)
     async with container.session_factory() as session:
         from backend.app.application.manufacturing.services.planner_service import PlannerService
-
         service = PlannerService(session)
         return await service.get_shortage_queue(tenant_id=tenant_id)
+
+
+@router.get(
+    "/planner/rework-queue",
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
+async def planner_rework_queue(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Get work orders in rework for planner dashboard."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        from backend.app.application.manufacturing.services.planner_service import PlannerService
+        service = PlannerService(session)
+        return await service.get_rework_queue(tenant_id=tenant_id)
+
+
+@router.get(
+    "/planner/capacity",
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
+async def planner_capacity(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Get capacity utilization metrics for planner dashboard."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        from backend.app.application.manufacturing.services.planner_service import PlannerService
+        service = PlannerService(session)
+        return await service.get_capacity_utilization(tenant_id=tenant_id)
 
 
 @router.get(
@@ -323,7 +386,10 @@ async def complete_work_order(
         try:
             await handler.handle_complete(CompleteWorkOrderCommand(tenant_id=tenant_id, work_order_id=work_order_id))
             await uow.commit()
-            return {"status": "COMPLETED"}
+            
+            # Fetch the updated status
+            wo = await session.get(WorkOrderModel, work_order_id)
+            return {"status": wo.status if wo else "SUCCESS"}
         except (InvalidStatusTransitionError, MaterialNotIssuedError) as e:
             return await _error_response(e)
 

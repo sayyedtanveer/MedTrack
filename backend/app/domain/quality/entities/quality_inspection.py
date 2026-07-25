@@ -10,9 +10,9 @@ from decimal import Decimal
 
 class InspectionResult(str, enum.Enum):
     """QC inspection result."""
-    PASSED = "PASSED"
-    FAILED = "FAILED"
-    CONDITIONAL = "CONDITIONAL"
+    PASSED = "pass"
+    FAILED = "fail"
+    CONDITIONAL = "conditional"
 
 
 class InspectionDetail:

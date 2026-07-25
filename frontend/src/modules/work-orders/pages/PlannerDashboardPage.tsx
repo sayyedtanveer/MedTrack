@@ -4,13 +4,13 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Calendar, AlertTriangle, Package, RefreshCw, TrendingUp } from "lucide-react"
-import axios from "axios"
+import apiClient from "@/services/api-client"
 
 export default function PlannerDashboardPage() {
   const { data: planningQueue, isLoading: planningLoading } = useQuery({
     queryKey: ["planner-planning-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/planner/planning-queue")
+      const response = await apiClient.get("/work-orders/planner/planning-queue")
       return response.data
     }
   })
@@ -18,7 +18,7 @@ export default function PlannerDashboardPage() {
   const { data: overdueQueue, isLoading: overdueLoading } = useQuery({
     queryKey: ["planner-overdue-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/planner/overdue-queue")
+      const response = await apiClient.get("/work-orders/planner/overdue-queue")
       return response.data
     }
   })
@@ -26,7 +26,7 @@ export default function PlannerDashboardPage() {
   const { data: shortageQueue, isLoading: shortageLoading } = useQuery({
     queryKey: ["planner-shortage-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/planner/shortage-queue")
+      const response = await apiClient.get("/work-orders/planner/shortage-queue")
       return response.data
     }
   })
@@ -34,7 +34,7 @@ export default function PlannerDashboardPage() {
   const { data: reworkQueue, isLoading: reworkLoading } = useQuery({
     queryKey: ["planner-rework-queue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/planner/rework-queue")
+      const response = await apiClient.get("/work-orders/planner/rework-queue")
       return response.data
     }
   })
@@ -42,7 +42,7 @@ export default function PlannerDashboardPage() {
   const { data: capacityUtilization, isLoading: capacityLoading } = useQuery({
     queryKey: ["planner-capacity"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/work-orders/planner/capacity")
+      const response = await apiClient.get("/work-orders/planner/capacity")
       return response.data
     }
   })

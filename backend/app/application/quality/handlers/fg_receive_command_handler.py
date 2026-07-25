@@ -160,6 +160,7 @@ class FGReceiveCommandHandler:
                     fg_material_id=fg_material_id,
                     net_qty=net_qty,
                     tenant_id=tenant_id,
+                    received_by=received_by,
                 )
 
             # ── 8. Transition WO → FG_RECEIVED ───────────────────────────────
@@ -307,6 +308,7 @@ class FGReceiveCommandHandler:
         fg_material_id: uuid.UUID,
         net_qty: Decimal,
         tenant_id: uuid.UUID,
+        received_by: uuid.UUID,
     ) -> bool:
         """Increment allocated_quantity on the linked SO line.
 
@@ -338,6 +340,17 @@ class FGReceiveCommandHandler:
             return False  # already fully allocated
 
         add_qty = min(net_qty, needed)
+        
+        # Actually create the inventory reservation transaction
+        await self._inventory.reserve_sales_stock(
+            tenant_id=tenant_id,
+            material_id=fg_material_id,
+            quantity=add_qty,
+            sales_order_line_id=target.id,
+            unit_id=getattr(target, "uom_id", None),
+            created_by=received_by,
+        )
+
         new_allocated = already_allocated + add_qty
         target.allocated_quantity = float(new_allocated)
         target.updated_at = datetime.now(timezone.utc)

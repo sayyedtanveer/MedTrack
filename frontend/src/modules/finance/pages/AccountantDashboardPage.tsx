@@ -4,13 +4,13 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { DollarSign, AlertCircle, CheckCircle, TrendingUp } from "lucide-react"
-import axios from "axios"
+import apiClient from "@/services/api-client"
 
 export default function AccountantDashboardPage() {
   const { data: pendingInvoices, isLoading: pendingLoading } = useQuery({
     queryKey: ["accountant-pending-invoices"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/finance/accountant/pending-invoices")
+      const response = await apiClient.get("/finance/accountant/pending-invoices")
       return response.data
     }
   })
@@ -18,7 +18,7 @@ export default function AccountantDashboardPage() {
   const { data: overdueInvoices, isLoading: overdueLoading } = useQuery({
     queryKey: ["accountant-overdue-invoices"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/finance/accountant/overdue-invoices")
+      const response = await apiClient.get("/finance/accountant/overdue-invoices")
       return response.data
     }
   })
@@ -26,7 +26,7 @@ export default function AccountantDashboardPage() {
   const { data: paidInvoices, isLoading: paidLoading } = useQuery({
     queryKey: ["accountant-paid-invoices"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/finance/accountant/paid-invoices")
+      const response = await apiClient.get("/finance/accountant/paid-invoices")
       return response.data
     }
   })
@@ -34,7 +34,7 @@ export default function AccountantDashboardPage() {
   const { data: revenueMetrics, isLoading: revenueLoading } = useQuery({
     queryKey: ["accountant-revenue"],
     queryFn: async () => {
-      const response = await axios.get("/api/v1/finance/accountant/revenue-metrics")
+      const response = await apiClient.get("/finance/accountant/revenue-metrics")
       return response.data
     }
   })

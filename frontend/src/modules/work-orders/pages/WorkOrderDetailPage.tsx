@@ -12,6 +12,7 @@ import { WO_STATUS_COLORS } from '../components/WorkOrderStatusConfig';
 import { WO_STATUS_ACTIONS, type WorkOrderAction } from '../components/WorkOrderActionConfig';
 import { useToast } from '@/hooks/use-toast';
 import { AuditHistoryTab } from '@/components/shared/AuditHistoryTab';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const STATUS_COLORS = WO_STATUS_COLORS;
 
@@ -57,6 +58,8 @@ export default function WorkOrderDetailPage() {
 
   // Material availability preview for pending state
   const [availabilityPreview, setAvailabilityPreview] = useState<any>(null);
+
+  const { isAdmin, isQc, isOperator, isManager } = usePermissions();
 
   const load = useCallback(async (silent = false) => {
     if (!id) return;
@@ -484,6 +487,27 @@ export default function WorkOrderDetailPage() {
   // Get actions from WO_STATUS_ACTIONS config (Requirement 10.1)
   let actions = WO_STATUS_ACTIONS[wo.status] || [];
   
+  // Filter actions based on roles
+  actions = actions.filter((action) => {
+    if (isAdmin()) return true; // Admin can do everything
+
+    // QC specific actions
+    if (action.actionKey === 'qc_approve' || action.actionKey === 'qc_reject') {
+      return isQc();
+    }
+    
+    // Rework / scrap actions
+    if (action.actionKey === 'send_to_rework' || action.actionKey === 'scrap') {
+      return isQc() || isManager();
+    }
+
+    // Default: allow operator and manager to do other production steps
+    return isOperator() || isManager();
+  });
+
+  // Calculate expected FG quantity (Requirement 10.5)
+  const expectedFGQty = Number(wo.produced_quantity) - Number(wo.scrap_quantity);
+  
   // Apply dynamic disabled states (Task 10.8)
   actions = actions.map((action) => {
     // Receive FG button: disabled when FG qty <= 0 (Property 9)
@@ -496,9 +520,6 @@ export default function WorkOrderDetailPage() {
     }
     return { ...action, disabled: false };
   });
-  
-  // Calculate expected FG quantity (Requirement 10.5)
-  const expectedFGQty = Number(wo.produced_quantity) - Number(wo.scrap_quantity);
   
   // Check if all materials issued (Requirement 9.4)
   const allMaterialsIssued = wo.materials.length > 0 && wo.materials.every(
@@ -564,7 +585,7 @@ export default function WorkOrderDetailPage() {
               </button>
             ))}
             {/* Submit for QC - shown when IN_PRODUCTION and has produced qty */}
-            {wo.status === 'IN_PRODUCTION' && Number(wo.produced_quantity) > 0 && (
+            {wo.status === 'IN_PRODUCTION' && Number(wo.produced_quantity) > 0 && (isAdmin() || isOperator() || isManager()) && (
               <button
                 id="btn-wo-submit-qc"
                 onClick={handleSubmitForQC}
@@ -575,7 +596,7 @@ export default function WorkOrderDetailPage() {
               </button>
             )}
             {/* Report Machine Breakdown - shown when IN_PRODUCTION (Requirement 26.1) */}
-            {wo.status === 'IN_PRODUCTION' && (
+            {wo.status === 'IN_PRODUCTION' && (isAdmin() || isOperator() || isManager()) && (
               <button
                 id="btn-wo-hold"
                 onClick={() => handleAction('hold')}
@@ -586,7 +607,7 @@ export default function WorkOrderDetailPage() {
               </button>
             )}
             {/* Cancel button for cancellable statuses (Requirement 18.5) */}
-            {(wo.status === 'PLANNED' || wo.status === 'RELEASED' || wo.status === 'MATERIAL_PENDING' || wo.status === 'MATERIAL_RESERVED') && (
+            {(wo.status === 'PLANNED' || wo.status === 'RELEASED' || wo.status === 'MATERIAL_PENDING' || wo.status === 'MATERIAL_RESERVED') && (isAdmin() || isManager()) && (
               <button
                 id="btn-wo-cancel"
                 onClick={() => handleAction('cancel')}

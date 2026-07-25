@@ -456,7 +456,17 @@ class WorkOrderHandler:
     async def handle_complete(self, cmd: CompleteWorkOrderCommand) -> None:
         wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)
         entity = self._to_entity(wo)
-        entity.complete()  # raises MaterialNotIssuedError if produced_qty == 0
+        
+        from backend.app.domain.manufacturing.exceptions import MaterialNotIssuedError
+        
+        # The frontend calls /complete to Submit for QC
+        if entity.status == WorkOrderStatus.IN_PRODUCTION:
+            if wo.produced_quantity <= 0:
+                raise MaterialNotIssuedError("Cannot submit for QC: no production has been recorded.")
+            entity.submit_for_qc()
+        else:
+            entity.complete()  # raises MaterialNotIssuedError if produced_qty == 0
+            
         wo.status = entity.status.value
         wo.updated_at = datetime.now(timezone.utc)
 

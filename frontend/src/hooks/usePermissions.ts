@@ -25,7 +25,7 @@ export function usePermissions() {
 
   const isAdmin = (): boolean => hasPermission(Permission.ALL) || hasRole([UserRole.ADMIN, UserRole.TENANT_ADMIN])
   const isManager = (): boolean => hasRole([UserRole.MANAGER])
-  const isOperator = (): boolean => hasRole([UserRole.OPERATOR, UserRole.STOREKEEPER])
+  const isOperator = (): boolean => hasRole([UserRole.OPERATOR, UserRole.STOREKEEPER, UserRole.WORKER])
   const isViewer = (): boolean => hasRole([UserRole.VIEWER])
   const isQc = (): boolean => hasRole([UserRole.QC])
 

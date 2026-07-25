@@ -275,8 +275,8 @@ export default function QualityModulePage() {
     <div className="space-y-6 max-w-5xl">
       <div>
         <h1 className="text-2xl font-semibold">Quality &amp; quarantine</h1>
-        <p className="text-sm text-muted-foreground">
-          Pass moves pending → available. Fail moves pending → quarantine (needs a location with type quarantine).
+        <p className="text-sm text-muted-foreground mt-1">
+          <span className="font-semibold text-blue-600 dark:text-blue-400">Incoming Raw Materials QC:</span> Use this module to inspect raw materials and purchased items arriving from suppliers. Pass moves pending stock to available. Fail moves it to quarantine.
         </p>
       </div>
 
