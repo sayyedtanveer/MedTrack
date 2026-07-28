@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/hooks/use-toast"
 import { materialService } from "@/services/material.service"
-import { ArrowDownToLine, ArrowUpToLine, ArrowRightLeft } from "lucide-react"
+import { ArrowDownToLine, ArrowUpToLine, ArrowRightLeft, Scale } from "lucide-react"
 import type { TransactionType } from "@/types/material.types"
 
 type MovementDraft = {
@@ -89,14 +89,16 @@ export default function StockMovementPage() {
     <Card>
       <CardHeader>
         <CardTitle>
-          {type === "in" ? "Receive Goods" : type === "out" ? "Issue Materials" : "Transfer Stock"}
+          {type === "in" ? "Receive Goods" : type === "out" ? "Issue Materials" : type === "adjustment" ? "Stock Reconciliation" : "Transfer Stock"}
         </CardTitle>
         <CardDescription>
           {type === "in"
             ? "Add stock into inventory for a selected item."
             : type === "out"
               ? "Consume or dispatch stock from inventory."
-              : "Move stock between warehouse locations."}
+              : type === "adjustment"
+                ? "Reconcile actual physical count. This overrides the current system balance."
+                : "Move stock between warehouse locations."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -211,7 +213,7 @@ export default function StockMovementPage() {
         }}
         className="w-full"
       >
-        <TabsList className="mb-8 grid w-full max-w-md grid-cols-3">
+        <TabsList className="mb-8 grid w-full max-w-2xl grid-cols-4">
           <TabsTrigger value="in">
             <ArrowDownToLine className="mr-2 h-4 w-4" />
             Receive
@@ -224,11 +226,16 @@ export default function StockMovementPage() {
             <ArrowRightLeft className="mr-2 h-4 w-4" />
             Transfer
           </TabsTrigger>
+          <TabsTrigger value="adjustment">
+            <Scale className="mr-2 h-4 w-4" />
+            Reconcile
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="in">{renderForm("in")}</TabsContent>
         <TabsContent value="out">{renderForm("out")}</TabsContent>
         <TabsContent value="transfer">{renderForm("transfer")}</TabsContent>
+        <TabsContent value="adjustment">{renderForm("adjustment")}</TabsContent>
       </Tabs>
     </div>
   )

@@ -280,8 +280,10 @@ export default function GrnPage() {
                     <TableCell className="text-sm">
                       {mat?.name ?? <span className="font-mono text-xs">{l.material_id.slice(0, 8)}…</span>}
                     </TableCell>
-                    <TableCell className="text-right text-sm">{Number(l.unit_price).toFixed(4)}</TableCell>
-                    <TableCell className="text-right">{rem.toFixed(3)}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">
+                      {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(l.unit_price))}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{rem.toFixed(3)}</TableCell>
                     <TableCell className="text-right">
                       <Input
                         type="number"

@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useToast } from '@/hooks/use-toast'
 import { materialOnboardingService, rawMaterialOnboardingColumns, type OnboardingPreview, type OnboardingPreviewRow } from '@/services/material-onboarding.service'
 
 const steps = ['Upload', 'Mapping', 'Review', 'Summary']
@@ -38,6 +39,7 @@ export default function MaterialOnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const [editingRow, setEditingRow] = useState<OnboardingPreviewRow | null>(null)
   const [editData, setEditData] = useState<Record<string, string>>({})
+  const { toast } = useToast()
 
   const protectedCount = useMemo(() => preview?.rows.reduce((n, r) => n + r.protected_changes.length, 0) ?? 0, [preview])
   const errors = preview?.rows.flatMap((r) => r.issues.filter((i) => i.severity === 'error').map((i) => ({ row: r.row_number, ...i }))) ?? []
@@ -106,6 +108,10 @@ export default function MaterialOnboardingPage() {
       const res = await materialOnboardingService.execute(sessionId, dryRun)
       setSummary(res.data)
       setStep(3)
+      toast({
+        title: dryRun ? "Dry run complete" : "Import successful",
+        description: dryRun ? "Review the summary before confirming the import." : "Materials have been successfully imported.",
+      })
     })
   }
 
@@ -151,8 +157,19 @@ export default function MaterialOnboardingPage() {
 
       {step === 0 && (
         <Card>
-          <CardHeader><CardTitle>Upload file</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Upload file</CardTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              Download a template, fill in your material data, and upload the file to begin. Ensure your headers match the template for automatic mapping.
+            </p>
+          </CardHeader>
           <CardContent className="space-y-4">
+            <Alert>
+              <AlertTitle className="text-sm font-semibold">Best Practice for Updates</AlertTitle>
+              <AlertDescription className="text-xs text-muted-foreground mt-1">
+                If you are updating existing materials, ensure your file includes the <strong className="font-medium text-foreground">item_code</strong> column. Without the item code, the system relies on exact name matching—any spelling mistakes in the material name will cause the system to create accidental duplicates instead of updating the existing item.
+              </AlertDescription>
+            </Alert>
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="outline"><a href={materialOnboardingService.templateUrl('csv')}><Download className="mr-2 h-4 w-4" />CSV template</a></Button>
               <Button asChild variant="outline"><a href={materialOnboardingService.templateUrl('xlsx')}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel template</a></Button>
@@ -165,7 +182,12 @@ export default function MaterialOnboardingPage() {
 
       {step === 1 && (
         <Card>
-          <CardHeader><CardTitle>Column mapping</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Column mapping</CardTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              Map the columns from your uploaded file to the system fields. Required fields (material name, category, UOM) must be mapped to proceed.
+            </p>
+          </CardHeader>
           <CardContent className="space-y-4">
             {Object.entries(mapping).length === 0 && <p className="text-sm text-muted-foreground">No columns were auto-mapped. Add mappings by re-uploading a file with a header row that matches the template.</p>}
             {Object.entries(mapping).map(([source, target]) => (
@@ -195,7 +217,12 @@ export default function MaterialOnboardingPage() {
             {Object.entries(preview.summary).map(([k, v]) => <Card key={k}><CardContent className="p-4"><div className="text-sm text-muted-foreground">{k.replace(/_/g, ' ')}</div><div className="mt-2 text-2xl font-bold">{v}</div></CardContent></Card>)}
           </div>
           <Card>
-            <CardHeader><CardTitle>Validation review</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Validation review</CardTitle>
+              <p className="text-sm text-muted-foreground mt-2">
+                Review any issues found during validation. You can correct errors directly here or run a dry run to simulate the import.
+              </p>
+            </CardHeader>
             <CardContent className="space-y-3">
               {errors.length === 0 ? <p className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4" />No blocking validation errors.</p> :
                 errors.map((e, i) => <div key={i} className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">Row {e.row}: {e.message}</div>)}
@@ -223,6 +250,7 @@ export default function MaterialOnboardingPage() {
             </CardContent>
           </Card>
           <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t bg-background/95 py-4 backdrop-blur">
+            <Button variant="outline" onClick={() => setStep(1)} disabled={busy}>Back</Button>
             <Button variant="outline" onClick={downloadReport} disabled={busy}>Download report</Button>
             <Button variant="outline" onClick={() => execute(true)} disabled={busy}>Run dry run</Button>
             <Button onClick={() => execute(false)} disabled={busy || errors.length > 0}>Confirm import</Button>
@@ -232,11 +260,45 @@ export default function MaterialOnboardingPage() {
 
       {step === 3 && summary && (
         <Card>
-          <CardHeader><CardTitle>Import summary</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-4">
-            {Object.entries(summary).filter(([, v]) => typeof v === 'number').map(([k, v]) => (
-              <div key={k} className="rounded-md border p-4"><div className="text-sm text-muted-foreground">{k.replace(/_/g, ' ')}</div><div className="mt-2 text-2xl font-bold">{String(v)}</div></div>
-            ))}
+          <CardHeader>
+            <CardTitle>{summary.dry_run ? 'Dry run summary' : 'Import summary'}</CardTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              {summary.dry_run
+                ? 'This was a dry run. No data was modified. If the results look good, go back and confirm the import.'
+                : 'Import completed successfully.'}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              {Object.entries(summary).filter(([, v]) => typeof v === 'number').map(([k, v]) => (
+                <div key={k} className="rounded-md border p-4"><div className="text-sm text-muted-foreground">{k.replace(/_/g, ' ')}</div><div className="mt-2 text-2xl font-bold">{String(v)}</div></div>
+              ))}
+            </div>
+            
+            {summary.error_messages?.length > 0 && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-4">
+                <h4 className="text-sm font-semibold text-red-800 mb-2">Errors encountered:</h4>
+                <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
+                  {summary.error_messages.map((msg: string, i: number) => (
+                    <li key={i}>{msg}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            <div className="flex justify-end gap-2">
+              {summary.dry_run ? (
+                <Button onClick={() => setStep(2)}>Go back to review</Button>
+              ) : (
+                <Button onClick={() => {
+                  setStep(0);
+                  setFile(null);
+                  setSessionId(null);
+                  setPreview(null);
+                  setSummary(null);
+                }}>Start new import</Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

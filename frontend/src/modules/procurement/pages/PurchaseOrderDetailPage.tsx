@@ -151,11 +151,13 @@ export default function PurchaseOrderDetailPage() {
           {po.lines.map((l) => (
             <TableRow key={l.id}>
               <TableCell>{matMap[l.material_id] || l.material_id}</TableCell>
-              <TableCell className="text-right">{l.quantity}</TableCell>
-              <TableCell className="text-right">{l.received_quantity}</TableCell>
-              <TableCell className="text-right">{l.unit_price}</TableCell>
-              <TableCell className="text-right">
-                {(l.line_total ?? l.quantity * l.unit_price).toFixed(2)}
+              <TableCell className="text-right tabular-nums">{l.quantity}</TableCell>
+              <TableCell className="text-right tabular-nums">{l.received_quantity}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(l.unit_price)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(l.line_total ?? l.quantity * l.unit_price)}
               </TableCell>
             </TableRow>
           ))}

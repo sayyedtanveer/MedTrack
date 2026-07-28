@@ -78,11 +78,11 @@ export default function MaterialListPage() {
       header: "Stock",
       cell: ({ row }) => {
         const product = row.original
-        const qty = product.current_stock ?? 0
+        const qty = Number(product.current_stock ?? 0)
         const isLow = product.is_low_stock
         const unit = units?.find(u => u.id === product.base_unit_id)
         const unitLabel = unit?.code || ""
-        const reservedStock = product.reserved_stock ?? 0
+        const reservedStock = Number(product.reserved_stock ?? 0)
         const availableStock = Math.max(0, qty - reservedStock)
         return (
           <div className="flex flex-col">
@@ -94,7 +94,7 @@ export default function MaterialListPage() {
             </div>
             {reservedStock > 0 && (
               <span className="text-xs text-muted-foreground">
-                Reserved: {reservedStock} {unitLabel} · Available: {availableStock} {unitLabel}
+                {reservedStock} quantity is reserved remaining is {availableStock}
               </span>
             )}
             {isLow && (
@@ -183,8 +183,9 @@ export default function MaterialListPage() {
           </div>
           <div className="md:hidden grid gap-4 grid-cols-1 sm:grid-cols-2">
             {items.map((product) => {
-              const qty = product.current_stock ?? 0;
+              const qty = Number(product.current_stock ?? 0);
               const isLow = product.is_low_stock;
+              const reservedStock = Number(product.reserved_stock ?? 0);
               
               return (
                 <Card key={product.id} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSearchParams({ materialId: product.id })}>
@@ -211,9 +212,9 @@ export default function MaterialListPage() {
                             <StatusBadge status="low-stock" label="Low" />
                           )}
                         </div>
-                        {(product.reserved_stock ?? 0) > 0 && (
+                        {reservedStock > 0 && (
                           <span className="text-xs text-muted-foreground">
-                            Reserved: {product.reserved_stock} · Available: {Math.max(0, qty - (product.reserved_stock ?? 0))}
+                            {reservedStock} quantity is reserved remaining is {Math.max(0, qty - reservedStock)}
                           </span>
                         )}
                         {isLow && (

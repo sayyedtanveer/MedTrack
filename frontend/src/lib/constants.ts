@@ -132,13 +132,13 @@ export const NAV_ITEMS: NavItem[] = [
   // ── Procurement ──────────────────────────────────────────────────────
   {
     title: "Procurement",
-    href: "/procurement/dashboard",
+    href: "/procurement",
     icon: Truck,
     roles: PROCUREMENT_ROLES,
     children: [
       {
         title: "Procurement Dashboard",
-        href: "/procurement/dashboard",
+        href: "/procurement",
         icon: LayoutDashboard,
         roles: PROCUREMENT_ROLES,
       },

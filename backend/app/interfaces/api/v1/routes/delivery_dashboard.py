@@ -66,6 +66,15 @@ async def get_dispatch_queue(
             # ClientModel uses `name` field (not `company_name`)
             customer_name = so.client.name if so.client else None
 
+            # Only include if there is something left to dispatch
+            has_remaining = any(
+                float(line.allocated_quantity or 0) > float(line.dispatched_quantity or 0)
+                for line in so.lines
+            )
+
+            if not has_remaining:
+                continue
+
             queue_data.append({
                 "id": str(so.id),
                 "order_number": so.order_number,

@@ -14,6 +14,63 @@ import { priceListsApi } from '@/services/sales.service';
 import { PriceList } from '@/types/sales.types';
 import { Plus, Edit2, IndianRupee, List } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
+import { BusinessAssistantPanel, type BusinessAssistantConfig } from '@/components/shared/BusinessAssistantPanel';
+
+const priceListAssistantConfig: BusinessAssistantConfig = {
+  pageTitle: "Price Lists",
+  about: "This page manages all the pricing tiers and special rates for your products.",
+  businessPurpose: "Price lists ensure your sales team always quotes the correct price. You can configure standard retail prices, offer wholesale discounts to B2B clients, or run limited-time promotional pricing.",
+  erpFlow: [
+    { label: "Create Price List", description: "Define the name, currency, and validity dates.", active: true },
+    { label: "Add Lines", description: "Set the unit price for specific products." },
+    { label: "Assign to Client", description: "Link the price list to a customer profile." },
+    { label: "Sales Order", description: "System auto-applies the correct price during order entry." }
+  ],
+  canDo: [
+    "Create multiple pricing tiers (e.g., Retail, Wholesale, VIP)",
+    "Set date-bound promotional pricing (Valid From / Valid To)",
+    "Set a system-wide Default price list",
+    "Activate or deactivate outdated price lists"
+  ],
+  screenWalkthrough: [
+    { section: "Search & Filter", purpose: "Quickly find an existing price list by name.", impact: "Filters the grid below instantly." },
+    { section: "Price List Cards", purpose: "Displays key info like validity dates, active status, and sample prices.", impact: "Provides an at-a-glance overview before clicking in." }
+  ],
+  fieldGuide: [],
+  buttonGuide: [
+    { button: "New Price List", what: "Opens a form to create a new empty price list.", continues: "Price List Details Page", reversible: true },
+    { button: "Manage Lines", what: "Takes you to the detail page to add or edit product prices.", continues: "Price List Detail Page", reversible: true, affectsInventory: false },
+    { button: "Edit Details", what: "Allows you to change the name, dates, or default status.", continues: "Price List Edit Form", reversible: true }
+  ],
+  beforeYouStart: [
+    "Ensure your Finished Goods (Products) are already created in the system."
+  ],
+  afterSave: [],
+  bestPractices: [
+    "Always set one price list as 'Default' to act as the fallback price.",
+    "Use 'Valid From' and 'Valid To' dates for seasonal sales so they expire automatically.",
+    "Instead of deleting old price lists, uncheck 'Active' to keep historical data intact."
+  ],
+  commonMistakes: [
+    "Forgetting to add product lines to a new price list (it will be empty).",
+    "Setting conflicting dates on multiple default price lists."
+  ],
+  relatedScreens: [
+    { label: "Clients", href: "/sales/clients" },
+    { label: "Sales Orders", href: "/sales/orders" }
+  ],
+  faqs: [
+    { question: "What happens if a product is not in the assigned price list?", answer: "The system will check the Default price list. If it's not there either, the salesperson will have to enter the price manually." },
+    { question: "Can a client have multiple price lists?", answer: "A client is assigned exactly one primary price list, but you can change it at any time on their profile." }
+  ],
+  tips: [
+    "Use descriptive names like 'Summer Wholesale 2026' for easy tracking."
+  ],
+  warnings: [
+    "Changing prices on an active list affects all new sales orders created from that moment onward."
+  ],
+  successResult: []
+};
 
 export default function PriceListsPage() {
   const navigate = useNavigate();
@@ -60,10 +117,13 @@ export default function PriceListsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Price Lists</h1>
           <p className="text-gray-600 mt-1">Configure product pricing and rates</p>
         </div>
-        <Button size="lg" onClick={() => navigate('/sales/price-lists/new')}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Price List
-        </Button>
+        <div className="flex items-center gap-3">
+          <BusinessAssistantPanel config={priceListAssistantConfig} triggerLabel="How to use this page" />
+          <Button size="lg" onClick={() => navigate('/sales/price-lists/new')}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Price List
+          </Button>
+        </div>
       </div>
 
       {/* Search */}

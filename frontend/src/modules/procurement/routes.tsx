@@ -25,8 +25,9 @@ import SupplierPerformancePage from "./pages/SupplierPerformancePage"
 import ProcurementDashboardPage from "./pages/ProcurementDashboardPage"
 
 export const procurementRoutes: RouteObject[] = [
-  { path: "procurement", element: <ProcurementHubPage /> },
+  { path: "procurement", element: <ProcurementDashboardPage /> },
   { path: "procurement/dashboard", element: <ProcurementDashboardPage /> },
+  { path: "procurement/system-map", element: <ProcurementHubPage /> },
   { path: "procurement/suppliers", element: <SuppliersListPage /> },
   { path: "procurement/purchase-orders", element: <PurchaseOrdersPage /> },
   { path: "procurement/purchase-orders/:poId", element: <PurchaseOrderDetailPage /> },

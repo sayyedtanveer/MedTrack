@@ -246,7 +246,9 @@ export default function PurchaseOrdersPage() {
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{p.status}</span>
               </TableCell>
               <TableCell>{p.order_date}</TableCell>
-              <TableCell className="text-right">{p.total_amount.toFixed(2)}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(p.total_amount)}
+              </TableCell>
               <TableCell className="text-right">
                 <Button variant="link" asChild>
                   <Link to={`/procurement/purchase-orders/${p.id}`}>Open</Link>

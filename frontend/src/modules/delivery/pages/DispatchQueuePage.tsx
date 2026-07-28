@@ -23,12 +23,12 @@ interface DispatchQueueItem {
   ready_at: string | null
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat(undefined, {
+const formatCurrency = (val: number | null | undefined) => {
+  if (val == null) return "—"
+  return new Intl.NumberFormat("en-IN", {
     style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(amount)
+    currency: "INR",
+  }).format(val)
 }
 
 function formatReadySince(isoString: string | null): string {

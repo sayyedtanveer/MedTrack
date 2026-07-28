@@ -217,8 +217,8 @@ export default function DeliveryDashboardPage() {
                       <TableCell className="font-mono font-medium">{item.order_number}</TableCell>
                       <TableCell>{item.customer_name ?? item.client_name ?? "—"}</TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {item.grand_total != null
-                          ? new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(item.grand_total)
+                        {item.grand_total !== undefined
+                          ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(item.grand_total)
                           : "—"}
                       </TableCell>
                       <TableCell>
