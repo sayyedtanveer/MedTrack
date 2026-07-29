@@ -133,12 +133,12 @@ export default function InventoryDashboard() {
               <TableBody>
                 {realtimeStock?.slice(0, 10).map((row: any) => (
                   <TableRow key={row.material_id}>
-                    <TableCell className="font-medium">{row.material_name}</TableCell>
-                    <TableCell className="text-right">{row.current_stock.toFixed(2)}</TableCell>
-                    <TableCell className="text-right text-orange-600 font-medium">
+                    <TableCell data-label="Item" className="font-medium text-right md:text-left">{row.material_name}</TableCell>
+                    <TableCell data-label="In Stock" className="text-right">{row.current_stock.toFixed(2)}</TableCell>
+                    <TableCell data-label="Reserved" className="text-right text-orange-600 font-medium">
                       {row.reserved_stock > 0 ? row.reserved_stock.toFixed(2) : '-'}
                     </TableCell>
-                    <TableCell className="text-right font-bold text-blue-700">
+                    <TableCell data-label="Available" className="text-right font-bold text-blue-700">
                       {row.available_stock.toFixed(2)}
                     </TableCell>
                   </TableRow>
@@ -172,10 +172,10 @@ export default function InventoryDashboard() {
               <TableBody>
                 {ledger?.map((entry: any) => (
                   <TableRow key={entry.id}>
-                    <TableCell className="text-xs text-muted-foreground">
+                    <TableCell data-label="Date" className="text-xs text-muted-foreground text-right md:text-left">
                       {new Date(entry.transaction_date).toLocaleString()}
                     </TableCell>
-                    <TableCell>
+                    <TableCell data-label="Type" className="text-right md:text-left">
                       <Badge variant={
                         entry.transaction_type === 'in' ? 'outline' : 
                         entry.transaction_type === 'out' ? 'destructive' : 'secondary'
@@ -183,7 +183,7 @@ export default function InventoryDashboard() {
                         {entry.transaction_type.toUpperCase()}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell data-label="Change" className="text-right">
                       {entry.quantity_change > 0 ? (
                         <span className="text-green-600 flex items-center justify-end">
                           <ArrowUp className="w-3 h-3 mr-1" /> {entry.quantity_change}
@@ -194,7 +194,7 @@ export default function InventoryDashboard() {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-mono font-medium">
+                    <TableCell data-label="Balance" className="text-right font-mono font-medium">
                       {entry.running_balance}
                     </TableCell>
                   </TableRow>
