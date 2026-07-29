@@ -136,7 +136,7 @@ async function getViewerDashboard(): Promise<KPIData[]> {
 }
 
 async function getRecentActivities(): Promise<ActivityItem[]> {
-  const response = await apiClient.get("/notifications/", { params: { page_size: 5 } })
+  const response = await apiClient.get("/notifications/", { params: { page_size: 10 } })
   const items = Array.isArray(response.data?.items) ? response.data.items : []
 
   return items.map((item: any) => ({

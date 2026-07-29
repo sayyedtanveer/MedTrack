@@ -11,7 +11,7 @@ class RegisterTenantResult:
     user_id: str
     email: str
     role: str
-    access_token: str
+    access_token: str | None = None
 
 
 @dataclass

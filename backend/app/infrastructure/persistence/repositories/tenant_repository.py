@@ -32,6 +32,8 @@ class TenantRepository(BaseRepository[Tenant, TenantModel], ITenantRepository):
             updated_at=model.updated_at,
             is_deleted=model.is_deleted,
             deleted_at=model.deleted_at,
+            status=model.status,
+            is_system_tenant=model.is_system_tenant,
             timezone=getattr(model, "timezone", None),
             default_warehouse_name=getattr(model, "default_warehouse_name", None),
         )
@@ -47,6 +49,8 @@ class TenantRepository(BaseRepository[Tenant, TenantModel], ITenantRepository):
             deleted_at=entity.deleted_at,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
+            status=entity.status.value,
+            is_system_tenant=entity.is_system_tenant,
         )
 
     async def get_by_slug(self, slug: str) -> Optional[Tenant]:

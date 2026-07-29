@@ -1019,7 +1019,7 @@ class InventoryService:
         await self._log_transaction(
             tenant_id=tenant_id,
             material_id=material_id,
-            transaction_type="reserve",
+            transaction_type="RESERVATION",
             quantity=quantity,
             unit_id=unit_id,
             reference_type="sales_order_line",
@@ -1107,7 +1107,7 @@ class InventoryService:
         await self._log_transaction(
             tenant_id=tenant_id,
             material_id=material_id,
-            transaction_type="issue",
+            transaction_type="DISPATCH",
             quantity=quantity,
             unit_id=unit_id,
             reference_type="sales_order_line",
@@ -1119,7 +1119,7 @@ class InventoryService:
             tenant_id=tenant_id,
             material_id=material_id,
             location_id=None,
-            transaction_type="SALES_SHIPMENT",
+            transaction_type="DISPATCH",
             quantity_change=-quantity,
             reference_type="sales_order_line",
             reference_id=sales_order_line_id,
@@ -1156,7 +1156,7 @@ class InventoryService:
         reserved = Decimal(str(model.reserved_stock))
         model.reserved_stock = float(max(Decimal("0"), reserved - quantity))
         await self._log_transaction(
-            tenant_id=tenant_id, material_id=material_id, transaction_type="issue",
+            tenant_id=tenant_id, material_id=material_id, transaction_type="MATERIAL_ISSUE",
             quantity=quantity, unit_id=unit_id, reference_type="work_order",
             reference_id=work_order_id, created_by=created_by,
             remarks=f"Issued for WO {work_order_id}",
@@ -1167,7 +1167,7 @@ class InventoryService:
             tenant_id=tenant_id,
             material_id=material_id,
             location_id=None,
-            transaction_type="ISSUE",
+            transaction_type="MATERIAL_ISSUE",
             quantity_change=-quantity,  # negative = reduction
             reference_type="work_order",
             reference_id=work_order_id,
@@ -1345,7 +1345,7 @@ class InventoryService:
         else:
             model.current_stock = float(Decimal(str(model.current_stock)) + quantity)
         await self._log_transaction(
-            tenant_id=tenant_id, material_id=material_id, transaction_type="produce",
+            tenant_id=tenant_id, material_id=material_id, transaction_type="FG_RECEIPT",
             quantity=quantity, unit_id=unit_id, reference_type="work_order",
             reference_id=work_order_id, created_by=created_by,
             remarks=f"Production receipt for WO {work_order_id}",
@@ -1356,7 +1356,7 @@ class InventoryService:
             tenant_id=tenant_id,
             material_id=material_id,
             location_id=loc,
-            transaction_type="PRODUCTION_RECEIPT",
+            transaction_type="FG_RECEIPT",
             quantity_change=quantity,
             reference_type="work_order",
             reference_id=work_order_id,
@@ -1391,7 +1391,7 @@ class InventoryService:
         await self._log_transaction(
             tenant_id=tenant_id,
             material_id=material_id,
-            transaction_type="receipt",
+            transaction_type="PURCHASE_RECEIPT",
             quantity=quantity,
             unit_id=unit_id,
             reference_type="purchase_receipt",
@@ -1405,7 +1405,7 @@ class InventoryService:
             tenant_id=tenant_id,
             material_id=material_id,
             location_id=loc,
-            transaction_type="RECEIPT",
+            transaction_type="PURCHASE_RECEIPT",
             quantity_change=quantity,
             unit_cost=unit_cost,
             reference_type="purchase_order",
@@ -1470,7 +1470,7 @@ class InventoryService:
         await self._log_transaction(
             tenant_id=tenant_id,
             material_id=material_id,
-            transaction_type="reverse_receipt",
+            transaction_type="RECEIPT_REVERSAL",
             quantity=quantity,
             unit_id=unit_id,
             reference_type=reference_type,
@@ -1655,7 +1655,7 @@ class InventoryService:
         await self._log_transaction(
             tenant_id=tenant_id,
             material_id=material_id,
-            transaction_type="subcontract",
+            transaction_type="transfer",
             quantity=quantity,
             unit_id=unit_id,
             reference_type="subcontract_order",
@@ -1690,7 +1690,7 @@ class InventoryService:
         await self._log_transaction(
             tenant_id=tenant_id,
             material_id=material_id,
-            transaction_type="subcontract",
+            transaction_type="transfer",
             quantity=quantity,
             unit_id=unit_id,
             reference_type="subcontract_order",
@@ -1762,7 +1762,7 @@ class InventoryService:
                 await self._log_transaction(
                     tenant_id=tenant_id,
                     material_id=material_id,
-                    transaction_type="reserve",
+                    transaction_type="RESERVATION",
                     quantity=allocation_qty,
                     unit_id=unit_id,
                     batch_id=batch.id if batch is not None else None,

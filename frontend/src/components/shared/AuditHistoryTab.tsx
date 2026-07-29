@@ -43,15 +43,18 @@ import { Badge } from "@/components/ui/badge"
 // API Response Types
 interface AuditLogEntry {
   id: string
-  timestamp: string
+  occurred_at: string
   user_id: string
-  user_name?: string
-  action_type: string
+  actor?: {
+    email: string | null
+    name: string | null
+  }
+  action: string
   entity_type: string
   entity_id: string
-  before_state?: Record<string, any>
-  after_state?: Record<string, any>
-  reason?: string
+  before_value?: Record<string, any>
+  after_value?: Record<string, any>
+  summary?: string
 }
 
 interface AuditLogResponse {
@@ -124,7 +127,7 @@ export function AuditHistoryTab({ entityType, entityId }: AuditHistoryTabProps) 
   // Extract unique action types for dropdown (once data loads)
   const uniqueActionTypes = useMemo(() => {
     if (!data?.items) return []
-    const types = new Set(data.items.map(item => item.action_type).filter(Boolean))
+    const types = new Set(data.items.map(item => item.action).filter(Boolean))
     return Array.from(types).sort()
   }, [data])
 
@@ -137,29 +140,29 @@ export function AuditHistoryTab({ entityType, entityId }: AuditHistoryTabProps) 
     // Date range filter
     if (dateFrom) {
       const fromDate = new Date(dateFrom)
-      filtered = filtered.filter(item => new Date(item.timestamp) >= fromDate)
+      filtered = filtered.filter(item => new Date(item.occurred_at) >= fromDate)
     }
     if (dateTo) {
       const toDate = new Date(dateTo)
       toDate.setHours(23, 59, 59, 999) // Include full day
-      filtered = filtered.filter(item => new Date(item.timestamp) <= toDate)
+      filtered = filtered.filter(item => new Date(item.occurred_at) <= toDate)
     }
     
     // User search filter (case-insensitive, matches user_name)
     if (userSearch.trim()) {
       const searchLower = userSearch.toLowerCase()
       filtered = filtered.filter(item => 
-        item.user_name?.toLowerCase().includes(searchLower)
+        item.actor?.name?.toLowerCase().includes(searchLower)
       )
     }
     
     // Action type filter
     if (actionTypeFilter !== 'all') {
-      filtered = filtered.filter(item => item.action_type === actionTypeFilter)
+      filtered = filtered.filter(item => item.action === actionTypeFilter)
     }
     
     // Sort by timestamp descending (most recent first)
-    filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    filtered.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime())
     
     return filtered
   }, [data, dateFrom, dateTo, userSearch, actionTypeFilter])
@@ -300,24 +303,24 @@ export function AuditHistoryTab({ entityType, entityId }: AuditHistoryTabProps) 
               filteredItems.map(item => (
                 <TableRow key={item.id}>
                   <TableCell className="whitespace-nowrap text-sm">
-                    {safeFormatDate(item.timestamp)}
+                    {safeFormatDate(item.occurred_at)}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {item.user_name || item.user_id}
+                    {item.actor?.name || item.user_id}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="text-xs">
-                      {formatActionType(item.action_type)}
+                      {formatActionType(item.action)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm">
-                    {extractStatus(item.before_state)}
+                    {extractStatus(item.before_value)}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {extractStatus(item.after_state)}
+                    {extractStatus(item.after_value)}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {item.reason || "—"}
+                    {item.summary || "—"}
                   </TableCell>
                 </TableRow>
               ))

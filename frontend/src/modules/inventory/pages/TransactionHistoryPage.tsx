@@ -38,11 +38,22 @@ export default function TransactionHistoryPage() {
       header: "Type",
       cell: ({ row }) => {
         const type = row.original.transaction_type;
-        if (type === "in") return <span className="inline-flex items-center text-green-600 bg-green-50 px-2 py-1 rounded text-xs font-semibold"><ArrowDownToLine className="w-3 h-3 mr-1"/> Stock In</span>;
-        if (type === "out") return <span className="inline-flex items-center text-red-600 bg-red-50 px-2 py-1 rounded text-xs font-semibold"><ArrowUpToLine className="w-3 h-3 mr-1"/> Stock Out</span>;
+        const inTypes = ["in", "OPENING_STOCK", "PURCHASE_RECEIPT", "FG_RECEIPT", "RECEIPT_REVERSAL", "SALES_RETURN", "DISPATCH_REVERSAL"];
+        const outTypes = ["out", "MATERIAL_ISSUE", "PROD_CONSUMPTION", "DISPATCH", "SCRAP"];
+        const holdTypes = ["RESERVATION"];
+        const releaseTypes = ["RESERVATION_RELEASE"];
+        
+        let label = type.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+        if (type === "in") label = "Stock In";
+        if (type === "out") label = "Stock Out";
+        
+        if (inTypes.includes(type) || releaseTypes.includes(type)) return <span className="inline-flex items-center text-green-600 bg-green-50 px-2 py-1 rounded text-xs font-semibold"><ArrowDownToLine className="w-3 h-3 mr-1"/> {label}</span>;
+        if (outTypes.includes(type)) return <span className="inline-flex items-center text-red-600 bg-red-50 px-2 py-1 rounded text-xs font-semibold"><ArrowUpToLine className="w-3 h-3 mr-1"/> {label}</span>;
         if (type === "adjustment") return <span className="inline-flex items-center text-blue-600 bg-blue-50 px-2 py-1 rounded text-xs font-semibold"><Replace className="w-3 h-3 mr-1"/> Adjustment</span>;
         if (type === "transfer") return <span className="inline-flex items-center text-purple-600 bg-purple-50 px-2 py-1 rounded text-xs font-semibold"><Replace className="w-3 h-3 mr-1"/> Transfer</span>;
-        return type;
+        if (holdTypes.includes(type)) return <span className="inline-flex items-center text-amber-600 bg-amber-50 px-2 py-1 rounded text-xs font-semibold"><ArrowUpToLine className="w-3 h-3 mr-1"/> {label}</span>;
+        
+        return <span className="inline-flex items-center text-gray-600 bg-gray-50 px-2 py-1 rounded text-xs font-semibold">{type}</span>;
       },
     },
     {
@@ -63,8 +74,16 @@ export default function TransactionHistoryPage() {
       header: "Quantity",
       cell: ({ row }) => {
         const type = row.original.transaction_type;
-        const color = type === "in" ? "text-green-600" : type === "out" ? "text-red-600" : "text-blue-600";
-        const sign = type === "in" ? "+" : type === "out" ? "-" : "";
+        const inTypes = ["in", "OPENING_STOCK", "PURCHASE_RECEIPT", "FG_RECEIPT", "RECEIPT_REVERSAL", "SALES_RETURN", "DISPATCH_REVERSAL", "RESERVATION_RELEASE"];
+        const outTypes = ["out", "MATERIAL_ISSUE", "PROD_CONSUMPTION", "DISPATCH", "SCRAP", "RESERVATION"];
+        
+        let color = "text-blue-600";
+        let sign = "";
+        
+        if (inTypes.includes(type)) { color = "text-green-600"; sign = "+"; }
+        else if (outTypes.includes(type)) { color = "text-red-600"; sign = "-"; }
+        else if (type === "adjustment") { color = "text-blue-600"; }
+        
         return <span className={`font-mono font-bold ${color}`}>{sign}{row.original.quantity}</span>;
       },
     },

@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from backend.app.domain.shared.exceptions.domain_exception import DomainException
 from backend.app.application.tenant.commands.register_tenant import RegisterTenantCommand
 from backend.app.application.tenant.commands.login_user import LoginUserCommand
 from backend.app.application.tenant.handlers.register_tenant_handler import RegisterTenantHandler
@@ -29,7 +30,7 @@ from backend.app.interfaces.api.v1.schemas.auth_schemas import (
     UserInMeResponse,
     TenantInMeResponse,
 )
-from backend.app.infrastructure.tasks.sample_tasks import SendWelcomeEmailTask
+from backend.app.infrastructure.tasks.sample_tasks import SendRegistrationReceivedEmailTask
 from backend.app.infrastructure.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -74,9 +75,9 @@ async def register_tenant(
         )
         result = await handler.handle(command)
 
-    # Enqueue welcome email as background task
+    # Enqueue registration received email as background task
     container.task_service.enqueue(
-        SendWelcomeEmailTask(
+        SendRegistrationReceivedEmailTask(
             email=result.email,
             tenant_name=result.tenant_name,
             first_name=body.admin_first_name,
@@ -104,8 +105,10 @@ async def login(body: LoginRequest, request: Request):
     container = get_container(request)
     async with container.session_factory() as session:
         user_repo = UserRepository(session)
+        tenant_repo = TenantRepository(session)
         handler = LoginUserHandler(
             user_repo=user_repo,
+            tenant_repo=tenant_repo,
             password_hasher=container.password_hasher,
             jwt_handler=container.jwt_handler,
         )
@@ -119,7 +122,17 @@ async def login(body: LoginRequest, request: Request):
             password=body.password,
             tenant_id=tenant_id,
         )
-        result = await handler.handle(command)
+        try:
+            result = await handler.handle(command)
+        except DomainException as e:
+            if e.code == "ACCOUNT_PENDING":
+                raise HTTPException(status_code=403, detail="Account pending approval")
+            elif e.code == "ACCOUNT_SUSPENDED":
+                raise HTTPException(status_code=403, detail="Account suspended")
+            elif e.code == "ACCOUNT_REJECTED":
+                raise HTTPException(status_code=403, detail="Account rejected")
+            else:
+                raise HTTPException(status_code=401, detail=str(e))
 
     return LoginResponse(
         access_token=result.access_token,
@@ -184,6 +197,7 @@ async def me(
             slug=tenant.slug,
             plan=tenant.plan,
             is_active=tenant.is_active,
+            is_system_tenant=tenant.is_system_tenant,
         ),
         permissions=sorted(effective_role.permissions) if effective_role else [],
     )

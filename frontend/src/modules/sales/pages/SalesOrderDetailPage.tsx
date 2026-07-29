@@ -43,6 +43,8 @@ import workOrderService from '@/services/work-order.service';
 import { productService } from '@/services/product.service';
 import type { ItemVariantSearchItem } from '@/types/bom.types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AssistantEngine } from '@/lib/assistant/AssistantEngine';
+import { MedTrackAssistant } from '@/components/shared/assistant/MedTrackAssistant';
 
 // Line Status Badge Colors (Req 19.3, 19.4)
 const LINE_STATUS_COLORS: Record<string, string> = {
@@ -167,9 +169,18 @@ export default function SalesOrderDetailPage() {
           // Navigates to the DispatchPanel / Delivery creation flow
           navigate(`/sales/orders/${order.id}/delivery/new`);
           return;
+        case 'create_invoice':
+          await financeService.createInvoiceFromSO({ sales_order_id: order.id });
+          await loadOrder(true);
+          sonnerToast.success('Invoice generated successfully');
+          return;
         case 'record_payment':
-          // Navigates to the payment recording flow
-          navigate(`/sales/orders/${order.id}/payment`);
+          // Navigates to the invoice detail page where payment can be recorded
+          if (invoice?.id) {
+            navigate(`/finance/invoices/${invoice.id}`);
+          } else {
+            sonnerToast.error('Invoice not found');
+          }
           return;
         default:
           return;
@@ -344,6 +355,11 @@ export default function SalesOrderDetailPage() {
           )}
         </div>
       </div>
+
+      {(() => {
+        const guidance = AssistantEngine.getGuidance(order);
+        return guidance ? <MedTrackAssistant guidance={guidance} /> : null;
+      })()}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
@@ -675,6 +691,7 @@ export default function SalesOrderDetailPage() {
         actionLoading={actionLoading}
         confirmError={confirmError}
         onAction={handleStatusChange}
+        guidance={AssistantEngine.getGuidance(order)}
       />
 
       {/* Dispatch Panel — shown for READY_FOR_DISPATCH, SHIPPED statuses */}

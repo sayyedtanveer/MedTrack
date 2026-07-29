@@ -397,6 +397,9 @@ class FinanceService:
             )
         )
         if existing_invoice:
+            if so.status == "DELIVERED":
+                so.status = "INVOICED"
+                await self.session.commit()
             return existing_invoice
 
         client = await self.session.scalar(select(ClientModel).where(ClientModel.id == so.client_id))
@@ -457,6 +460,9 @@ class FinanceService:
             memo=f"Invoice {invoice_number} created for SO {so.order_number}",
             created_by=created_by,
         )
+
+        if so.status == "DELIVERED":
+            so.status = "INVOICED"
 
         await self.session.commit()
         await self.session.refresh(invoice)

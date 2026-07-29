@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react"
 import { useAuthStore } from "@/app/store/authStore"
+import { useTenantStore } from "@/app/store/tenantStore"
 import { isClientSession } from "@/lib/auth-session"
 import { apiClient, isSessionInvalidError } from "@/services/api-client"
 
@@ -11,6 +12,7 @@ import { apiClient, isSessionInvalidError } from "@/services/api-client"
 export function useAuthInitialize() {
   const { token, logout, isAuthenticated, user, client_id, setUser, setPermissions, hasHydrated } = useAuthStore()
   const lastValidatedToken = useRef<string | null>(null)
+  const { setTenantInfo } = useTenantStore()
 
   useEffect(() => {
     const validateToken = async () => {
@@ -39,6 +41,12 @@ export function useAuthInitialize() {
         if (validationEndpoint === "/auth/me") {
           setUser(response.data.user)
           setPermissions(response.data.permissions ?? [])
+          setTenantInfo(
+            response.data.tenant.name,
+            response.data.tenant.slug,
+            response.data.tenant.plan,
+            response.data.tenant.is_system_tenant
+          )
         }
         lastValidatedToken.current = token
       } catch (error) {
@@ -54,5 +62,5 @@ export function useAuthInitialize() {
     }
 
     validateToken()
-  }, [hasHydrated, token, isAuthenticated, logout, user?.role, client_id, setUser, setPermissions])
+  }, [hasHydrated, token, isAuthenticated, logout, user?.role, client_id, setUser, setPermissions, setTenantInfo])
 }

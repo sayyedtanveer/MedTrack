@@ -50,6 +50,7 @@ class TenantInMeResponse(BaseModel):
     slug: str
     plan: str
     is_active: bool
+    is_system_tenant: bool = False
 
 
 # Shape expected by frontend MeResponse type
@@ -66,8 +67,8 @@ class RegisterTenantResponse(BaseModel):
     user_id: str
     email: str
     role: str
-    access_token: str
-    token_type: str = "bearer"
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
 
 
 class LoginResponse(BaseModel):

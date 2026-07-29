@@ -5,6 +5,7 @@ from backend.app.application.tenant.commands.login_user import LoginUserCommand
 from backend.app.application.tenant.handlers.results import LoginResult
 from backend.app.domain.tenant.value_objects.email import Email
 from backend.app.domain.tenant.repositories.user_repository_interface import IUserRepository
+from backend.app.domain.tenant.repositories.tenant_repository_interface import ITenantRepository
 from backend.app.domain.shared.exceptions.domain_exception import DomainException
 from backend.app.infrastructure.security.password_hasher import IPasswordHasher
 
@@ -15,16 +16,32 @@ class LoginUserHandler(ICommandHandler[LoginUserCommand, LoginResult]):
     def __init__(
         self,
         user_repo: IUserRepository,
+        tenant_repo: ITenantRepository,
         password_hasher: IPasswordHasher,
         jwt_handler,
     ) -> None:
         self._user_repo = user_repo
+        self._tenant_repo = tenant_repo
         self._password_hasher = password_hasher
         self._jwt_handler = jwt_handler
 
     async def handle(self, command: LoginUserCommand) -> LoginResult:
         email = Email(address=command.email)
         user = await self._user_repo.get_by_email(email, command.tenant_id)
+        
+        tenant = await self._tenant_repo.get_by_tenant_id(command.tenant_id)
+
+        if not tenant:
+            raise DomainException("Invalid tenant", code="AUTH_FAILED")
+            
+        if tenant.status == "pending":
+            raise DomainException("Account pending approval", code="ACCOUNT_PENDING")
+            
+        if tenant.status == "suspended":
+            raise DomainException("Account suspended", code="ACCOUNT_SUSPENDED")
+            
+        if tenant.status == "rejected":
+            raise DomainException("Account rejected", code="ACCOUNT_REJECTED")
 
         if not user:
             raise DomainException("Invalid email or password", code="AUTH_FAILED")

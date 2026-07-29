@@ -9,18 +9,32 @@ from backend.app.infrastructure.logging.logger import get_logger
 logger = get_logger(__name__)
 
 
-# ── SendWelcomeEmailTask ──────────────────────────────────────────────────────
+# ── SendRegistrationReceivedEmailTask ──────────────────────────────────────────
 @dataclass
-class SendWelcomeEmailTask(IBackgroundTask):
-    """Send a welcome email to a newly registered admin user."""
+class SendRegistrationReceivedEmailTask(IBackgroundTask):
+    """Send an acknowledgment email to a newly registered admin user (pending approval)."""
     email: str
     tenant_name: str
     first_name: str
 
     async def execute(self) -> None:
-        # Phase 0: stub — replace body with real SMTP/SendGrid call
         logger.info(
-            "Sending welcome email (stub)",
+            "Sending registration received email (stub)",
+            extra={"email": self.email, "tenant": self.tenant_name},
+        )
+
+
+# ── SendWorkspaceApprovedEmailTask ────────────────────────────────────────────
+@dataclass
+class SendWorkspaceApprovedEmailTask(IBackgroundTask):
+    """Send an approval/welcome email to an admin user once their workspace is active."""
+    email: str
+    tenant_name: str
+    first_name: str
+
+    async def execute(self) -> None:
+        logger.info(
+            "Sending workspace approved email (stub)",
             extra={"email": self.email, "tenant": self.tenant_name},
         )
 

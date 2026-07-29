@@ -90,12 +90,8 @@ class RegisterTenantHandler(ICommandHandler[RegisterTenantCommand, RegisterTenan
             await self._user_repo.save(user)
             await self._uow.commit()
 
-        # Step 6: Generate JWT access token
-        access_token = self._jwt_handler.create_access_token(
-            user_id=str(user.id),
-            tenant_id=str(tenant.id),
-            role=user.role,
-        )
+        # Step 6: No JWT generated for PENDING tenants. JWT is only generated after approval.
+        access_token = None
 
         return RegisterTenantResult(
             tenant_id=str(tenant.id),

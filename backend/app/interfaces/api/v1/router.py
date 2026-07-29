@@ -8,6 +8,7 @@ from backend.app.interfaces.api.v1.routes.auth import router as auth_router
 from backend.app.interfaces.api.v1.routes.auth_refresh import router as auth_refresh_router
 from backend.app.interfaces.api.v1.routes.self_service_password_reset_router import router as password_reset_router
 from backend.app.interfaces.api.v1.routes.tenants import router as tenants_router
+from backend.app.interfaces.api.v1.routes.system_tenants import router as system_tenants_router
 from backend.app.interfaces.api.v1.routes.files import router as files_router
 from backend.app.interfaces.api.v1.routes.inventory import router as inventory_router
 from backend.app.interfaces.api.v1.routes.master_data import router as master_data_router
@@ -61,6 +62,7 @@ api_v1_router.include_router(auth_router)
 api_v1_router.include_router(auth_refresh_router)
 api_v1_router.include_router(password_reset_router)
 api_v1_router.include_router(tenants_router)
+api_v1_router.include_router(system_tenants_router)
 api_v1_router.include_router(files_router)
 api_v1_router.include_router(inventory_router)
 api_v1_router.include_router(inventory_extended_router)

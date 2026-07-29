@@ -26,7 +26,7 @@ interface RegisterTenantRequest {
 interface RegisterResponse {
   tenant_id: string
   admin_user_id: string
-  access_token: string
+  access_token?: string | null
 }
 
 export const authService = {

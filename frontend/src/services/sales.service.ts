@@ -97,7 +97,9 @@ const normalizeStatistics = (stats: any): OrderStatistics => ({
   processing_count: toNumber(stats.processing_count ?? stats.PROCESSING),
   production_count: toNumber(stats.production_count ?? stats.PRODUCTION),
   ready_count: toNumber(stats.ready_count ?? stats.READY),
-  shipped_count: toNumber(stats.shipped_count ?? stats.SHIPPED),
+  shipped_count: toNumber(stats.shipped_count ?? stats.SHIPPED) + 
+                 toNumber(stats.delivered_count ?? stats.DELIVERED) + 
+                 toNumber(stats.completed_count ?? stats.COMPLETED),
   delivered_count: toNumber(stats.delivered_count ?? stats.DELIVERED),
   completed_count: toNumber(stats.completed_count ?? stats.COMPLETED),
   cancelled_count: toNumber(stats.cancelled_count ?? stats.CANCELLED),

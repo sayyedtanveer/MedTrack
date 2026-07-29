@@ -19,6 +19,8 @@ class TenantModel(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     plan: Mapped[str] = mapped_column(String(50), default="starter")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    is_system_tenant: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)

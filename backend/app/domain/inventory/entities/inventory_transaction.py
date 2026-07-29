@@ -20,8 +20,9 @@ class TransactionType(str, Enum):
     RESERVATION = "RESERVATION"
     RESERVATION_RELEASE = "RESERVATION_RELEASE"
     MATERIAL_ISSUE = "MATERIAL_ISSUE"
-    PRODUCTION_CONSUMPTION = "PRODUCTION_CONSUMPTION"
+    PROD_CONSUMPTION = "PROD_CONSUMPTION"
     FG_RECEIPT = "FG_RECEIPT"
+    RECEIPT_REVERSAL = "RECEIPT_REVERSAL"
     DISPATCH = "DISPATCH"
     DISPATCH_REVERSAL = "DISPATCH_REVERSAL"
     SALES_RETURN = "SALES_RETURN"
@@ -35,6 +36,12 @@ class ReferenceType(str, Enum):
     SALES_ORDER = "sales_order"
     WORK_ORDER = "work_order"
     OPENING_BALANCE = "opening_balance"
+    SALES_ORDER_LINE = "sales_order_line"
+    PURCHASE_RECEIPT = "purchase_receipt"
+    PURCHASE_RECEIPT_REVERSAL = "purchase_receipt_reversal"
+    INVENTORY_TRANSFER = "inventory_transfer"
+    QUALITY_INSPECTION = "quality_inspection"
+    SUBCONTRACT_ORDER = "subcontract_order"
 
 
 class InventoryTransaction(BaseEntity):

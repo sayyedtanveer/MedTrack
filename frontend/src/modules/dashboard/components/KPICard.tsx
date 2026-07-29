@@ -13,15 +13,20 @@ interface KPICardProps {
 export function KPICard({ data, href, tone = "primary" }: KPICardProps) {
   const toneClass =
     tone === "secondary"
-      ? "erp-kpi-gradient-alt"
+      ? "bg-gradient-to-br from-indigo-500 via-purple-500 to-indigo-600 border-indigo-400/50 shadow-indigo-500/20"
       : tone === "soft"
-        ? "erp-kpi-gradient-soft"
+        ? "bg-gradient-to-br from-blue-400 via-cyan-400 to-blue-500 border-blue-400/50 shadow-blue-500/20"
         : tone === "glass"
-          ? "border border-slate-200/80 bg-white text-slate-900"
-          : "erp-kpi-gradient"
+          ? "bg-white/70 backdrop-blur-xl border-slate-200/60 shadow-slate-200/50 text-slate-900"
+          : "bg-gradient-to-br from-primary via-primary/90 to-primary/80 border-primary/50 shadow-primary/20"
 
   const content = (
-    <Card className={cn("overflow-hidden", toneClass, href && "cursor-pointer hover:border-primary/40")}>
+    <Card className={cn(
+      "overflow-hidden relative group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
+      "before:absolute before:inset-0 before:-z-10 before:bg-white/10 before:opacity-0 hover:before:opacity-100 before:transition-opacity",
+      toneClass, 
+      href && "cursor-pointer"
+    )}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
         <CardTitle
           className={cn(
@@ -33,8 +38,8 @@ export function KPICard({ data, href, tone = "primary" }: KPICardProps) {
         </CardTitle>
         <div
           className={cn(
-            "rounded-2xl border p-2.5 shadow-sm",
-            tone === "glass" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-white/25 bg-white/20 text-white backdrop-blur"
+            "rounded-2xl border p-2.5 shadow-sm transition-transform duration-300 group-hover:scale-110",
+            tone === "glass" ? "border-blue-200/50 bg-blue-50/50 text-blue-700" : "border-white/20 bg-white/10 text-white backdrop-blur-md"
           )}
         >
           <PackageOpen className={cn("h-4 w-4", tone !== "glass" && "drop-shadow-sm")} />

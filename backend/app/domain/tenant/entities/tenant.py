@@ -6,6 +6,7 @@ from typing import Optional
 
 from backend.app.domain.shared.base_entity import BaseEntity
 from backend.app.domain.shared.exceptions.business_rule_violation import BusinessRuleViolationException
+from backend.app.domain.tenant.value_objects.tenant_status import TenantStatus
 
 
 class Tenant(BaseEntity):
@@ -23,7 +24,9 @@ class Tenant(BaseEntity):
         id: Optional[uuid.UUID] = None,
         tenant_id: Optional[uuid.UUID] = None,  # same as id for Tenant itself
         plan: str = "starter",
-        is_active: bool = True,
+        is_active: bool = True, # Deprecated, keeping for backwards compatibility initially
+        status: TenantStatus | str = TenantStatus.PENDING,
+        is_system_tenant: bool = False,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
         is_deleted: bool = False,
@@ -45,6 +48,8 @@ class Tenant(BaseEntity):
         self._slug = slug
         self._plan = plan
         self._is_active = is_active
+        self._status = TenantStatus.from_string(status) if isinstance(status, str) else status
+        self._is_system_tenant = is_system_tenant
         self._timezone = timezone
         self._default_warehouse_name = default_warehouse_name
 
@@ -65,7 +70,15 @@ class Tenant(BaseEntity):
 
     @property
     def is_active(self) -> bool:
-        return self._is_active
+        return self._status == TenantStatus.ACTIVE
+
+    @property
+    def status(self) -> TenantStatus:
+        return self._status
+
+    @property
+    def is_system_tenant(self) -> bool:
+        return self._is_system_tenant
 
     @property
     def timezone(self) -> Optional[str]:
@@ -89,10 +102,37 @@ class Tenant(BaseEntity):
     # ── Behaviour ─────────────────────────────────────────────────────────
     def activate(self) -> None:
         self._is_active = True
+        self._status = TenantStatus.ACTIVE
         self._touch()
 
     def deactivate(self) -> None:
         self._is_active = False
+        self._status = TenantStatus.ARCHIVED
+        self._touch()
+        
+    def approve(self) -> None:
+        if self._status != TenantStatus.PENDING:
+            raise BusinessRuleViolationException(rule="Can only approve pending tenants.")
+        self._status = TenantStatus.ACTIVE
+        self._is_active = True
+        self._touch()
+        
+    def reject(self) -> None:
+        if self._status != TenantStatus.PENDING:
+            raise BusinessRuleViolationException(rule="Can only reject pending tenants.")
+        self._status = TenantStatus.REJECTED
+        self._touch()
+        
+    def suspend(self) -> None:
+        self._status = TenantStatus.SUSPENDED
+        self._is_active = False
+        self._touch()
+        
+    def reactivate(self) -> None:
+        if self._status != TenantStatus.SUSPENDED:
+            raise BusinessRuleViolationException(rule="Can only reactivate suspended tenants.")
+        self._status = TenantStatus.ACTIVE
+        self._is_active = True
         self._touch()
 
     def change_plan(self, new_plan: str) -> None:

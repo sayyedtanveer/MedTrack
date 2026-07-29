@@ -13,6 +13,9 @@ import { WO_STATUS_ACTIONS, type WorkOrderAction } from '../components/WorkOrder
 import { useToast } from '@/hooks/use-toast';
 import { AuditHistoryTab } from '@/components/shared/AuditHistoryTab';
 import { usePermissions } from '@/hooks/usePermissions';
+import { AssistantEngine } from '@/lib/assistant/AssistantEngine';
+import { MedTrackAssistant } from '@/components/shared/assistant/MedTrackAssistant';
+import { AssistantButton } from '@/components/shared/assistant/AssistantButton';
 
 const STATUS_COLORS = WO_STATUS_COLORS;
 
@@ -535,6 +538,16 @@ export default function WorkOrderDetailPage() {
             Back to Work Orders
           </button>
         </div>
+        
+        {(() => {
+          const guidance = AssistantEngine.getGuidance(wo);
+          return guidance ? (
+            <div className="mb-4">
+              <MedTrackAssistant guidance={guidance} />
+            </div>
+          ) : null;
+        })()}
+
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">Manufacturing execution</p>
@@ -574,48 +587,51 @@ export default function WorkOrderDetailPage() {
             </button>
       {/* Action Buttons per status config */}
             {actions.map((a: WorkOrderAction) => (
-              <button
+              <AssistantButton
                 key={a.actionKey}
                 id={`btn-wo-${a.actionKey}`}
                 onClick={() => handleAction(a.actionKey)}
                 disabled={actionPending}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${a.color}`}
+                className={a.color}
+                pulse={AssistantEngine.getGuidance(wo)?.pulseActionId === a.actionKey}
               >
                 {actionPending ? '…' : a.label}
-              </button>
+              </AssistantButton>
             ))}
             {/* Submit for QC - shown when IN_PRODUCTION and has produced qty */}
             {wo.status === 'IN_PRODUCTION' && Number(wo.produced_quantity) > 0 && (isAdmin() || isOperator() || isManager()) && (
-              <button
+              <AssistantButton
                 id="btn-wo-submit-qc"
                 onClick={handleSubmitForQC}
                 disabled={actionPending}
-                className="rounded-lg px-4 py-2 text-sm font-medium bg-cyan-600 hover:bg-cyan-700 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                pulse={AssistantEngine.getGuidance(wo)?.pulseActionId === 'submit_qc'}
               >
                 {actionPending ? '…' : 'Submit for QC'}
-              </button>
+              </AssistantButton>
             )}
             {/* Report Machine Breakdown - shown when IN_PRODUCTION (Requirement 26.1) */}
             {wo.status === 'IN_PRODUCTION' && (isAdmin() || isOperator() || isManager()) && (
-              <button
+              <AssistantButton
                 id="btn-wo-hold"
                 onClick={() => handleAction('hold')}
                 disabled={actionPending}
-                className="rounded-lg px-4 py-2 text-sm font-medium bg-rose-600 hover:bg-rose-700 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-rose-600 hover:bg-rose-700 text-white"
               >
                 {actionPending ? '…' : 'Report Machine Breakdown'}
-              </button>
+              </AssistantButton>
             )}
             {/* Cancel button for cancellable statuses (Requirement 18.5) */}
             {(wo.status === 'PLANNED' || wo.status === 'RELEASED' || wo.status === 'MATERIAL_PENDING' || wo.status === 'MATERIAL_RESERVED') && (isAdmin() || isManager()) && (
-              <button
+              <AssistantButton
+                variant="outline"
                 id="btn-wo-cancel"
                 onClick={() => handleAction('cancel')}
                 disabled={actionPending}
-                className="rounded-lg px-4 py-2 text-sm font-medium bg-white border border-red-300 text-red-700 hover:bg-red-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                className="border-red-300 text-red-700 hover:bg-red-50"
               >
                 Cancel
-              </button>
+              </AssistantButton>
             )}
           </div>
         </div>

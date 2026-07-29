@@ -5,6 +5,9 @@ import { materialService } from "@/services/material.service"
 import { documentService } from "@/services/document.service"
 import type { Material } from "@/types/material.types"
 import { Button } from "@/components/ui/button"
+import { AssistantButton } from "@/components/shared/assistant/AssistantButton"
+import { AssistantEngine } from "@/lib/assistant/AssistantEngine"
+import { MedTrackAssistant } from "@/components/shared/assistant/MedTrackAssistant"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
 
@@ -98,6 +101,22 @@ export default function PurchaseOrderDetailPage() {
           <Button variant="ghost" size="sm" asChild className="mb-2 -ml-2">
             <Link to="/procurement/purchase-orders">← Back to list</Link>
           </Button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight">Purchase Order {po.po_number}</h1>
+            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-gray-100 text-gray-800 uppercase tracking-wide">
+              {po.status}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {(() => {
+        const guidance = AssistantEngine.getGuidance(po);
+        return guidance ? <MedTrackAssistant guidance={guidance} /> : null;
+      })()}
+
+      <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border">
+        <div>
           <h1 className="text-2xl font-semibold font-mono">{po.po_number}</h1>
           <p className="text-sm text-muted-foreground">
             Status: <strong>{po.status}</strong> · Ordered {po.order_date}
@@ -120,19 +139,19 @@ export default function PurchaseOrderDetailPage() {
             {documentLoading ? '…' : 'Download PDF'}
           </Button>
           {canSend && (
-            <Button onClick={send}>
-              Send to supplier
-            </Button>
+            <AssistantButton onClick={send} pulse={AssistantEngine.getGuidance(po)?.pulseActionId === 'send'}>
+              Send to Supplier
+            </AssistantButton>
           )}
           {canAck && (
-            <Button variant="secondary" onClick={acknowledge}>
-              Acknowledge (internal)
-            </Button>
+            <AssistantButton variant="secondary" onClick={acknowledge} pulse={AssistantEngine.getGuidance(po)?.pulseActionId === 'acknowledge'}>
+              Mark Acknowledged
+            </AssistantButton>
           )}
           {canReceive && (
-            <Button variant="outline" asChild>
+            <AssistantButton variant="outline" asChild id="receive_goods" pulse={AssistantEngine.getGuidance(po)?.pulseActionId === 'receive_goods'}>
               <Link to={`/procurement/grn?poId=${po.id}`}>Goods receipt (GRN)</Link>
-            </Button>
+            </AssistantButton>
           )}
         </div>
       </div>

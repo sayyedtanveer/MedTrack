@@ -37,6 +37,7 @@ import backend.app.infrastructure.persistence.models.serial_number_model
 import backend.app.infrastructure.persistence.models.stock_level_model
 import backend.app.infrastructure.persistence.models.subcontract_model
 import backend.app.infrastructure.persistence.models.supplier_model
+import backend.app.infrastructure.persistence.models.tenant_audit_log_model
 import backend.app.infrastructure.persistence.models.tenant_model
 import backend.app.infrastructure.persistence.models.unit_of_measure_model
 import backend.app.infrastructure.persistence.models.uom_conversion_model

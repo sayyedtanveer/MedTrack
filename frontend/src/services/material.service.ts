@@ -69,8 +69,8 @@ export const materialService = {
     page: number;
     page_size: number;
   }): Promise<InventoryTransaction[]> {
-    const { data } = await apiClient.get("/inventory/transactions", { params });
-    return data;
+    const { data } = await apiClient.get("/inventory/transactions/history", { params });
+    return data.items || [];
   },
 
   async getBatches(materialId: string): Promise<Batch[]> {

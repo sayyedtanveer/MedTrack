@@ -11,9 +11,12 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
+
 import { PackageCheck } from "lucide-react"
 import apiClient from "@/services/api-client"
+import { AssistantEngine } from "@/lib/assistant/AssistantEngine"
+import { MedTrackAssistant } from "@/components/shared/assistant/MedTrackAssistant"
+import { AssistantButton } from "@/components/shared/assistant/AssistantButton"
 
 interface DispatchQueueItem {
   id: string
@@ -59,6 +62,29 @@ export default function DispatchQueuePage() {
     )
   }
 
+  // Calculate top priority dispatch guidance
+  const topGuidance = (() => {
+    if (!queue || queue.length === 0) return null;
+    
+    const guidances = queue
+      .map(item => AssistantEngine.getGuidance({ ...item, type: 'dispatch_order', status: 'CONFIRMED' }))
+      .filter(Boolean) as any[];
+      
+    if (guidances.length === 0) return null;
+    
+    // Sort logic similar to InboxProvider
+    const weights: Record<string, number> = { 'critical': 5, 'high': 4, 'medium': 3, 'low': 2, 'info': 1 };
+    guidances.sort((a, b) => {
+      const pA = weights[a.priority] || 0;
+      const pB = weights[b.priority] || 0;
+      if (pA !== pB) return pB - pA;
+      if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      return a.dueDate ? -1 : (b.dueDate ? 1 : 0);
+    });
+    
+    return guidances[0];
+  })();
+
   return (
     <div className="space-y-6 p-6">
       <div>
@@ -67,6 +93,12 @@ export default function DispatchQueuePage() {
           Sales orders ready for dispatch
         </p>
       </div>
+
+      {topGuidance && (
+        <div className="mb-2">
+          <MedTrackAssistant guidance={topGuidance} />
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -100,14 +132,15 @@ export default function DispatchQueuePage() {
                       </TableCell>
                       <TableCell>{formatReadySince(item.ready_at)}</TableCell>
                       <TableCell className="text-right">
-                        <Button
+                        <AssistantButton
                           size="sm"
                           onClick={() =>
                             navigate(`/deliveries/new?so_id=${item.id}`)
                           }
+                          pulse={topGuidance?.route?.id === item.id || (!topGuidance?.route?.id && queue.indexOf(item) === 0)}
                         >
                           Create Delivery Note
-                        </Button>
+                        </AssistantButton>
                       </TableCell>
                     </TableRow>
                   ))}

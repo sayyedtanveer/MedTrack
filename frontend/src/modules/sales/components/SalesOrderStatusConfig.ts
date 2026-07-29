@@ -107,7 +107,9 @@ export const STATUS_ACTIONS: Record<OrderStatus, ActionConfig[]> = {
     { label: 'Create Delivery Note', action: 'create_delivery', variant: 'default' },
   ],
   [OrderStatus.SHIPPED]: [],
-  [OrderStatus.DELIVERED]: [],
+  [OrderStatus.DELIVERED]: [
+    { label: 'Generate Invoice', action: 'create_invoice', variant: 'default' },
+  ],
   [OrderStatus.INVOICED]: [
     { label: 'Record Payment', action: 'record_payment', variant: 'default' },
   ],

@@ -18,12 +18,12 @@ const getIcon = (type: string) => {
 
 export function ActivityFeed({ activities }: ActivityFeedProps) {
   return (
-    <Card className="col-span-1 border md:col-span-3">
+    <Card className="col-span-1 border flex flex-col h-full shadow-sm">
       <CardHeader>
         <CardTitle>Recent Activity</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-8">
+      <CardContent className="flex-1 overflow-hidden">
+        <div className="space-y-8 h-full max-h-[350px] overflow-y-auto pr-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200/80 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 transition-colors">
           {activities.length === 0 ? (
             <p className="text-sm text-muted-foreground">No recent activity.</p>
           ) : (

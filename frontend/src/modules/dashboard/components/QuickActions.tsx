@@ -21,67 +21,89 @@ export function QuickActions() {
   const canManageProducts = hasRole(["ADMIN", "MANAGER"])
 
   return (
-    <Card className="col-span-1 md:col-span-4 lg:col-span-2">
-      <CardHeader>
-        <CardTitle>Quick Actions</CardTitle>
+    <Card className="col-span-1 md:col-span-4 lg:col-span-2 border-slate-200/60 bg-white/70 backdrop-blur-xl shadow-lg relative overflow-hidden">
+      {/* Decorative gradient blob */}
+      <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
+      <CardHeader className="pb-3 border-b border-slate-100/50 bg-white/40">
+        <CardTitle className="text-lg font-semibold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">Quick Actions</CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+      <CardContent className="grid gap-3 grid-cols-1 sm:grid-cols-2 pt-4">
 
         {/* Manufacturing Section */}
         {canManageProducts && (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground col-span-full mt-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 col-span-full mt-2 ml-1">
               Manufacturing
             </p>
             <Button
-              className="w-full justify-start h-12"
+              className="w-full justify-start h-auto min-h-[3.5rem] py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group/btn text-slate-700 h-full whitespace-normal text-left"
               variant="outline"
               onClick={() => navigate("/products")}
             >
-              <PackageSearch className="mr-2 h-5 w-5 text-blue-500" />
-              Manage Products
+              <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 border border-slate-200/60 flex items-center justify-center mr-3 transition-transform duration-300 group-hover/btn:scale-110 group-hover/btn:rotate-3 shadow-sm">
+                <PackageSearch className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-sm">Manage Products</span>
+              </div>
             </Button>
             <Button
-              className="w-full justify-start h-12"
+              className="w-full justify-start h-auto min-h-[3.5rem] py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group/btn text-slate-700 h-full whitespace-normal text-left"
               variant="outline"
               onClick={() => navigate("/bom/list")}
             >
-              <Layers className="mr-2 h-5 w-5 text-violet-500" />
-              View BOMs
+              <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-violet-100 to-violet-50 border border-slate-200/60 flex items-center justify-center mr-3 transition-transform duration-300 group-hover/btn:scale-110 group-hover/btn:rotate-3 shadow-sm">
+                <Layers className="h-5 w-5 text-violet-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-sm">View BOMs</span>
+              </div>
             </Button>
-            <Separator className="col-span-full my-1" />
+            <Separator className="col-span-full my-1 bg-slate-100/50" />
           </>
         )}
 
         {/* Inventory Section */}
         {canWorkInventory && (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground col-span-full">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 col-span-full ml-1">
               Inventory
             </p>
             <Button
-              className="w-full justify-start h-12"
+              className="w-full justify-start h-auto min-h-[3.5rem] py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group/btn text-slate-700 h-full whitespace-normal text-left"
               variant="outline"
               onClick={() => navigate("/inventory/products?action=scan")}
             >
-              <ScanBarcode className="mr-2 h-5 w-5 text-primary" />
-              Scan Barcode
+              <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-slate-200/60 flex items-center justify-center mr-3 transition-transform duration-300 group-hover/btn:scale-110 group-hover/btn:rotate-3 shadow-sm">
+                <ScanBarcode className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-sm">Scan Barcode</span>
+              </div>
             </Button>
             <Button
-              className="w-full justify-start h-12"
+              className="w-full justify-start h-auto min-h-[3.5rem] py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group/btn text-slate-700 h-full whitespace-normal text-left"
               variant="outline"
-              onClick={() => navigate("/inventory/movements/add")}
+              onClick={() => navigate("/inventory/movements")}
             >
-              <ArrowDownToLine className="mr-2 h-5 w-5 text-emerald-500" />
-              Receive Goods
+              <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-emerald-100 to-emerald-50 border border-slate-200/60 flex items-center justify-center mr-3 transition-transform duration-300 group-hover/btn:scale-110 group-hover/btn:rotate-3 shadow-sm">
+                <ArrowDownToLine className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-sm">Receive Goods</span>
+              </div>
             </Button>
             <Button
-              className="w-full justify-start h-12"
+              className="w-full justify-start h-auto min-h-[3.5rem] py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group/btn text-slate-700 h-full whitespace-normal text-left"
               variant="outline"
-              onClick={() => navigate("/inventory/movements/issue")}
+              onClick={() => navigate("/inventory/movements")}
             >
-              <ArrowUpToLine className="mr-2 h-5 w-5 text-amber-500" />
-              Issue Material
+              <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-amber-100 to-amber-50 border border-slate-200/60 flex items-center justify-center mr-3 transition-transform duration-300 group-hover/btn:scale-110 group-hover/btn:rotate-3 shadow-sm">
+                <ArrowUpToLine className="h-5 w-5 text-amber-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-sm">Issue Material</span>
+              </div>
             </Button>
           </>
         )}
@@ -89,26 +111,34 @@ export function QuickActions() {
         {/* Admin Section */}
         {isAdmin() && (
           <>
-            <Separator className="col-span-full my-1" />
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground col-span-full">
+            <Separator className="col-span-full my-1 bg-slate-100/50" />
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 col-span-full ml-1">
               Admin
             </p>
             {/* Phase 0: Number Series must be first in the setup flow (Gap #11) */}
             <Button
-              className="w-full justify-start h-12"
+              className="w-full justify-start h-auto min-h-[3.5rem] py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group/btn text-slate-700 h-full whitespace-normal text-left"
               variant="outline"
               onClick={() => navigate("/settings/business-config/number-series")}
             >
-              <Hash className="mr-2 h-5 w-5 text-orange-500" />
-              Configure Number Series
+              <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 border border-slate-200/60 flex items-center justify-center mr-3 transition-transform duration-300 group-hover/btn:scale-110 group-hover/btn:rotate-3 shadow-sm">
+                <Hash className="h-5 w-5 text-orange-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-sm">Number Series</span>
+              </div>
             </Button>
             <Button
-              className="w-full justify-start h-12"
+              className="w-full justify-start h-auto min-h-[3.5rem] py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group/btn text-slate-700 h-full whitespace-normal text-left"
               variant="outline"
-              onClick={() => navigate("/users/new")}
+              onClick={() => navigate("/users")}
             >
-              <UserPlus className="mr-2 h-5 w-5 text-purple-500" />
-              Add User
+              <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-purple-100 to-purple-50 border border-slate-200/60 flex items-center justify-center mr-3 transition-transform duration-300 group-hover/btn:scale-110 group-hover/btn:rotate-3 shadow-sm">
+                <UserPlus className="h-5 w-5 text-purple-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-sm">Add User</span>
+              </div>
             </Button>
           </>
         )}

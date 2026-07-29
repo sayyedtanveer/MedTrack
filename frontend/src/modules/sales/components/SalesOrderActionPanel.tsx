@@ -14,6 +14,7 @@
  */
 
 import { Button } from '@/components/ui/button';
+import { AssistantButton } from '@/components/shared/assistant/AssistantButton';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SalesOrder, OrderStatus } from '@/types/sales.types';
@@ -29,12 +30,15 @@ import {
   Info,
 } from 'lucide-react';
 
+import { AssistantGuidance } from '@/components/shared/assistant/AssistantTypes';
+
 interface SalesOrderActionPanelProps {
   order: SalesOrder;
   actionLoading: boolean;
   confirmError: string | null;
   onAction: (action: string) => void;
   linkedWorkOrders?: Array<{ id: string; work_order_number: string; status: string }>;
+  guidance?: AssistantGuidance | null;
 }
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
@@ -43,6 +47,7 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
   reject: <XCircle className="mr-2 h-4 w-4" />,
   confirm: <CheckCircle className="mr-2 h-4 w-4" />,
   create_delivery: <Truck className="mr-2 h-4 w-4" />,
+  create_invoice: <CreditCard className="mr-2 h-4 w-4" />,
   record_payment: <CreditCard className="mr-2 h-4 w-4" />,
 };
 
@@ -51,6 +56,7 @@ const ACTION_COLORS: Record<string, string> = {
   approve: 'bg-green-600 hover:bg-green-700',
   confirm: 'bg-indigo-600 hover:bg-indigo-700',
   create_delivery: 'bg-teal-600 hover:bg-teal-700',
+  create_invoice: 'bg-emerald-600 hover:bg-emerald-700',
   record_payment: 'bg-cyan-600 hover:bg-cyan-700',
 };
 
@@ -60,6 +66,7 @@ export default function SalesOrderActionPanel({
   confirmError,
   onAction,
   linkedWorkOrders = [],
+  guidance,
 }: SalesOrderActionPanelProps) {
   const actions = STATUS_ACTIONS[order.status] || [];
   const isCancellable = CANCELLABLE_STATUSES.includes(order.status);
@@ -259,10 +266,11 @@ export default function SalesOrderActionPanel({
         {!isCompleted && !isCancelled && actions.length > 0 && (
           <div className="flex gap-3 flex-wrap">
             {actions.map((actionConfig) => (
-              <Button
+              <AssistantButton
                 key={actionConfig.action}
                 onClick={() => onAction(actionConfig.action)}
                 disabled={actionLoading}
+                pulse={guidance?.pulseActionId === actionConfig.action}
                 variant={actionConfig.variant === 'destructive' ? 'destructive' : undefined}
                 className={
                   actionConfig.variant !== 'destructive'
@@ -272,7 +280,7 @@ export default function SalesOrderActionPanel({
               >
                 {ACTION_ICONS[actionConfig.action]}
                 {actionConfig.label}
-              </Button>
+              </AssistantButton>
             ))}
           </div>
         )}

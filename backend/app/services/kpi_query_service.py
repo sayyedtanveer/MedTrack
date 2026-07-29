@@ -323,8 +323,9 @@ class KPIQueryService:
             date_filter += " AND wo.start_date >= :date_from"
             params["date_from"] = filters.date_from
         if filters.date_to:
-            date_filter += " AND wo.start_date <= :date_to"
-            params["date_to"] = filters.date_to
+            from datetime import timedelta
+            date_filter += " AND wo.start_date < :date_to_plus_one_start"
+            params["date_to_plus_one_start"] = filters.date_to + timedelta(days=1)
 
         # For completed, we care about when it was completed (updated_at)
         completed_date_filter = ""
@@ -540,7 +541,7 @@ class KPIQueryService:
                 SELECT COUNT(DISTINCT po.id) FROM purchase_orders po
                 INNER JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id
                 WHERE po.tenant_id = :tid
-                  AND po.status IN ('confirmed', 'partial')
+                  AND po.status IN ('sent', 'acknowledged', 'partial')
                   AND pol.received_quantity < pol.quantity
                   AND po.is_deleted = false
                   AND pol.is_deleted = false

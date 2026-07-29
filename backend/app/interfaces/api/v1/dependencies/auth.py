@@ -63,6 +63,27 @@ async def get_current_user_payload(
     tenant_id = payload.get("tid")
     user_role = payload.get("role", "viewer")
     
+    # Check tenant status to enforce API access policies (e.g. suspension)
+    if tenant_id:
+        try:
+            tid = uuid.UUID(tenant_id)
+            async with container.session_factory() as session:
+                from backend.app.infrastructure.persistence.repositories.tenant_repository import TenantRepository
+                tenant_repo = TenantRepository(session)
+                tenant = await tenant_repo.get_by_tenant_id(tid)
+                
+                if not tenant:
+                    raise HTTPException(status_code=401, detail="Tenant no longer exists")
+                if tenant.status == "suspended":
+                    raise HTTPException(status_code=403, detail="Account suspended. API access denied.")
+                if tenant.status == "rejected":
+                    raise HTTPException(status_code=403, detail="Account rejected. API access denied.")
+                if tenant.status == "pending":
+                    raise HTTPException(status_code=403, detail="Account pending approval.")
+        except ValueError:
+            pass # Invalid UUID handled later
+            
+    
     # Populate context vars used across async tasks and logging
     set_request_context(
         user_id=user_id,

@@ -18,6 +18,9 @@ import { Label } from "@/components/ui/label"
 import { CheckCircle, XCircle, RefreshCw, ClipboardCheck, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import apiClient from "@/services/api-client"
+import { AssistantEngine } from "@/lib/assistant/AssistantEngine"
+import { MedTrackAssistant } from "@/components/shared/assistant/MedTrackAssistant"
+import { AssistantButton } from "@/components/shared/assistant/AssistantButton"
 
 async function approveQC(workOrderId: string, remarks?: string) {
   const { data } = await apiClient.post("/quality-control/approve", {
@@ -223,6 +226,34 @@ export default function QCDashboardPage() {
   }
 
   const activeConfig = dialogMode ? dialogConfig[dialogMode] : null
+  
+  // Calculate highest priority guidance for the dashboard
+  const topGuidance = (() => {
+    if (!inspectionQueue && !rejectedQueue && !reworkQueue) return null;
+    const allBatches = [
+      ...(inspectionQueue || []).map(wo => ({ ...wo, type: 'qc_batch', status: 'QC_PENDING' })),
+      ...(rejectedQueue || []).map(wo => ({ ...wo, type: 'qc_batch', status: 'QC_REJECTED' })),
+      ...(reworkQueue || []).map(wo => ({ ...wo, type: 'qc_batch', status: 'REWORK' }))
+    ];
+    
+    const guidances = allBatches
+      .map(b => AssistantEngine.getGuidance(b))
+      .filter(Boolean) as any[];
+      
+    if (guidances.length === 0) return null;
+    
+    // Sort logic similar to InboxProvider
+    const weights: Record<string, number> = { 'critical': 5, 'high': 4, 'medium': 3, 'low': 2, 'info': 1 };
+    guidances.sort((a, b) => {
+      const pA = weights[a.priority] || 0;
+      const pB = weights[b.priority] || 0;
+      if (pA !== pB) return pB - pA;
+      if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      return a.dueDate ? -1 : (b.dueDate ? 1 : 0);
+    });
+    
+    return guidances[0];
+  })();
 
   if (inspectionLoading || rejectedLoading || reworkLoading) {
     return <div className="p-8">Loading QC Dashboard...</div>
@@ -238,6 +269,12 @@ export default function QCDashboardPage() {
           </p>
         </div>
       </div>
+
+      {topGuidance && (
+        <div className="mb-2">
+          <MedTrackAssistant guidance={topGuidance} />
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -310,14 +347,15 @@ export default function QCDashboardPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button
+                        <AssistantButton
                           size="sm"
-                          className="bg-green-600 hover:bg-green-700"
+                          className="bg-green-600 hover:bg-green-700 text-white"
                           onClick={() => openDialog(wo, "approve")}
+                          pulse={topGuidance?.route?.id === wo.work_order_id}
                         >
                           <CheckCircle className="w-3 h-3 mr-1" />
                           Approve
-                        </Button>
+                        </AssistantButton>
                         <Button
                           size="sm"
                           variant="destructive"
@@ -372,15 +410,16 @@ export default function QCDashboardPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button
+                        <AssistantButton
                           size="sm"
                           variant="outline"
                           className="border-orange-300 text-orange-700 hover:bg-orange-50"
                           onClick={() => openDialog(wo, "rework")}
+                          pulse={topGuidance?.route?.id === wo.work_order_id}
                         >
                           <RefreshCw className="w-3 h-3 mr-1" />
                           Rework
-                        </Button>
+                        </AssistantButton>
                         <Button
                           size="sm"
                           variant="destructive"

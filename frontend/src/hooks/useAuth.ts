@@ -35,7 +35,7 @@ export function useAuth() {
         setUser(meResult.user)
         setPermissions(meResult.permissions ?? [])
         setSupplierAndClient(meResult.user.supplier_id ?? null, meResult.user.client_id ?? null)
-        setTenantInfo(meResult.tenant.name, meResult.tenant.slug, meResult.tenant.plan)
+        setTenantInfo(meResult.tenant.name, meResult.tenant.slug, meResult.tenant.plan, meResult.tenant.is_system_tenant)
         
         toast.success("Welcome back!")
 
@@ -61,19 +61,26 @@ export function useAuth() {
   const registerMutation = useMutation({
     mutationFn: authService.registerTenant,
     onSuccess: async (data) => {
-      setAuth(data.access_token, data.tenant_id)
-      try {
-        const meResult = await authService.getMe()
-        setUser(meResult.user)
-        setPermissions(meResult.permissions ?? [])
-        setSupplierAndClient(meResult.user.supplier_id ?? null, meResult.user.client_id ?? null)
-        setTenantInfo(meResult.tenant.name, meResult.tenant.slug, meResult.tenant.plan)
-        
-        toast.success("Tenant created successfully! Welcome.")
-        navigate("/", { replace: true })
-      } catch (err) {
-        clearAuthStore()
-        navigate("/login")
+      if (data.access_token) {
+        // Fallback for auto-approved tenants or existing behavior
+        setAuth(data.access_token, data.tenant_id)
+        try {
+          const meResult = await authService.getMe()
+          setUser(meResult.user)
+          setPermissions(meResult.permissions ?? [])
+          setSupplierAndClient(meResult.user.supplier_id ?? null, meResult.user.client_id ?? null)
+          setTenantInfo(meResult.tenant.name, meResult.tenant.slug, meResult.tenant.plan, meResult.tenant.is_system_tenant)
+          
+          toast.success("Tenant created successfully! Welcome.")
+          navigate("/", { replace: true })
+        } catch (err) {
+          clearAuthStore()
+          navigate("/login")
+        }
+      } else {
+        // New Tenant Approval Flow: Registration received, pending approval
+        toast.success("We have received your registration. You will receive an email once your workspace is approved.")
+        navigate("/login", { replace: true })
       }
     },
     onError: (error: any) => {
