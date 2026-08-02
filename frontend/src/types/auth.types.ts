@@ -26,6 +26,7 @@ export interface Tenant {
   slug: string
   plan: string
   is_active: boolean
+  is_system_tenant?: boolean
 }
 
 export interface AuthResponse {

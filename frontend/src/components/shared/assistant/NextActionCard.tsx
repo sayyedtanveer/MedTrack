@@ -28,6 +28,9 @@ const ACTION_LABELS: Record<AssistantAction, string> = {
   [AssistantAction.START_PRODUCTION]: 'Start Production',
   [AssistantAction.COMPLETE_PRODUCTION]: 'Complete Production',
   [AssistantAction.REVIEW_BLOCKERS]: 'Review Blockers',
+  
+  [AssistantAction.CREATE_INVOICE]: 'Create Invoice',
+  [AssistantAction.RECORD_PAYMENT]: 'Record Payment',
   [AssistantAction.GO_TO_QUALITY]: 'Go to Quality Control',
   [AssistantAction.RECEIVE_FG]: 'Receive Finished Goods',
   [AssistantAction.COMPLETE_WO]: 'Complete Work Order',

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { AlertCircle, CheckCircle2, ArrowRight } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
+
 import { setupStatusService, type CompanySetupStatusResponse } from "@/services/setup-status.service"
 
 export function SetupProgressCard() {
