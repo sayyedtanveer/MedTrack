@@ -22,6 +22,7 @@ from backend.app.application.sales.queries import (
     GetOrderCountByStatusQuery,
     ListDraftOrdersQuery,
     ListOrdersByDeliveryDateQuery,
+    ListAllOrdersQuery,
 )
 
 
@@ -122,6 +123,23 @@ class ListClientOrdersQueryHandler:
         orders = await self.order_repo.find_by_client(
             tenant_id=query.tenant_id,
             client_id=query.client_id,
+            status=query.status,
+            limit=query.limit,
+            offset=query.offset,
+        )
+        return [o.to_dict() for o in orders]
+
+
+class ListAllOrdersQueryHandler:
+    """Handler for listing all orders."""
+
+    def __init__(self, order_repo: SalesOrderRepository):
+        self.order_repo = order_repo
+
+    async def handle(self, query: ListAllOrdersQuery):
+        """List all orders."""
+        orders = await self.order_repo.find_all(
+            tenant_id=query.tenant_id,
             status=query.status,
             limit=query.limit,
             offset=query.offset,

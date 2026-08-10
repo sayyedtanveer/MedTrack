@@ -78,6 +78,7 @@ from backend.app.application.sales.queries import (
     GetOrderCountByStatusQuery,
     ListDraftOrdersQuery,
     ListOrdersByDeliveryDateQuery,
+    ListAllOrdersQuery,
 )
 
 from backend.app.application.sales.command_handlers import (
@@ -120,6 +121,7 @@ from backend.app.application.sales.query_handlers import (
     GetPriceListByIdQueryHandler,
     ListPriceListsQueryHandler,
     GetOrderCountByStatusQueryHandler,
+    ListAllOrdersQueryHandler,
 )
 
 __all__ = [
@@ -162,6 +164,7 @@ __all__ = [
     "GetOrderCountByStatusQuery",
     "ListDraftOrdersQuery",
     "ListOrdersByDeliveryDateQuery",
+    "ListAllOrdersQuery",
     # Command Handlers
     "CreateSalesOrderCommandHandler",
     "AddLineToSalesOrderCommandHandler",
@@ -197,5 +200,6 @@ __all__ = [
     "GetPriceListByIdQueryHandler",
     "ListPriceListsQueryHandler",
     "GetOrderCountByStatusQueryHandler",
+    "ListAllOrdersQueryHandler",
 ]
 

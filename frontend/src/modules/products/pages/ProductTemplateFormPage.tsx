@@ -143,7 +143,7 @@ export default function ProductTemplateFormPage() {
     payload.category_id = categoryId
     if (baseUnitId) payload.base_unit_id = baseUnitId
     if (!isNew && templateData) {
-      const originalIsActive = templateData.status === "ACTIVE" || templateData.is_active === true
+      const originalIsActive = templateData.is_active ?? true
       if (isActive !== originalIsActive) {
         payload.is_active = isActive
       }

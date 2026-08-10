@@ -15,8 +15,6 @@ export const apiClient = axios.create({
 
 export default apiClient
 
-const AUTH_VALIDATION_ENDPOINTS = new Set(["/auth/me", "/client/profile"])
-
 function normalizeRequestUrl(url: string | undefined): string {
   if (!url) return ""
   try {
@@ -27,11 +25,7 @@ function normalizeRequestUrl(url: string | undefined): string {
   }
 }
 
-function authFailureDetail(error: AxiosError<any>): string {
-  const data = error.response?.data
-  const detail = data?.detail ?? data?.message ?? data?.error?.message ?? data?.error?.code ?? ""
-  return typeof detail === "string" ? detail.toLowerCase() : JSON.stringify(detail).toLowerCase()
-}
+
 
 export function isSessionInvalidError(error: unknown): boolean {
   if (!axios.isAxiosError(error) || error.response?.status !== 401) {

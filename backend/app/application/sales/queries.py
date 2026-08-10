@@ -60,6 +60,16 @@ class ListClientOrdersQuery:
 
 
 @dataclass(frozen=True)
+class ListAllOrdersQuery:
+    """List all orders for a tenant."""
+    
+    tenant_id: UUID
+    status: str | None = None
+    limit: int = 50
+    offset: int = 0
+
+
+@dataclass(frozen=True)
 class ListOrdersByDateRangeQuery:
     """List orders within a date range."""
     

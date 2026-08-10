@@ -349,6 +349,50 @@ class SalesOrderRepository(BaseRepository):
         entities = [self._to_entity(m) for m in models]
         return await self._enrich_orders(entities, list(models))
 
+    async def find_all(
+        self,
+        tenant_id: UUID,
+        status: OrderStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SalesOrder]:
+        """
+        Find all orders for a tenant.
+        
+        Args:
+            tenant_id: Tenant ID
+            status: Filter by status (optional)
+            limit: Result limit
+            offset: Result offset
+            
+        Returns:
+            List of sales orders
+        """
+        stmt = (
+            select(self._model_class())
+            .options(
+                selectinload(SalesOrderModel.lines),
+                selectinload(SalesOrderModel.client),
+            )
+            .where(
+                self._model_class().tenant_id == tenant_id,
+                self._model_class().is_active.is_(True),
+                self._model_class().is_deleted.is_(False),
+            )
+        )
+        
+        if status:
+            status_value = status.name if isinstance(status, OrderStatus) else str(status).upper()
+            stmt = stmt.where(self._model_class().status == status_value)
+        
+        stmt = stmt.order_by(self._model_class().order_date.desc())
+        stmt = stmt.limit(limit).offset(offset)
+        
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        entities = [self._to_entity(m) for m in models]
+        return await self._enrich_orders(entities, list(models))
+
     async def find_by_date_range(
         self,
         tenant_id: UUID,

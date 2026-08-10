@@ -80,6 +80,7 @@ from backend.app.application.sales import (
     ListOrdersByDateRangeQuery,
     ListDraftOrdersQuery,
     ListOrdersByDeliveryDateQuery,
+    ListAllOrdersQuery,
     GetProductPriceQuery,
     CheckClientCreditQuery,
     GetPriceListByIdQuery,
@@ -114,6 +115,7 @@ from backend.app.application.sales import (
     ListOrdersByDateRangeQueryHandler,
     ListDraftOrdersQueryHandler,
     ListOrdersByDeliveryDateQueryHandler,
+    ListAllOrdersQueryHandler,
     GetProductPriceQueryHandler,
     CheckClientCreditQueryHandler,
     GetPriceListByIdQueryHandler,
@@ -783,7 +785,15 @@ async def list_orders(
                     )
                 )
             else:
-                raise ValueError("Provide client_id or both start_date and end_date")
+                handler = ListAllOrdersQueryHandler(order_repo)
+                items = await handler.handle(
+                    ListAllOrdersQuery(
+                        tenant_id=tenant_id,
+                        status=status_filter,
+                        limit=limit,
+                        offset=offset,
+                    )
+                )
             
             total = len(items)  # Would typically come from repository count method
             return SalesOrderListResponse(items=items, total=total, limit=limit, offset=offset)
