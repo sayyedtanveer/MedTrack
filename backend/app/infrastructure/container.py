@@ -116,6 +116,13 @@ class Container:
                 print("Resend email backend selected but RESEND_API_KEY is missing, falling back to stub email service")
             email_service = StubEmailService()
 
+        # Inject runtime context for tasks
+        task_service.set_context({
+            "email_service": email_service,
+            "audit_service": audit_service,
+            "event_dispatcher": event_dispatcher,
+        })
+
         return cls(
             db_engine=engine,
             session_factory=session_factory,

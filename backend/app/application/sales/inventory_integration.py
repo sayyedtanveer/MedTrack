@@ -148,7 +148,7 @@ class SalesInventoryIntegrationService:
                 InventoryTransactionModel.tenant_id == tenant_id,
                 InventoryTransactionModel.reference_type == reference_type,
                 InventoryTransactionModel.reference_id == reference_id,
-                InventoryTransactionModel.transaction_type == "reserve",
+                InventoryTransactionModel.transaction_type == "RESERVATION",
                 InventoryTransactionModel.is_deleted.is_(False),
             )
         )
@@ -179,13 +179,40 @@ class SalesInventoryIntegrationService:
                 InventoryTransactionModel.tenant_id == tenant_id,
                 InventoryTransactionModel.reference_type == reference_type,
                 InventoryTransactionModel.reference_id == reference_id,
-                InventoryTransactionModel.transaction_type == "reserve",
+                InventoryTransactionModel.transaction_type == "RESERVATION",
                 InventoryTransactionModel.is_deleted.is_(False),
             )
         )
         reservation = reservation_result.scalars().first()
+
         if reservation is None:
-            raise ValueError(f"No reservation found for {reference_type} {reference_id}")
+            logger.warning(f"No reservation found for {reference_type} {reference_id}. Falling back to direct stock removal.")
+            from backend.app.infrastructure.persistence.models.sales_models import SalesOrderLineModel
+            
+            line_result = await session.execute(
+                select(SalesOrderLineModel).where(
+                    SalesOrderLineModel.id == reference_id,
+                    SalesOrderLineModel.tenant_id == tenant_id,
+                    SalesOrderLineModel.is_deleted.is_(False)
+                )
+            )
+            line = line_result.scalar_one_or_none()
+            if line is None:
+                raise ValueError(f"Sales order line {reference_id} not found for fallback fulfillment.")
+                
+            material = await self._resolve_material(tenant_id, line.product_id, line.product_type)
+            await self.inventory_service.remove_stock(
+                tenant_id=tenant_id,
+                material_id=material.id,
+                quantity=quantity,
+                unit_id=line.uom_id,
+                created_by=self.created_by,
+                reference_id=reference_id,
+                reference_type="sales_order_line",
+                transaction_type="DISPATCH",
+                remarks=f"Shipped without prior reservation for sales order line {reference_id}",
+            )
+            return
 
         await self.inventory_service.fulfill_sales_reservation(
             tenant_id=tenant_id,
@@ -195,6 +222,7 @@ class SalesInventoryIntegrationService:
             unit_id=reservation.unit_id,
             created_by=self.created_by,
         )
+
 
 
 from dataclasses import dataclass, field

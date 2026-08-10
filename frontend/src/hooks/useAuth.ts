@@ -39,7 +39,9 @@ export function useAuth() {
         
         toast.success("Welcome back!")
 
-        const home = getPostLoginPath(meResult.user.role)
+        const userRole = (meResult.user.role || "").toUpperCase();
+        const isPlatformAdmin = (userRole === "ADMIN" || userRole === "TENANT_ADMIN") && meResult.tenant.is_system_tenant;
+        const home = isPlatformAdmin ? "/platform" : getPostLoginPath(meResult.user.role)
         navigate(home, { replace: true })
       } catch (err) {
         clearAuthStore()

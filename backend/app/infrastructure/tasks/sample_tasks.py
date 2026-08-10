@@ -17,11 +17,25 @@ class SendRegistrationReceivedEmailTask(IBackgroundTask):
     tenant_name: str
     first_name: str
 
-    async def execute(self) -> None:
-        logger.info(
-            "Sending registration received email (stub)",
-            extra={"email": self.email, "tenant": self.tenant_name},
-        )
+    async def execute(self, context: dict) -> None:
+        email_service = context.get("email_service")
+        if email_service:
+            subject = "Registration Received"
+            body = f"Hello {self.first_name},\n\nWe have received your registration for tenant {self.tenant_name}. It is currently pending approval.\n\nThank you,\nMedTrack Team"
+            html_body = f"<p>Hello <strong>{self.first_name}</strong>,</p><p>We have received your registration for tenant <strong>{self.tenant_name}</strong>. It is currently pending approval.</p><p>Thank you,<br>MedTrack Team</p>"
+            
+            try:
+                await email_service.send_email(
+                    to=self.email,
+                    subject=subject,
+                    body=body,
+                    html_body=html_body,
+                )
+            except Exception as e:
+                logger.exception("Failed to send Registration Received email", extra={"email": self.email, "tenant": self.tenant_name})
+                raise  # Let BackgroundTaskService handle retries
+        else:
+            logger.warning("SendRegistrationReceivedEmailTask: no email_service in context")
 
 
 # ── SendWorkspaceApprovedEmailTask ────────────────────────────────────────────
@@ -32,11 +46,25 @@ class SendWorkspaceApprovedEmailTask(IBackgroundTask):
     tenant_name: str
     first_name: str
 
-    async def execute(self) -> None:
-        logger.info(
-            "Sending workspace approved email (stub)",
-            extra={"email": self.email, "tenant": self.tenant_name},
-        )
+    async def execute(self, context: dict) -> None:
+        email_service = context.get("email_service")
+        if email_service:
+            subject = "Workspace Approved"
+            body = f"Hello {self.first_name},\n\nGood news! Your MedTrack workspace for tenant {self.tenant_name} has been approved and is now active.\n\nYou can now log in.\n\nWelcome to MedTrack!"
+            html_body = f"<p>Hello <strong>{self.first_name}</strong>,</p><p>Good news! Your MedTrack workspace for tenant <strong>{self.tenant_name}</strong> has been approved and is now active.</p><p>You can now log in.</p><p>Welcome to MedTrack!</p>"
+            
+            try:
+                await email_service.send_email(
+                    to=self.email,
+                    subject=subject,
+                    body=body,
+                    html_body=html_body,
+                )
+            except Exception as e:
+                logger.exception("Failed to send Workspace Approved email", extra={"email": self.email, "tenant": self.tenant_name})
+                raise  # Let BackgroundTaskService handle retries
+        else:
+            logger.warning("SendWorkspaceApprovedEmailTask: no email_service in context")
 
 
 # ── WriteAuditLogTask ─────────────────────────────────────────────────────────
@@ -45,16 +73,18 @@ class WriteAuditLogTask(IBackgroundTask):
     """Write an audit log entry in the background (decoupled from request)."""
     action: str
     entity_type: Optional[str] = None
-    audit_service: Optional[object] = None  # AuditService — injected
+    # NOTE: audit_service is removed from dataclass to keep payload serializable. It's resolved from context.
+    # audit_service: Optional[object] = None  # AuditService — injected
 
-    async def execute(self) -> None:
-        if self.audit_service:
-            await self.audit_service.log_action(
+    async def execute(self, context: dict) -> None:
+        audit_service = context.get("audit_service")
+        if audit_service:
+            await audit_service.log_action(
                 action=self.action,
                 entity_type=self.entity_type,
             )
         else:
-            logger.warning("WriteAuditLogTask: no audit_service injected")
+            logger.warning("WriteAuditLogTask: no audit_service in context")
 
 
 # ── PublishDomainEventsTask ───────────────────────────────────────────────────
@@ -62,10 +92,12 @@ class WriteAuditLogTask(IBackgroundTask):
 class PublishDomainEventsTask(IBackgroundTask):
     """Fire-and-forget domain event dispatch (fallback if UoW misses events)."""
     events: list
-    dispatcher: Optional[object] = None  # EventDispatcher — injected
+    # NOTE: dispatcher is removed from dataclass to keep payload serializable. It's resolved from context.
+    # dispatcher: Optional[object] = None  # EventDispatcher — injected
 
-    async def execute(self) -> None:
-        if not self.dispatcher:
+    async def execute(self, context: dict) -> None:
+        dispatcher = context.get("event_dispatcher")
+        if not dispatcher:
             return
         for event in self.events:
-            await self.dispatcher.dispatch(event)
+            await dispatcher.dispatch(event)

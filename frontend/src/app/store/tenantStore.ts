@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
 interface TenantStore {
   name: string | null
@@ -9,11 +10,18 @@ interface TenantStore {
   clearTenant: () => void
 }
 
-export const useTenantStore = create<TenantStore>((set) => ({
-  name: null,
-  slug: null,
-  plan: null,
-  is_system_tenant: false,
-  setTenantInfo: (name, slug, plan, is_system_tenant = false) => set({ name, slug, plan, is_system_tenant }),
-  clearTenant: () => set({ name: null, slug: null, plan: null, is_system_tenant: false }),
-}))
+export const useTenantStore = create<TenantStore>()(
+  persist(
+    (set) => ({
+      name: null,
+      slug: null,
+      plan: null,
+      is_system_tenant: false,
+      setTenantInfo: (name, slug, plan, is_system_tenant = false) => set({ name, slug, plan, is_system_tenant }),
+      clearTenant: () => set({ name: null, slug: null, plan: null, is_system_tenant: false }),
+    }),
+    {
+      name: "tenant-storage",
+    }
+  )
+)

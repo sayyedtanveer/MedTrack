@@ -1,16 +1,20 @@
 import { Link, useLocation } from "react-router-dom"
-import { ShieldCheck, Users, LayoutDashboard, Settings, Activity, Building, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import { ShieldCheck, Users, LayoutDashboard, Settings, Building, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { useUIStore } from "@/app/store/uiStore"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
+import { Mail, Bell, ArrowLeft } from "lucide-react"
+
 const platformNavItems = [
   { title: "Dashboard", href: "/platform/dashboard", icon: LayoutDashboard },
-  { title: "Tenant Management", href: "/platform/tenants", icon: Building },
-  { title: "Audit Logs", href: "/platform/audit", icon: ShieldCheck, disabled: true },
-  { title: "Billing", href: "/platform/billing", icon: Users, disabled: true },
-  { title: "Analytics", href: "/platform/analytics", icon: Activity, disabled: true },
-  { title: "Settings", href: "/platform/settings", icon: Settings, disabled: true },
+  { title: "Tenants", href: "/platform/tenants", icon: Building },
+  { title: "Subscriptions", href: "/platform/subscriptions", icon: Users, disabled: false },
+  { title: "Audit Logs", href: "/platform/audit-logs", icon: ShieldCheck, disabled: false },
+  { title: "Email Logs", href: "/platform/email-logs", icon: Mail, disabled: false },
+  { title: "Notifications", href: "/platform/notifications", icon: Bell, disabled: false },
+  { title: "System Settings", href: "/platform/settings", icon: Settings, disabled: false },
+  { title: "Back to ERP", href: "/dashboard", icon: ArrowLeft },
 ]
 
 export function PlatformSidebar() {
@@ -49,7 +53,7 @@ export function PlatformSidebar() {
                   Platform Admin
                 </p>
                 <p className="truncate pt-1 text-lg font-semibold text-white">
-                  MedTrack HQ
+                  MedTrack Platform
                 </p>
               </div>
               <Button

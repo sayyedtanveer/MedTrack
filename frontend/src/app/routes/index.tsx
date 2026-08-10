@@ -43,9 +43,11 @@ const RouteErrorFallback = () => (
 
 // Loading fallback for Suspense
 const PageLoading = () => <div className="p-8 flex items-center justify-center">Loading...</div>
+import { platformRoutes } from "@/modules/platform/routes"
 
 export const router = createBrowserRouter([
   ...clientRoutes,
+  ...platformRoutes,
   {
     path: "/login",
     element: <AuthLayout />,

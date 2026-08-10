@@ -66,7 +66,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                             expiry_minutes=settings.jwt_expiry_minutes,
                         )
 
+                    t_start = time.perf_counter()
                     payload = jwt_handler.decode_token(token)
+                    t_end = time.perf_counter()
+                    request.state.jwt_decode_time = getattr(request.state, "jwt_decode_time", 0.0) + ((t_end - t_start) * 1000)
+                    request.state.jwt_payload = payload
+                    
                     # Prefer JWT tid claim over X-Tenant-ID header for security
                     tenant_id = payload.get("tid") or tenant_id
                     logger.info(

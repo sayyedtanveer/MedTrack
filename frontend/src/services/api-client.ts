@@ -38,28 +38,10 @@ export function isSessionInvalidError(error: unknown): boolean {
     return false
   }
 
-  const requestPath = normalizeRequestUrl(error.config?.url)
-  const detail = authFailureDetail(error)
-
-  const explicitInvalid =
-    detail.includes("auth_failed") ||
-    detail.includes("not authenticated") ||
-    detail.includes("authentication required") ||
-    detail.includes("invalid or expired token") ||
-    detail.includes("invalid token") ||
-    detail.includes("expired token") ||
-    detail.includes("bad tenant_id") ||
-    detail.includes("bad user_id") ||
-    detail.includes("missing tenant_id") ||
-    detail.includes("missing user_id")
-
-  // Only treat auth validation endpoints as “session invalid” enough to force logout.
-  // Other 401s (e.g., permissions/tenant/account issues) must not clear the session.
-  if (!AUTH_VALIDATION_ENDPOINTS.has(requestPath)) {
-    return false
-  }
-
-  return explicitInvalid
+  // Treat ANY 401 Unauthorized response as a session invalidation,
+  // prompting a clean logout and redirect to the login screen.
+  // The response interceptor already excludes login/register endpoints from this.
+  return true
 }
 
 function isAuthRequest(url: string | undefined): boolean {

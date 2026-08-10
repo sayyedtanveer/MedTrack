@@ -113,9 +113,19 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 tenant_id = getattr(request.state, "tenant_id", None)
                 user_id = getattr(request.state, "user_id", None)
                 correlation_id = getattr(request.state, "correlation_id", None)
+                # Ensure IP is captured for background execution
+                ip_address = request.client.host if request.client else None
 
-                audit_service = request.app.state.container.audit_service
-                await audit_service.log_action(
+                task_service = request.app.state.container.task_service
+                
+                from backend.app.infrastructure.audit.audit_task import AuditLogTask
+                from fastapi import BackgroundTasks
+                
+                audit_task = AuditLogTask(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    ip_address=ip_address,
+                    correlation_id=correlation_id,
                     action=action,
                     entity_type=entity_type,
                     entity_id=uuid.UUID(entity_id) if entity_id else None,
@@ -124,11 +134,23 @@ class AuditMiddleware(BaseHTTPMiddleware):
                         "path": path,
                         "method": request.method,
                         "status_code": response.status_code,
-                    },
+                    }
                 )
+                
+                # Check if background tasks already exist on the response
+                if response.background is None:
+                    response.background = BackgroundTasks()
+                elif not isinstance(response.background, BackgroundTasks):
+                    # If it's a single BackgroundTask, wrap it
+                    bg = BackgroundTasks()
+                    bg.tasks.append(response.background)
+                    response.background = bg
+                
+                task_service.enqueue(audit_task, response.background, tenant_id)
+                
             except Exception as exc:
                 logger.error(
-                    "AuditMiddleware failed to log",
+                    "AuditMiddleware failed to enqueue audit task",
                     extra={"error": str(exc)},
                 )
 

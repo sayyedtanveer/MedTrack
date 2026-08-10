@@ -4,6 +4,7 @@ import { useAuthStore } from "@/app/store/authStore"
 import { isClientSession } from "@/lib/auth-session"
 import { normalizeRole } from "@/lib/roles.config"
 import { apiClient, isSessionInvalidError } from "@/services/api-client"
+import { useTenantStore } from "@/app/store/tenantStore"
 
 interface ProtectedRouteProps {
   allowedRoles?: string[]
@@ -12,7 +13,8 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ allowedRoles, roles, children }: ProtectedRouteProps) {
-  const { isAuthenticated, user, logout, token, client_id, hasHydrated } = useAuthStore()
+  const { isAuthenticated, user, logout, token, client_id, hasHydrated, setUser, setPermissions } = useAuthStore()
+  const { setTenantInfo } = useTenantStore()
   const location = useLocation()
   const [isValidating, setIsValidating] = useState(true)
   const [isValid, setIsValid] = useState(false)
@@ -42,7 +44,15 @@ export function ProtectedRoute({ allowedRoles, roles, children }: ProtectedRoute
         })
           ? "/client/profile"
           : "/auth/me"
-        await apiClient.get(validationEndpoint)
+        const response = await apiClient.get(validationEndpoint)
+        
+        if (validationEndpoint === "/auth/me" && response.data) {
+          const { user: updatedUser, tenant, permissions } = response.data
+          if (updatedUser) setUser(updatedUser)
+          if (permissions) setPermissions(permissions)
+          if (tenant) setTenantInfo(tenant.name, tenant.slug, tenant.plan, tenant.is_system_tenant)
+        }
+        
         setIsValid(true)
       } catch (error) {
         if (isSessionInvalidError(error)) {

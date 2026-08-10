@@ -12,7 +12,7 @@ class IBackgroundTask:
     """
 
     @abstractmethod
-    async def execute(self) -> None: ...
+    async def execute(self, context: dict) -> None: ...
 
     @property
     def task_name(self) -> str:

@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     # ── Email (Resend) ───────────────────────────────
     email_backend: str = "resend"
     resend_api_key: str = ""
-    resend_from_email: str = "noreply@medtrack.app"
+    resend_from_email: str = "sayyedtanveer1410@gmail.com"
 
     # ── Frontend URL (for email links) ───────────
     frontend_url: str = "http://localhost:5173"
@@ -125,7 +125,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # type: ignore
 
 
 settings = get_settings()

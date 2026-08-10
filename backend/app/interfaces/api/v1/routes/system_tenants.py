@@ -55,7 +55,7 @@ async def verify_platform_admin(request: Request, payload: dict = Depends(get_cu
         tenant_repo = TenantRepository(session)
         tenant = await tenant_repo.get_by_tenant_id(tenant_id)
 
-    if not tenant or not tenant.is_system_tenant or role != "tenant_admin":
+    if not tenant or not tenant.is_system_tenant or role not in ("tenant_admin", "admin", "ADMIN", "TENANT_ADMIN"):
         raise HTTPException(status_code=403, detail="Platform Administrator privileges required")
     
     return True

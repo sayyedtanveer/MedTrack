@@ -111,6 +111,8 @@ def create_application() -> FastAPI:
     # ── Middleware (order matters: outermost first) ──
     app.add_middleware(ErrorLoggingMiddleware)  # ✅ NEW: Centralized error capture + logging
     app.add_middleware(CorrelationIdMiddleware)  # ✅ NEW: X-Request-ID tracing (Req 41.2)
+    from backend.app.interfaces.api.v1.middleware.timing_middleware import TimingMiddleware
+    app.add_middleware(TimingMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)  # ✅ Security headers for production hardening
 
     # Rate limiting (SlowAPI)

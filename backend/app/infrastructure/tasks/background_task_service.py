@@ -43,6 +43,11 @@ class BackgroundTaskService:
     def __init__(self, session_factory=None) -> None:
         # Optional SQLAlchemy async session factory for persisting failed tasks.
         self._session_factory = session_factory
+        self._context: dict = {}
+        
+    def set_context(self, context: dict) -> None:
+        """Provide a dictionary of services/dependencies for runtime injection."""
+        self._context = context
 
     def enqueue(
         self,
@@ -64,7 +69,7 @@ class BackgroundTaskService:
 
         for attempt in range(MAX_RETRIES + 1):
             try:
-                await task.execute()
+                await task.execute(self._context)
                 if attempt > 0:
                     logger.info(
                         "Background task succeeded after retry",

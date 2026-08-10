@@ -26,4 +26,4 @@ class PlatformAuthorizationService:
         if not PlatformAuthorizationService.is_platform_admin_tenant(tenant):
             return False
             
-        return user.role == "tenant_admin"
+        return user.role in ("tenant_admin", "admin")

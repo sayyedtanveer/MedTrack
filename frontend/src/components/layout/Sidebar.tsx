@@ -8,11 +8,13 @@ import { getVisibleNavItems, type NavItem } from "@/lib/constants"
 import { normalizeRole } from "@/lib/roles.config"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useIsPlatformAdmin } from "@/hooks/useIsPlatformAdmin"
 
 export function Sidebar() {
   const { isSidebarOpen, toggleSidebar, setSidebarOpen } = useUIStore()
   const { name: tenantName } = useTenantStore()
   const { role } = usePermissions()
+  const isPlatformAdmin = useIsPlatformAdmin()
   const location = useLocation()
   const [expandedState, setExpandedState] = useState<Record<string, boolean>>({})
 
@@ -205,7 +207,14 @@ export function Sidebar() {
           })}
         </nav>
 
-        <div className={cn("border-t border-slate-800 px-4 py-4", !isSidebarOpen && "px-2")}>
+        <div className={cn("border-t border-slate-800 px-4 py-4 space-y-4", !isSidebarOpen && "px-2")}>
+          {isPlatformAdmin && (
+            <Link to="/platform">
+              <Button variant="outline" className={cn("w-full bg-slate-900 border-fuchsia-500/30 text-fuchsia-400 hover:bg-fuchsia-500/10 hover:text-fuchsia-300", !isSidebarOpen && "px-0")}>
+                {isSidebarOpen ? "MedTrack Platform" : "M"}
+              </Button>
+            </Link>
+          )}
           {isSidebarOpen ? (
             <div className="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3 backdrop-blur-sm">
               <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Role</p>

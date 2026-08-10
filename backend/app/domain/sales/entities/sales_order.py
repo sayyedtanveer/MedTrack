@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from backend.app.domain.shared.base_entity import AggregateRoot
+from backend.app.domain.shared.exceptions.business_rule_violation import BusinessRuleViolationException
 from backend.app.domain.sales.value_objects import OrderNumber, OrderStatus, PaymentStatus, Money
 
 
@@ -111,9 +112,9 @@ class SalesOrder(AggregateRoot):
     def _validate(self) -> None:
         """Validate order invariants."""
         if self.delivery_date < self.order_date:
-            raise ValueError("Delivery date cannot be before order date")
+            raise BusinessRuleViolationException("Invalid Delivery Date", "Delivery date cannot be before order date")
         if not self.order_number:
-            raise ValueError("Order number is required")
+            raise BusinessRuleViolationException("Invalid Order Number", "Order number is required")
 
     def add_line(self, line) -> None:
         """

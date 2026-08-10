@@ -381,6 +381,30 @@ class WorkflowOrchestrationService:
                 },
             )
 
+            if work_order.sales_order_line_id:
+                try:
+                    stmt = select(SalesOrderLineModel).where(SalesOrderLineModel.id == work_order.sales_order_line_id)
+                    so_line = (await self.session.execute(stmt)).scalar_one_or_none()
+                    if so_line:
+                        shortfall = Decimal(str(so_line.shortfall_quantity or 0))
+                        to_reserve = min(fg_quantity, shortfall) if shortfall > 0 else fg_quantity
+                        if to_reserve > 0:
+                            await self.inventory_service.reserve_sales_stock(
+                                tenant_id=tenant_id,
+                                material_id=fg_material_id,
+                                quantity=to_reserve,
+                                sales_order_line_id=work_order.sales_order_line_id,
+                                unit_id=so_line.uom_id,
+                                created_by=received_by,
+                                sales_order_id=work_order.sales_order_id,
+                            )
+                            so_line.allocated_quantity = float(Decimal(str(so_line.allocated_quantity or 0)) + to_reserve)
+                            so_line.shortfall_quantity = float(max(Decimal("0"), shortfall - to_reserve))
+                            so_line.updated_at = datetime.now(timezone.utc)
+                            logger.info(f"Auto-reserved {to_reserve} for SO Line {work_order.sales_order_line_id}")
+                except Exception as e:
+                    logger.error(f"Failed to auto-reserve for SO line {work_order.sales_order_line_id}: {e}")
+
         work_order.status = WorkOrderStatus.FG_RECEIVED.value
         work_order.updated_at = datetime.now(timezone.utc)
 

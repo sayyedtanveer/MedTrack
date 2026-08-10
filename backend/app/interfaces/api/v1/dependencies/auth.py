@@ -48,8 +48,12 @@ async def get_current_user_payload(
     
     container = get_container(request)
     try:
-        payload = container.jwt_handler.decode_token(credentials.credentials)
-        logger.debug("JWT decoded successfully", extra={"role": payload.get("role"), "tid": payload.get("tid"), "sub": payload.get("sub")})
+        # 1. Try to fetch pre-decoded payload from RequestLoggingMiddleware
+        payload = getattr(request.state, "jwt_payload", None)
+        if not payload:
+            # Fallback (should rarely happen unless middleware is bypassed)
+            payload = container.jwt_handler.decode_token(credentials.credentials)
+            logger.debug("JWT decoded in auth dependency", extra={"role": payload.get("role"), "tid": payload.get("tid"), "sub": payload.get("sub")})
     except Exception as e:
         logger.error(f"JWT decode failed: {str(e)}", extra={"token_prefix": credentials.credentials[:20] if credentials else "NO_TOKEN"})
         raise HTTPException(
@@ -68,17 +72,30 @@ async def get_current_user_payload(
         try:
             tid = uuid.UUID(tenant_id)
             async with container.session_factory() as session:
-                from backend.app.infrastructure.persistence.repositories.tenant_repository import TenantRepository
-                tenant_repo = TenantRepository(session)
-                tenant = await tenant_repo.get_by_tenant_id(tid)
+                from sqlalchemy import select
+                from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
+                import time
                 
-                if not tenant:
+                t_start = time.perf_counter()
+                stmt = select(TenantModel.status).where(
+                    TenantModel.id == tid,
+                    TenantModel.is_deleted.is_(False)
+                )
+                result = await session.execute(stmt)
+                tenant_status = result.scalar_one_or_none()
+                t_end = time.perf_counter()
+                
+                request.state.auth_db_time = getattr(request.state, "auth_db_time", 0.0) + ((t_end - t_start) * 1000)
+                
+                if tenant_status is None:
                     raise HTTPException(status_code=401, detail="Tenant no longer exists")
-                if tenant.status == "suspended":
+                
+                status_str = getattr(tenant_status, "value", tenant_status)
+                if status_str == "suspended":
                     raise HTTPException(status_code=403, detail="Account suspended. API access denied.")
-                if tenant.status == "rejected":
+                if status_str == "rejected":
                     raise HTTPException(status_code=403, detail="Account rejected. API access denied.")
-                if tenant.status == "pending":
+                if status_str == "pending":
                     raise HTTPException(status_code=403, detail="Account pending approval.")
         except ValueError:
             pass # Invalid UUID handled later

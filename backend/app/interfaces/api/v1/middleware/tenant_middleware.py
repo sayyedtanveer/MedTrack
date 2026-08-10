@@ -33,18 +33,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
         tenant_id: str | None = None
 
-        # 1. Try to decode from JWT (preferred source of truth)
-        payload: dict | None = None
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            try:
-                container = request.app.state.container
-                payload = container.jwt_handler.decode_token(token)
-                # Use JWT tid claim as primary source
-                tenant_id = payload.get("tid")
-            except Exception:
-                pass  # Will fail properly in auth dependency
+        # 1. Try to fetch pre-decoded JWT payload from request.state
+        payload: dict | None = getattr(request.state, "jwt_payload", None)
+        if payload:
+            # Use JWT tid claim as primary source
+            tenant_id = payload.get("tid")
 
         # 2. Fall back to X-Tenant-ID header (only for machine-to-machine calls)
         if not tenant_id:
