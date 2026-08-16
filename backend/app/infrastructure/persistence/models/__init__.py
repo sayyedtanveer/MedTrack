@@ -45,3 +45,4 @@ import backend.app.infrastructure.persistence.models.user_device_model
 import backend.app.infrastructure.persistence.models.user_model
 import backend.app.infrastructure.persistence.models.workstation_model
 import backend.app.infrastructure.persistence.models.work_order_model
+import backend.app.infrastructure.persistence.models.import_models

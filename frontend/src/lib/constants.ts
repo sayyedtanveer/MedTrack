@@ -350,13 +350,13 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     title: "Settings",
-    href: "/settings/company-profile",
+    href: "/settings/company-setup",
     icon: Settings,
     roles: getRolesForModule("settings"),
     children: [
       {
-        title: "Company Profile",
-        href: "/settings/company-profile",
+        title: "Company Setup",
+        href: "/settings/company-setup",
         icon: Building2,
         roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
       },
@@ -365,18 +365,6 @@ export const NAV_ITEMS: NavItem[] = [
         href: "/settings/business-config",
         icon: Settings,
         roles: getRolesForModule("settings"),
-      },
-      {
-        title: "Company Setup",
-        href: "/settings/company-setup",
-        icon: Building2,
-        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
-      },
-      {
-        title: "Master Data",
-        href: "/settings/master-data",
-        icon: Database,
-        roles: [UserRole.ADMIN, UserRole.TENANT_ADMIN, UserRole.MANAGER],
       },
     ],
   },

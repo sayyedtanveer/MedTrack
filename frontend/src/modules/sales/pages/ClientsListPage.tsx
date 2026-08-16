@@ -19,6 +19,10 @@ import { Plus, Edit2, IndianRupee, KeyRound, Copy, Check } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@/app/store/authStore';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { MasterDataImportWizard } from '@/components/data/MasterDataImportWizard';
+import { Upload, Download } from 'lucide-react';
+import apiClient from '@/services/api-client';
 
 type PortalCredentials = {
   email: string;
@@ -49,6 +53,22 @@ export default function ClientsListPage() {
   const [portalCredentials, setPortalCredentials] = useState<PortalCredentials | null>(null);
   const [copiedCredentials, setCopiedCredentials] = useState(false);
   const [portalSavingClientId, setPortalSavingClientId] = useState<string | null>(null);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+
+  const handleExport = async () => {
+    try {
+      const response = await apiClient.get('/clients/export', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'clients_export.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err: any) {
+      toast({ title: 'Export failed', description: err.message, variant: 'destructive' });
+    }
+  };
 
   useEffect(() => {
     const loadClients = async () => {
@@ -192,10 +212,42 @@ export default function ClientsListPage() {
           <h1 className="text-3xl font-bold text-gray-900">Sales Clients</h1>
           <p className="text-gray-600 mt-1">Manage client information and credit limits</p>
         </div>
-        <Button onClick={() => navigate('/sales/clients/new')} size="lg">
-          <Plus className="mr-2 h-4 w-4" />
-          New Client
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+          
+          <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Upload className="mr-2 h-4 w-4" />
+                Import
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <MasterDataImportWizard 
+                moduleName="clients"
+                apiPrefix="/clients"
+                onCancel={() => setShowImportDialog(false)}
+                onComplete={() => {
+                  setShowImportDialog(false);
+                  setCurrentPage(1);
+                  // Trigger reload
+                  clientsApi.list(pageSize, 0, search).then((res) => {
+                    setClients(res.items);
+                    setTotal(res.total);
+                  });
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+
+          <Button onClick={() => navigate('/sales/clients/new')} size="lg">
+            <Plus className="mr-2 h-4 w-4" />
+            New Client
+          </Button>
+        </div>
       </div>
 
       {/* Search */}

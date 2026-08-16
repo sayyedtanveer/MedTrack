@@ -18,7 +18,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import type { User } from "@/types/auth.types"
-import { Check, Copy, KeyRound, Pencil, Plus } from "lucide-react"
+import { Check, Copy, KeyRound, Pencil, Plus, Upload, Download } from "lucide-react"
+import { MasterDataImportWizard } from "@/components/data/MasterDataImportWizard"
+import apiClient from "@/services/api-client"
 
 type SupplierFormState = {
   code: string
@@ -82,6 +84,22 @@ export default function SuppliersListPage() {
   const [saving, setSaving] = useState(false)
   const [supplierUsers, setSupplierUsers] = useState<User[]>([])
   const [portalSavingSupplierId, setPortalSavingSupplierId] = useState<string | null>(null)
+  const [showImportDialog, setShowImportDialog] = useState(false)
+
+  const handleExport = async () => {
+    try {
+      const response = await apiClient.get('/suppliers/export', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', 'suppliers_export.xlsx')
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err: any) {
+      toast({ title: 'Export failed', description: err.message, variant: 'destructive' })
+    }
+  }
 
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState<Supplier | null>(null)
@@ -310,13 +328,39 @@ export default function SuppliersListPage() {
             Manage supplier master data and create portal access for purchase order collaboration.
           </p>
         </div>
-        <Dialog open={open} onOpenChange={handleCreateOpenChange}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add supplier
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+
+          <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Upload className="mr-2 h-4 w-4" />
+                Import
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <MasterDataImportWizard 
+                moduleName="suppliers"
+                apiPrefix="/suppliers"
+                onCancel={() => setShowImportDialog(false)}
+                onComplete={() => {
+                  setShowImportDialog(false)
+                  refresh()
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={open} onOpenChange={handleCreateOpenChange}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add supplier
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>New supplier</DialogTitle>
@@ -464,6 +508,7 @@ export default function SuppliersListPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Alert>

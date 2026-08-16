@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import io
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import selectinload
 
@@ -391,6 +394,134 @@ async def create_supplier(
         },
     )
     return SupplierResponse.model_validate(s)
+
+
+# ==================== SUPPLIER IMPORT/EXPORT ENDPOINTS ====================
+
+from fastapi.responses import StreamingResponse
+import io
+
+@router.get("/suppliers/export", dependencies=[Depends(require_permission("procurement:read"))])
+async def export_suppliers(
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    container = get_container(request)
+    async with container.session_factory() as session:
+        from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
+        from sqlalchemy import select
+        import openpyxl
+        
+        stmt = select(SupplierModel).where(SupplierModel.tenant_id == tenant_id, SupplierModel.is_deleted.is_(False))
+        result = await session.execute(stmt)
+        suppliers = result.scalars().all()
+        
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Suppliers"
+        headers = ["Code*", "Name*", "Contact Person", "Email", "Phone", "Address", "GST Number", "Payment Terms", "Performance Rating"]
+        ws.append(headers)
+        
+        for s in suppliers:
+            ws.append([s.code, s.name, s.contact_person, s.email, s.phone, s.address, s.gst, s.payment_terms, float(s.performance_rating) if s.performance_rating else None])
+            
+        from fastapi.responses import Response
+        output = io.BytesIO()
+        wb.save(output)
+        
+        return Response(
+            content=output.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=suppliers_export.xlsx"}
+        )
+
+@router.get("/suppliers/import/template", dependencies=[Depends(require_permission("procurement:write"))])
+async def get_supplier_import_template(
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.procurement.supplier_import_service import SupplierImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = SupplierImportService(session, tenant_id, user_id)
+        file_bytes = service.generate_template()
+        
+        from fastapi.responses import Response
+        output = io.BytesIO(file_bytes)
+        return Response(
+            content=output.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=suppliers_template.xlsx"}
+        )
+
+@router.post("/suppliers/import/preview", dependencies=[Depends(require_permission("procurement:write"))])
+async def preview_supplier_import(
+    request: Request,
+    file: UploadFile = File(...),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.procurement.supplier_import_service import SupplierImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = SupplierImportService(session, tenant_id, user_id)
+        content = await file.read()
+        session_id = await service.parse_and_store_preview(content)
+        
+        from backend.app.infrastructure.persistence.models.import_models import ImportSessionModel
+        import_session = await session.get(ImportSessionModel, session_id)
+        
+        return {
+            "session_id": str(session_id),
+            "total_rows": import_session.total_rows,
+            "valid_rows": import_session.valid_rows,
+            "error_rows": import_session.error_rows,
+        }
+
+@router.post("/suppliers/import/confirm", dependencies=[Depends(require_permission("procurement:write"))])
+async def confirm_supplier_import(
+    request: Request,
+    session_id: UUID = Form(...),
+    duplicate_strategy: str = Form("SKIP"),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.procurement.supplier_import_service import SupplierImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = SupplierImportService(session, tenant_id, user_id)
+        try:
+            await service.execute_import(session_id, duplicate_strategy)
+            return {"status": "success"}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/suppliers/import/{session_id}/errors", dependencies=[Depends(require_permission("procurement:write"))])
+async def download_supplier_import_errors(
+    session_id: UUID,
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.procurement.supplier_import_service import SupplierImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = SupplierImportService(session, tenant_id, user_id)
+        file_bytes = await service.generate_error_report(session_id)
+        
+        if not file_bytes:
+            raise HTTPException(status_code=404, detail="No errors found or session invalid")
+            
+        from fastapi.responses import Response
+        output = io.BytesIO(file_bytes)
+        return Response(
+            content=output.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=suppliers_import_errors_{session_id}.xlsx"}
+        )
+
+# ==================== EXISTING SUPPLIER API ENDPOINTS ====================
 
 
 @router.put(

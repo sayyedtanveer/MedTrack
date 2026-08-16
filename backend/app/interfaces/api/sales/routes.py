@@ -7,7 +7,7 @@ from datetime import date
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from sqlalchemy import func, or_, select
 
 from backend.app.domain.sales.repositories.client_repository import ClientRepository
@@ -392,6 +392,133 @@ async def _notify_sales_order_submitted(session, container, tenant_id: UUID, ord
         reference_id=order.id,
     )
 
+
+# ==================== CLIENT IMPORT/EXPORT ENDPOINTS ====================
+
+from fastapi.responses import StreamingResponse
+import io
+
+@router.get("/clients/export", dependencies=[Depends(require_permission("sales:read"))])
+async def export_clients(
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """Export all clients to Excel."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        # Simplistic export for now
+        from backend.app.infrastructure.persistence.models.sales_models import ClientModel
+        from sqlalchemy import select
+        import openpyxl
+        
+        stmt = select(ClientModel).where(ClientModel.tenant_id == tenant_id, ClientModel.is_deleted.is_(False))
+        result = await session.execute(stmt)
+        clients = result.scalars().all()
+        
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Clients"
+        headers = ["Code*", "Name*", "Email", "Phone", "Address", "GST Number", "Credit Limit", "Payment Terms (Days)"]
+        ws.append(headers)
+        
+        for c in clients:
+            ws.append([c.code, c.name, c.email, c.phone, c.address, c.gst_number, c.credit_limit, c.payment_terms_days])
+            
+        from fastapi.responses import Response
+        output = io.BytesIO()
+        wb.save(output)
+        
+        return Response(
+            content=output.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=clients_export.xlsx"}
+        )
+
+@router.get("/clients/import/template", dependencies=[Depends(require_permission("sales:write"))])
+async def get_client_import_template(
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.sales.client_import_service import ClientImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = ClientImportService(session, tenant_id, user_id)
+        file_bytes = service.generate_template()
+        
+        from fastapi.responses import Response
+        output = io.BytesIO(file_bytes)
+        return Response(
+            content=output.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=clients_template.xlsx"}
+        )
+
+@router.post("/clients/import/preview", dependencies=[Depends(require_permission("sales:write"))])
+async def preview_client_import(
+    request: Request,
+    file: UploadFile = File(...),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.sales.client_import_service import ClientImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = ClientImportService(session, tenant_id, user_id)
+        content = await file.read()
+        session_id = await service.parse_and_store_preview(content)
+        
+        from backend.app.infrastructure.persistence.models.import_models import ImportSessionModel
+        import_session = await session.get(ImportSessionModel, session_id)
+        
+        return {
+            "session_id": str(session_id),
+            "total_rows": import_session.total_rows,
+            "valid_rows": import_session.valid_rows,
+            "error_rows": import_session.error_rows,
+        }
+
+@router.post("/clients/import/confirm", dependencies=[Depends(require_permission("sales:write"))])
+async def confirm_client_import(
+    request: Request,
+    session_id: UUID = Form(...),
+    duplicate_strategy: str = Form("SKIP"),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.sales.client_import_service import ClientImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = ClientImportService(session, tenant_id, user_id)
+        try:
+            await service.execute_import(session_id, duplicate_strategy)
+            return {"status": "success"}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/clients/import/{session_id}/errors", dependencies=[Depends(require_permission("sales:write"))])
+async def download_client_import_errors(
+    session_id: UUID,
+    request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    from backend.app.application.sales.client_import_service import ClientImportService
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = ClientImportService(session, tenant_id, user_id)
+        file_bytes = await service.generate_error_report(session_id)
+        
+        if not file_bytes:
+            raise HTTPException(status_code=404, detail="No errors found or session invalid")
+            
+        from fastapi.responses import Response
+        output = io.BytesIO(file_bytes)
+        return Response(
+            content=output.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=clients_import_errors_{session_id}.xlsx"}
+        )
 
 # ==================== CLIENT ENDPOINTS ====================
 

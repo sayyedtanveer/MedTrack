@@ -1,7 +1,7 @@
 """Domain exceptions for the manufacturing module."""
 
 
-class InsufficientStockError(Exception):
+class InsufficientStockError(ValueError):
     error_code = "INSUFFICIENT_STOCK"
 
 

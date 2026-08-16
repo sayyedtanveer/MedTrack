@@ -1,6 +1,4 @@
-import axios from 'axios'
-
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api/v1'
+import apiClient from './api-client'
 
 export interface Document {
   id: string
@@ -35,32 +33,22 @@ export interface DocumentGenerateOptions {
 }
 
 class DocumentService {
-  private getHeaders() {
-    const token = localStorage.getItem('access_token')
-    return {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-    }
-  }
-
   async generateDocument(
     documentType: string,
     entityId: string,
     options: DocumentGenerateOptions = {}
   ): Promise<Document> {
-    const response = await axios.post(
-      `${API_BASE}/documents/${documentType}/${entityId}/generate`,
-      options,
-      { headers: this.getHeaders() }
+    const response = await apiClient.post(
+      `/documents/${documentType}/${entityId}/generate`,
+      options
     )
     return response.data
   }
 
   async downloadDocument(documentId: string): Promise<Blob> {
-    const response = await axios.get(
-      `${API_BASE}/documents/${documentId}/download`,
+    const response = await apiClient.get(
+      `/documents/${documentId}/download`,
       {
-        headers: this.getHeaders(),
         responseType: 'blob',
       }
     )
@@ -83,9 +71,8 @@ class DocumentService {
     documentType: string,
     entityId: string
   ): Promise<DocumentList> {
-    const response = await axios.get(
-      `${API_BASE}/documents/${documentType}/${entityId}/versions`,
-      { headers: this.getHeaders() }
+    const response = await apiClient.get(
+      `/documents/${documentType}/${entityId}/versions`
     )
     return response.data
   }

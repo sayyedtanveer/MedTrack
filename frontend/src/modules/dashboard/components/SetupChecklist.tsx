@@ -11,7 +11,7 @@
  */
 
 import { useNavigate } from "react-router-dom"
-import { Hash, Building2, Users, ShieldCheck, Truck, Package, Box, LayoutGrid, ClipboardList, ChevronRight } from "lucide-react"
+import { Hash, Building2, Users, ShieldCheck, Truck, Package, Box, LayoutGrid, ClipboardList, ChevronRight, Database } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -58,6 +58,14 @@ const SETUP_STEPS: SetupStep[] = [
     description: "Assign RBAC permissions before users access the system.",
     href: "/roles",
     icon: ShieldCheck,
+    badge: "Setup",
+  },
+  {
+    phase: "Phase 1",
+    label: "Master Data",
+    description: "Configure unit of measure, material categories, and storage locations.",
+    href: "/settings/master-data",
+    icon: Database,
     badge: "Setup",
   },
   {

@@ -12,9 +12,11 @@ from sqlalchemy import select
 from backend.app.application.manufacturing.services.inventory_service import (
     InventoryService as StockInventoryService,
 )
-from backend.app.infrastructure.persistence.models.inventory_transaction_model import (
-    InventoryTransactionModel,
+from backend.app.infrastructure.persistence.models.inventory_reservation_model import (
+    InventoryReservationModel,
 )
+from backend.app.infrastructure.persistence.models.sales_models import SalesOrderLineModel
+
 from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
 from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 
@@ -143,17 +145,38 @@ class SalesInventoryIntegrationService:
     ) -> None:
         """Release reserved sales stock by locating the original reservation."""
         session = self.inventory_service._session
+        # First, try to find a reservation made specifically against the line
         reservation_result = await session.execute(
-            select(InventoryTransactionModel).where(
-                InventoryTransactionModel.tenant_id == tenant_id,
-                InventoryTransactionModel.reference_type == reference_type,
-                InventoryTransactionModel.reference_id == reference_id,
-                InventoryTransactionModel.transaction_type == "RESERVATION",
-                InventoryTransactionModel.is_deleted.is_(False),
+            select(InventoryReservationModel).where(
+                InventoryReservationModel.tenant_id == tenant_id,
+                InventoryReservationModel.reference_type == reference_type,
+                InventoryReservationModel.reference_id == reference_id,
             )
         )
         reservation = reservation_result.scalars().first()
+
+        if reservation is None and reference_type == "sales_order_line":
+            # If not found, try to find the reservation made against the parent sales order
+            line_result = await session.execute(
+                select(SalesOrderLineModel).where(
+                    SalesOrderLineModel.id == reference_id,
+                    SalesOrderLineModel.tenant_id == tenant_id,
+                    SalesOrderLineModel.is_deleted.is_(False)
+                )
+            )
+            line = line_result.scalar_one_or_none()
+            if line is not None:
+                reservation_result = await session.execute(
+                    select(InventoryReservationModel).where(
+                        InventoryReservationModel.tenant_id == tenant_id,
+                        InventoryReservationModel.reference_type == "sales_order",
+                        InventoryReservationModel.reference_id == line.sales_order_id,
+                    )
+                )
+                reservation = reservation_result.scalars().first()
+
         if reservation is None:
+            logger.warning(f"No reservation found for {reference_type} {reference_id} during release.")
             return
 
         await self.inventory_service.release_sales_reservation(
@@ -173,21 +196,38 @@ class SalesInventoryIntegrationService:
         quantity: Decimal,
     ) -> None:
         """Convert a reservation into an actual sales shipment."""
-        session = self.inventory_service._session
+        # First, try to find a reservation made specifically against the line
         reservation_result = await session.execute(
-            select(InventoryTransactionModel).where(
-                InventoryTransactionModel.tenant_id == tenant_id,
-                InventoryTransactionModel.reference_type == reference_type,
-                InventoryTransactionModel.reference_id == reference_id,
-                InventoryTransactionModel.transaction_type == "RESERVATION",
-                InventoryTransactionModel.is_deleted.is_(False),
+            select(InventoryReservationModel).where(
+                InventoryReservationModel.tenant_id == tenant_id,
+                InventoryReservationModel.reference_type == reference_type,
+                InventoryReservationModel.reference_id == reference_id,
             )
         )
         reservation = reservation_result.scalars().first()
 
+        if reservation is None and reference_type == "sales_order_line":
+            # If not found, try to find the reservation made against the parent sales order
+            line_result = await session.execute(
+                select(SalesOrderLineModel).where(
+                    SalesOrderLineModel.id == reference_id,
+                    SalesOrderLineModel.tenant_id == tenant_id,
+                    SalesOrderLineModel.is_deleted.is_(False)
+                )
+            )
+            line = line_result.scalar_one_or_none()
+            if line is not None:
+                reservation_result = await session.execute(
+                    select(InventoryReservationModel).where(
+                        InventoryReservationModel.tenant_id == tenant_id,
+                        InventoryReservationModel.reference_type == "sales_order",
+                        InventoryReservationModel.reference_id == line.sales_order_id,
+                    )
+                )
+                reservation = reservation_result.scalars().first()
+
         if reservation is None:
             logger.warning(f"No reservation found for {reference_type} {reference_id}. Falling back to direct stock removal.")
-            from backend.app.infrastructure.persistence.models.sales_models import SalesOrderLineModel
             
             line_result = await session.execute(
                 select(SalesOrderLineModel).where(
