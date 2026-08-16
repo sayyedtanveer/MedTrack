@@ -73,7 +73,7 @@ const HUB_SECTIONS: HubSection[] = [
   {
     title: "Operation Master",
     description: "Define manufacturing operations such as Cutting, Assembly, and Inspection used in BOMs.",
-    href: "/operations",
+    href: "/manufacturing/operations-master",
     icon: Wrench,
     color: "text-amber-600 dark:text-amber-400",
     bgColor: "bg-amber-50 dark:bg-amber-950/40",

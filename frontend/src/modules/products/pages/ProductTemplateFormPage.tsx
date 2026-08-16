@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { TagInput } from "@/components/ui/tag-input"
 import { toast } from "sonner"
 import { VariantManager } from "../components/VariantManager"
 import { BusinessAssistantPanel, BusinessAssistantConfig } from "@/components/shared/BusinessAssistantPanel"
@@ -26,19 +27,19 @@ const panelConfig: BusinessAssistantConfig = {
   ],
   canDo: [
     "Define base details for a product",
-    "Specify Dynamic Attributes (e.g., Color, Size)",
+    "Specify Variant Attributes (e.g., Color, Size)",
     "Generate combinations of variants automatically",
     "Map variants to Finished Good inventory materials",
   ],
   screenWalkthrough: [
     { section: "Basic Information", purpose: "Set name, category, and base unit", impact: "Used across all variants" },
-    { section: "Dynamic Attributes", purpose: "Define variables like Color and Size", impact: "Enables automatic generation of variant combinations" },
+    { section: "Product Variants", purpose: "Define variant attributes like Color and Size", impact: "Enables automatic generation of variant combinations" },
     { section: "Variants Tab (Edit Mode)", purpose: "Create, activate, and set prices for variants", impact: "Makes items available for Sales Orders" },
   ],
   fieldGuide: [
-    { field: "Dynamic Attribute - Label", purpose: "What the user sees in the UI", meaning: "Friendly name", example: "Storage Size" },
-    { field: "Dynamic Attribute - Key", purpose: "Internal database key", meaning: "Used by API", example: "storage_size", bestPractice: "Lowercase, underscores only" },
-    { field: "Dynamic Attribute - Allowed Options", purpose: "Variant choices", meaning: "Comma separated values", example: "128GB, 256GB" },
+    { field: "Variant Attribute Name", purpose: "What the user sees in the UI", meaning: "Friendly name", example: "Color" },
+    { field: "Variant Attribute Key", purpose: "Internal database key", meaning: "Used by API", example: "color", bestPractice: "Lowercase, underscores only" },
+    { field: "Variant Options", purpose: "Available choices", meaning: "Values like Black, White", example: "Black, White" },
   ],
   buttonGuide: [
     { button: "Generate Variants", what: "Creates variant combinations from attributes", continues: "Adds to Variant grid", reversible: true },
@@ -51,7 +52,7 @@ const panelConfig: BusinessAssistantConfig = {
     { label: "Link to BOM" },
   ],
   bestPractices: [
-    "Keep Dynamic Attributes simple (2-3 max) to avoid generating hundreds of variants",
+    "Keep Variant Attributes simple (2-3 max) to avoid generating hundreds of variants",
     "Always set a selling price for variants before using them in Sales Orders"
   ],
   commonMistakes: [
@@ -67,7 +68,7 @@ const panelConfig: BusinessAssistantConfig = {
     { question: "Can I sell a template?", answer: "No, Sales Orders only accept Variants." },
   ],
   tips: ["Use 'Generate Variants' in edit mode to instantly create all possible combinations of your attributes."],
-  warnings: ["Changing dynamic attributes after generating variants will not automatically delete old variants."],
+  warnings: ["Changing variant attributes after generating variants will not automatically delete old variants."],
   successResult: ["Template is created", "Variants can be added in the bottom section"],
 }
 
@@ -87,7 +88,7 @@ export default function ProductTemplateFormPage() {
   const [categoryId, setCategoryId] = useState("")
   const [baseUnitId, setBaseUnitId] = useState("")
   const [isActive, setIsActive] = useState(true)
-  const [attributes, setAttributes] = useState<{ key: string; label: string; values?: string[] }[]>([])
+  const [attributes, setAttributes] = useState<{ key: string; label: string; values?: string[]; _isNew?: boolean }[]>([])
 
   // Load existing data if edit mode
   const { data: templateData, isSuccess } = useQuery({
@@ -130,15 +131,59 @@ export default function ProductTemplateFormPage() {
   const save = () => {
     if (!name.trim()) return toast.error("Name is required")
     if (!categoryId) return toast.error("Category is required")
+
+    // Attribute Validation
+    const seenNames = new Set<string>()
+    for (const attr of attributes) {
+      const trimmedLabel = attr.label.trim()
+      if (!trimmedLabel) {
+        return toast.error("Variant attribute name is required.")
+      }
+
+      const lowerLabel = trimmedLabel.toLowerCase()
+      if (seenNames.has(lowerLabel)) {
+        return toast.error(`Duplicate attribute name found: "${trimmedLabel}"`)
+      }
+      seenNames.add(lowerLabel)
+
+      const rawOptions = attr.values ?? []
+      const validOptions = rawOptions.map(v => v.trim()).filter(Boolean)
+      
+      if (validOptions.length === 0) {
+        return toast.error("Add at least one option to this variant attribute.")
+      }
+
+      const seenOptions = new Set<string>()
+      for (const opt of validOptions) {
+        const lowerOpt = opt.toLowerCase()
+        if (seenOptions.has(lowerOpt)) {
+          return toast.error(`Duplicate option "${opt}" found in attribute "${trimmedLabel}"`)
+        }
+        seenOptions.add(lowerOpt)
+      }
+    }
+
     const payload: any = {
       item_code: code.trim() || null,
       name,
       description,
-      attributes: attributes.map((attr) => ({
-        key: attr.key.trim(),
-        label: attr.label.trim(),
-        values: (attr.values ?? []).map((value) => value.trim()).filter(Boolean),
-      })),
+      attributes: attributes.map((attr) => {
+        // We preserve casing for display, but remove duplicates case-insensitively
+        const uniqueValues: string[] = []
+        const seen = new Set<string>()
+        for (const val of (attr.values ?? [])) {
+          const trimmed = val.trim()
+          if (trimmed && !seen.has(trimmed.toLowerCase())) {
+            seen.add(trimmed.toLowerCase())
+            uniqueValues.push(trimmed)
+          }
+        }
+        return {
+          key: attr.key.trim(),
+          label: attr.label.trim(),
+          values: uniqueValues,
+        }
+      }),
     }
     payload.category_id = categoryId
     if (baseUnitId) payload.base_unit_id = baseUnitId
@@ -151,18 +196,18 @@ export default function ProductTemplateFormPage() {
     mutation.mutate(payload)
   }
 
-  const addAttr = () => setAttributes([...attributes, { key: "", label: "", values: [] }])
+  const addAttr = () => setAttributes([...attributes, { key: "", label: "", values: [], _isNew: true }])
   const updateAttr = (i: number, field: "key"|"label", val: string) => {
     const arr = [...attributes]
     arr[i][field] = val
-    if (field === "label" && !arr[i].key) {
+    if (field === "label" && arr[i]._isNew) {
       arr[i].key = val.toLowerCase().replace(/[^a-z0-9]/g, "_")
     }
     setAttributes(arr)
   }
-  const updateAttrValues = (i: number, val: string) => {
+  const updateAttrValues = (i: number, val: string[]) => {
     const arr = [...attributes]
-    arr[i].values = val.split(",").map((value) => value.trim()).filter(Boolean)
+    arr[i].values = val
     setAttributes(arr)
   }
   const removeAttr = (i: number) => setAttributes(attributes.filter((_, idx) => idx !== i))
@@ -234,46 +279,42 @@ export default function ProductTemplateFormPage() {
 
         <div className="space-y-4 rounded-xl border bg-card p-5 flex flex-col">
           <div className="flex items-center justify-between border-b pb-2">
-            <h2 className="text-base font-medium">Dynamic Attributes</h2>
-            {canEdit && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={addAttr}><Plus className="w-3.5 h-3.5 mr-1" /> Add</Button>}
+            <h2 className="text-base font-medium">Product Variants</h2>
+            {canEdit && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={addAttr}><Plus className="w-3.5 h-3.5 mr-1" /> Add Attribute</Button>}
           </div>
-          <p className="text-sm text-muted-foreground">
-            Define variant attributes and allowed values, e.g. Size = S, M, L or Voltage = 110V, 220V.
-          </p>
-          <div className="space-y-3 flex-1 overflow-y-auto">
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>Define variant attributes such as Size, Color, or Voltage and their available options.</p>
+            <p className="text-xs">Example: Color → Black, White</p>
+          </div>
+          <div className="space-y-4 flex-1 overflow-y-auto pt-2">
             {attributes.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1.4fr_auto] gap-2 mb-1 px-1 text-xs font-medium text-muted-foreground">
-                <div>Display Label (e.g. Color)</div>
-                <div>Internal Key (e.g. color)</div>
-                <div>Allowed Options (Comma separated)</div>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-3 mb-1 px-1 text-xs font-medium text-muted-foreground">
+                <div>Attribute Name</div>
+                <div>Options</div>
                 <div></div>
               </div>
             )}
             {attributes.map((attr, i) => (
-              <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1.4fr_auto] gap-2 items-start">
+              <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-3 items-start p-3 border rounded-lg bg-muted/10">
                 <div className="flex-1 space-y-1">
-                  <Input value={attr.label} onChange={e => updateAttr(i, "label", e.target.value)} disabled={!canEdit} placeholder="Label (e.g. Storage Size)" className="h-8 text-sm" />
+                  <Input value={attr.label} onChange={e => updateAttr(i, "label", e.target.value)} disabled={!canEdit} placeholder="e.g. Color" className="text-sm font-medium" />
                 </div>
                 <div className="flex-1 space-y-1">
-                  <Input value={attr.key} onChange={e => updateAttr(i, "key", e.target.value)} disabled={!canEdit} placeholder="key (e.g. storage_size)" className="h-8 text-sm font-mono text-xs" />
-                </div>
-                <div className="flex-1 space-y-1">
-                  <Input
-                    value={(attr.values ?? []).join(", ")}
-                    onChange={e => updateAttrValues(i, e.target.value)}
+                  <TagInput
+                    value={attr.values ?? []}
+                    onChange={(newValues) => updateAttrValues(i, newValues)}
                     disabled={!canEdit}
-                    placeholder="Allowed values, comma separated"
-                    className="h-8 text-sm"
+                    placeholder="Type an option and press Enter..."
                   />
                 </div>
                 {canEdit && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeAttr(i)} aria-label="Remove attribute">
-                    <Trash2 className="w-3.5 h-3.5" />
+                  <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:text-destructive" onClick={() => removeAttr(i)} aria-label="Remove attribute">
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 )}
               </div>
             ))}
-            {attributes.length === 0 && <div className="text-center py-6 text-sm text-muted-foreground border border-dashed rounded-lg">No attributes defined. All variants will rely strictly on auto-generation or manual key entry.</div>}
+            {attributes.length === 0 && <div className="text-center py-8 text-sm text-muted-foreground border border-dashed rounded-lg">No attributes defined. The product will exist as a single standard item.</div>}
           </div>
         </div>
       </div>

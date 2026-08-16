@@ -18,6 +18,11 @@ export default function JobCardsPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [showRemarks, setShowRemarks] = useState<string | null>(null);
   const [remarks, setRemarks] = useState('');
+  
+  const [prodJcId, setProdJcId] = useState<string | null>(null);
+  const [prodGood, setProdGood] = useState('');
+  const [prodScrap, setProdScrap] = useState('');
+  const [prodNotes, setProdNotes] = useState('');
 
   const load = useCallback(async () => {
     if (!woId) return;
@@ -59,9 +64,48 @@ export default function JobCardsPage() {
       await workOrderService.completeJobCard(woId, jcId, remarks || undefined);
       setShowRemarks(null);
       setRemarks('');
+      setProdJcId(null);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to complete job card.');
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  const handleRecordProduction = async (jcId: string) => {
+    if (!woId || pendingId) return;
+    if (!prodGood && !prodScrap) {
+      setError('Please enter either Good or Scrap quantity.');
+      return;
+    }
+    const goodNum = Number(prodGood) || 0;
+    const scrapNum = Number(prodScrap) || 0;
+    if (goodNum < 0 || scrapNum < 0) {
+      setError('Quantities cannot be negative.');
+      return;
+    }
+    if (goodNum === 0 && scrapNum === 0) {
+      setError('Total production quantity must be greater than zero.');
+      return;
+    }
+
+    setPendingId(jcId);
+    setError(null);
+    try {
+      await workOrderService.recordProduction(woId, {
+        job_card_id: jcId,
+        produced_quantity: goodNum,
+        scrap_quantity: scrapNum,
+        notes: prodNotes || undefined,
+      });
+      setProdJcId(null);
+      setProdGood('');
+      setProdScrap('');
+      setProdNotes('');
+      await load();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Failed to record production.');
     } finally {
       setPendingId(null);
     }
@@ -147,6 +191,11 @@ export default function JobCardsPage() {
                   {jc.completed_at && (
                     <p className="text-xs text-emerald-400">Done {new Date(jc.completed_at).toLocaleTimeString()}</p>
                   )}
+                  {jc.status !== 'PENDING' && (
+                    <div className="mt-2 text-xs text-slate-300">
+                      Planned: <span className="font-bold">{wo?.planned_quantity || 0}</span> | Good: <span className="text-emerald-400 font-bold">{jc.produced_quantity || 0}</span> | Scrap: <span className="text-rose-400 font-bold">{jc.scrap_quantity || 0}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <span className="text-base">{st.icon}</span>
@@ -161,6 +210,73 @@ export default function JobCardsPage() {
                 <p className="text-xs text-slate-400 bg-white/5 rounded-lg px-3 py-2 mb-3">
                   💬 {jc.remarks}
                 </p>
+              )}
+
+              {/* Production Form */}
+              {jc.status === 'IN_PROGRESS' && prodJcId !== jc.id && showRemarks !== jc.id && (
+                  <button
+                    onClick={() => { setProdJcId(jc.id); setShowRemarks(null); }}
+                    className="rounded-xl bg-indigo-700/80 hover:bg-indigo-600 active:scale-[0.98] py-2.5 text-sm font-semibold transition-all mb-3 w-full border border-indigo-500/50"
+                  >
+                    + Record Production
+                  </button>
+              )}
+
+              {jc.status === 'IN_PROGRESS' && prodJcId === jc.id && (
+                <div className="mb-4 space-y-3 bg-white/5 p-4 rounded-xl border border-white/10">
+                  <h4 className="text-sm font-semibold text-indigo-300">Record Production</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Good Quantity</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={prodGood}
+                        onChange={(e) => setProdGood(e.target.value)}
+                        className="w-full rounded-lg bg-[#0d0f14] border border-white/10 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        placeholder={`e.g. ${wo?.planned_quantity || 0}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Scrap Quantity</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={prodScrap}
+                        onChange={(e) => setProdScrap(e.target.value)}
+                        className="w-full rounded-lg bg-[#0d0f14] border border-white/10 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Notes / Reason for Scrap</label>
+                    <textarea
+                      value={prodNotes}
+                      onChange={(e) => setProdNotes(e.target.value)}
+                      placeholder="Optional notes…"
+                      rows={2}
+                      className="w-full rounded-lg bg-[#0d0f14] border border-white/10 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={() => setProdJcId(null)}
+                      className="rounded-xl bg-white/5 hover:bg-white/10 px-4 py-2 text-sm transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleRecordProduction(jc.id)}
+                      disabled={!!pendingId}
+                      className="flex-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] disabled:opacity-50 py-2 text-sm font-semibold transition-all"
+                    >
+                      {isWorking ? '…' : 'Save Production'}
+                    </button>
+                  </div>
+                </div>
               )}
 
               {/* Remarks input (before completing) */}

@@ -81,10 +81,39 @@ class BOMHandlers:
                 + ", ".join(invalid_materials[:3])
             )
 
+    async def _validate_target_product_active(self, tenant_id: uuid.UUID, template_id: uuid.UUID | None, variant_id: uuid.UUID | None) -> None:
+        if template_id:
+            from backend.app.infrastructure.persistence.models.item_template_model import ItemTemplateModel
+            stmt = select(ItemTemplateModel.is_active).where(
+                ItemTemplateModel.id == template_id,
+                ItemTemplateModel.tenant_id == tenant_id,
+                ItemTemplateModel.is_deleted.is_(False)
+            )
+            result = await self._uow.session.execute(stmt)
+            is_active = result.scalar_one_or_none()
+            if is_active is None:
+                raise ValueError("Target product template does not exist.")
+            if not is_active:
+                raise ValueError("Inactive templates cannot be used in new BOMs.")
+        elif variant_id:
+            from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+            stmt = select(ItemVariantModel.is_active).where(
+                ItemVariantModel.id == variant_id,
+                ItemVariantModel.tenant_id == tenant_id,
+                ItemVariantModel.is_deleted.is_(False)
+            )
+            result = await self._uow.session.execute(stmt)
+            is_active = result.scalar_one_or_none()
+            if is_active is None:
+                raise ValueError("Target product variant does not exist.")
+            if not is_active:
+                raise ValueError("Inactive variants cannot be used in new BOMs.")
+
     # ── Commands ─────────────────────────────────────────────────────────────
 
     async def handle_create(self, cmd: CreateBOMCommand) -> BillOfMaterial:
         self._ensure_unique_components(cmd.lines)
+        await self._validate_target_product_active(cmd.tenant_id, cmd.template_id, cmd.variant_id)
         await self._validate_material_components(cmd.tenant_id, cmd.lines)
         # Build domain entity – constructor enforces that exactly one of template/variant is provided
         bom = BillOfMaterial(

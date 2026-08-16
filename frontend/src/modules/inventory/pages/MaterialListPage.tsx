@@ -14,6 +14,7 @@ import { ColumnDef } from "@tanstack/react-table"
 import { usePermissions } from "@/hooks/usePermissions"
 import { MaterialFormDrawer } from "../components/MaterialFormDrawer"
 import { StockOperationDrawer } from "../components/StockOperationDrawer"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function MaterialListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -22,11 +23,20 @@ export default function MaterialListPage() {
   const navigate = useNavigate()
   
   const materialId = searchParams.get("materialId")
+  const presetType = searchParams.get("presetType") as "raw" | "finished" | undefined
   const filter = searchParams.get("filter")
+  const currentTab = searchParams.get("tab") || "raw"
   const isDrawerOpen = materialId !== null
   
   const operationMaterialId = searchParams.get("operation")
   const isOperationOpen = operationMaterialId !== null
+
+  const setTab = (tab: string) => {
+    setSearchParams(prev => {
+      prev.set("tab", tab)
+      return prev
+    })
+  }
 
   const handleCloseDrawer = () => {
     setSearchParams({})
@@ -138,17 +148,39 @@ export default function MaterialListPage() {
         </Button>
       )}
       {canWrite() && (
-        <Button onClick={() => setSearchParams({ materialId: "new" })}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Material
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setSearchParams({ materialId: "new", presetType: "raw" })}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Raw Material
+          </Button>
+          <Button variant="secondary" onClick={() => setSearchParams({ materialId: "new", presetType: "finished" })}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Finished Good
+          </Button>
+        </div>
       )}
     </>
   )
 
-  const items = (materialsData?.items || []).filter((material) =>
-    filter === "low-stock" ? material.is_low_stock : true
-  )
+  const allItems = materialsData?.items || []
+  
+  const filteredItems = useMemo(() => {
+    return allItems.filter(material => {
+      // First apply low-stock filter if active
+      if (filter === "low-stock" && !material.is_low_stock) {
+        return false
+      }
+      
+      // Then apply tab filter
+      const type = (material.material_type || "").toLowerCase()
+      if (currentTab === "finished") {
+        return type.includes("finish") || type === "fg" || type === "finished"
+      } else {
+        // raw or semi_finished
+        return !type.includes("finish") || type === "semi_finished"
+      }
+    })
+  }, [allItems, filter, currentTab])
 
   return (
     <div className="w-full space-y-6">
@@ -174,73 +206,81 @@ export default function MaterialListPage() {
       {isLoading ? (
         <TableSkeleton rows={8} />
       ) : (
-        <>
-          <div className="hidden md:block">
-            <DataTable 
-              columns={columns} 
-              data={items}
-            />
-          </div>
-          <div className="md:hidden grid gap-4 grid-cols-1 sm:grid-cols-2">
-            {items.map((product) => {
-              const qty = Number(product.current_stock ?? 0);
-              const isLow = product.is_low_stock;
-              const reservedStock = Number(product.reserved_stock ?? 0);
-              
-              return (
-                <Card key={product.id} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSearchParams({ materialId: product.id })}>
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h3 className="font-medium text-base">{product.name}</h3>
-                        <p className="text-xs text-muted-foreground font-mono">{product.code}</p>
+        <Tabs value={currentTab} onValueChange={setTab} className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="raw">Raw & Semi-Finished</TabsTrigger>
+            <TabsTrigger value="finished">Finished Goods</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value={currentTab} className="mt-0 border-none p-0">
+            <div className="hidden md:block">
+              <DataTable 
+                columns={columns} 
+                data={filteredItems}
+              />
+            </div>
+            <div className="md:hidden grid gap-4 grid-cols-1 sm:grid-cols-2">
+              {filteredItems.map((product) => {
+                const qty = Number(product.current_stock ?? 0);
+                const isLow = product.is_low_stock;
+                const reservedStock = Number(product.reserved_stock ?? 0);
+                
+                return (
+                  <Card key={product.id} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSearchParams({ materialId: product.id })}>
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h3 className="font-medium text-base">{product.name}</h3>
+                          <p className="text-xs text-muted-foreground font-mono">{product.code}</p>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSearchParams({ operation: product.id }); }}>
+                          <Replace className="h-4 w-4 mr-1"/> Stock
+                        </Button>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSearchParams({ operation: product.id }); }}>
-                        <Replace className="h-4 w-4 mr-1"/> Stock
-                      </Button>
-                    </div>
-                    <div className="flex justify-between items-end mt-4">
-                      <span className="text-sm text-muted-foreground">
-                        {categories?.find(c => c.id === product.category_id)?.name || "Uncategorized"}
-                      </span>
-                      <div className="flex flex-col items-end">
-                        <div className="flex items-center gap-2">
-                          <span className={isLow ? "text-destructive font-medium text-sm" : "text-sm font-medium"}>
-                            {qty} {units?.find(u => u.id === product.base_unit_id)?.code || ""}
-                          </span>
+                      <div className="flex justify-between items-end mt-4">
+                        <span className="text-sm text-muted-foreground">
+                          {categories?.find(c => c.id === product.category_id)?.name || "Uncategorized"}
+                        </span>
+                        <div className="flex flex-col items-end">
+                          <div className="flex items-center gap-2">
+                            <span className={isLow ? "text-destructive font-medium text-sm" : "text-sm font-medium"}>
+                              {qty} {units?.find(u => u.id === product.base_unit_id)?.code || ""}
+                            </span>
+                            {isLow && (
+                              <StatusBadge status="low-stock" label="Low" />
+                            )}
+                          </div>
+                          {reservedStock > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              {reservedStock} quantity is reserved remaining is {Math.max(0, qty - reservedStock)}
+                            </span>
+                          )}
                           {isLow && (
-                            <StatusBadge status="low-stock" label="Low" />
+                            <Link
+                              to="/procurement/purchase-orders"
+                              state={{ shortagePrefill: { lines: [{ material_id: product.id, quantity: product.reorder_level ?? 0 }] } }}
+                              className="text-xs text-blue-600 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Suggest PO
+                            </Link>
                           )}
                         </div>
-                        {reservedStock > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            {reservedStock} quantity is reserved remaining is {Math.max(0, qty - reservedStock)}
-                          </span>
-                        )}
-                        {isLow && (
-                          <Link
-                            to="/procurement/purchase-orders"
-                            state={{ shortagePrefill: { lines: [{ material_id: product.id, quantity: product.reorder_level ?? 0 }] } }}
-                            className="text-xs text-blue-600 hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Suggest PO
-                          </Link>
-                        )}
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
-        </>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          </TabsContent>
+        </Tabs>
       )}
       
       <MaterialFormDrawer 
         open={isDrawerOpen} 
         onClose={handleCloseDrawer} 
         materialId={materialId} 
+        presetType={presetType}
       />
 
       <StockOperationDrawer

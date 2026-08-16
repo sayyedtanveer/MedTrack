@@ -196,6 +196,7 @@ class SalesInventoryIntegrationService:
         quantity: Decimal,
     ) -> None:
         """Convert a reservation into an actual sales shipment."""
+        session = self.inventory_service._session
         # First, try to find a reservation made specifically against the line
         reservation_result = await session.execute(
             select(InventoryReservationModel).where(

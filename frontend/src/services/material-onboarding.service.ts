@@ -16,21 +16,48 @@ export type OnboardingPreview = {
 }
 
 export const rawMaterialOnboardingColumns = [
-  'item_code', 'material_name', 'material_category', 'material_type', 'uom',
+  'item_code', 'material_name', 'material_category', 'uom',
   'batch_tracking_enabled', 'shelf_life', 'expiry_tracking', 'warehouse', 'zone', 'rack_bin',
   'min_stock', 'max_stock', 'reorder_level', 'reorder_quantity', 'opening_stock', 'barcode', 'traceability_enabled',
   'qc_required', 'approved_supplier', 'supplier_item_code', 'purchase_uom', 'lead_time', 'moq',
   'length_uom', 'cuttable_inventory', 'remaining_quantity_tracking', 'decimal_precision', 'reusable_remainder',
 ]
 
-function csvTemplateUrl() {
-  const csv = `${rawMaterialOnboardingColumns.join(',')}\n`
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`
+export const friendlyColumnNames: Record<string, string> = {
+  item_code: 'Item Code',
+  material_name: 'Material Name',
+  material_category: 'Category',
+  uom: 'Base Unit',
+  barcode: 'Barcode',
+  warehouse: 'Warehouse',
+  zone: 'Zone',
+  rack_bin: 'Rack / Bin',
+  opening_stock: 'Opening Stock',
+  min_stock: 'Minimum Stock',
+  max_stock: 'Maximum Stock',
+  reorder_level: 'Reorder Level',
+  reorder_quantity: 'Reorder Quantity',
+  batch_tracking_enabled: 'Track by Batch?',
+  expiry_tracking: 'Track Expiry?',
+  shelf_life: 'Shelf Life',
+  traceability_enabled: 'Track Traceability?',
+  qc_required: 'Quality Check Required?',
+  approved_supplier: 'Preferred Supplier',
+  supplier_item_code: 'Supplier Item Code',
+  purchase_uom: 'Purchase Unit',
+  lead_time: 'Lead Time (Days)',
+  moq: 'Minimum Order Quantity',
+  length_uom: 'Length Unit',
+  cuttable_inventory: 'Can Be Cut?',
+  remaining_quantity_tracking: 'Track Remaining Quantity?',
+  decimal_precision: 'Decimal Places',
+  reusable_remainder: 'Reuse Remaining Material?',
 }
+
 
 export const materialOnboardingService = {
   templateUrl: (format: 'csv' | 'xlsx') =>
-    format === 'csv' ? csvTemplateUrl() : `/api/v1/inventory/material-onboarding/template?format=${format}`,
+    `/api/v1/inventory/material-onboarding/template?format=${format}`,
   backendRoutesAvailable: async () => {
     try {
       const response = await fetch('/api/v1/inventory/material-onboarding/template?format=xlsx', { method: 'GET' })

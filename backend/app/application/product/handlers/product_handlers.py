@@ -22,6 +22,9 @@ from backend.app.domain.product.entities.item_variant import (
     ItemVariant,
     _build_variant_key,
 )
+from backend.app.domain.inventory.entities.material import Material, MaterialType
+from backend.app.infrastructure.persistence.repositories.material_repository import MaterialRepository
+from backend.app.application.inventory.services.item_code_service import ItemCodeService
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
 from backend.app.domain.shared.exceptions.business_rule_violation import BusinessRuleViolationException
 from backend.app.application.inventory.services.item_code_service import ItemCodeService
@@ -135,10 +138,19 @@ class UpdateItemTemplateHandler:
 # ── Variant Handlers ──────────────────────────────────────────────────────────
 
 class CreateItemVariantHandler:
-    def __init__(self, template_repo, variant_repo, uow: SQLAlchemyUnitOfWork) -> None:
+    def __init__(
+        self, 
+        template_repo, 
+        variant_repo, 
+        uow: SQLAlchemyUnitOfWork,
+        material_repo: MaterialRepository | None = None,
+        item_code_service: ItemCodeService | None = None
+    ) -> None:
         self._template_repo = template_repo
         self._variant_repo = variant_repo
         self._uow = uow
+        self._material_repo = material_repo
+        self._item_code_service = item_code_service
 
     async def handle(self, cmd: CreateItemVariantCommand) -> ItemVariantResult:
         # Load template
@@ -190,6 +202,54 @@ class CreateItemVariantHandler:
             standard_cost=cmd.standard_cost,
             selling_price=cmd.selling_price,
         )
+
+        # Phase 5: Atomic Finished Good Material Provisioning
+        # If this is a new variant and no explicit material_id was provided, provision one.
+        if variant.material_id is None and self._material_repo is not None:
+            fg_name = variant.name
+            
+            # Use Number Series if configured, else fallback to variant SKU as code
+            fg_code = variant.code
+            if self._item_code_service is not None:
+                existing_config = await self._item_code_service._try_load_config(
+                    tenant_id=cmd.tenant_id,
+                    entity_type="material",
+                )
+                if existing_config is not None:
+                    fg_code = await self._item_code_service.generate_for_entity(
+                        tenant_id=cmd.tenant_id,
+                        entity_type="material",
+                        sub_type=MaterialType.FINISHED.value,
+                        entity_name=fg_name,
+                        user_id=cmd.created_by,
+                    )
+                else:
+                    try:
+                        fg_code = await self._item_code_service.generate(
+                            tenant_id=cmd.tenant_id,
+                            item_type=MaterialType.FINISHED.value,
+                            category_id=template.category_id,
+                            target="material",
+                        )
+                    except Exception:
+                        pass # Keep variant.code as fallback
+
+            # Create the Finished Good Material
+            material = Material(
+                tenant_id=cmd.tenant_id,
+                code=fg_code,
+                name=fg_name,
+                material_type=MaterialType.FINISHED,
+                description=f"Auto-provisioned Finished Good for variant: {variant.name}",
+                category_id=template.category_id,
+                base_unit_id=variant.base_unit_id,
+                code_locked=True,
+            )
+            await self._material_repo.save(material)
+            
+            # Link the variant to the newly created material
+            variant.set_material_link(material.id)
+
         await self._variant_repo.save(variant)
         await self._uow.commit()
         return _to_variant_result(variant)

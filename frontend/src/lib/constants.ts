@@ -22,7 +22,6 @@ import {
   Gauge,
   CalendarDays,
   Building2,
-  Database,
   LucideIcon,
 } from "lucide-react"
 import { UserRole, getRolesForModule } from "@/lib/roles.config"

@@ -66,6 +66,7 @@ from backend.app.application.product.queries.product_queries import (
 from backend.app.infrastructure.persistence.repositories.item_template_repository import ItemTemplateRepository
 from backend.app.infrastructure.persistence.repositories.item_variant_repository import ItemVariantRepository
 from backend.app.infrastructure.persistence.repositories.product_image_repository import ProductImageRepository
+from backend.app.infrastructure.persistence.repositories.material_repository import MaterialRepository
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
 from backend.app.domain.product.value_objects.product_status import ProductStatus
 from backend.app.interfaces.api.v1.dependencies.auth import (
@@ -388,8 +389,15 @@ async def create_variant(
     async with container.session_factory() as session:
         t_repo = ItemTemplateRepository(session)
         v_repo = ItemVariantRepository(session)
+        m_repo = MaterialRepository(session)
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
-        handler = CreateItemVariantHandler(template_repo=t_repo, variant_repo=v_repo, uow=uow)
+        handler = CreateItemVariantHandler(
+            template_repo=t_repo,
+            variant_repo=v_repo,
+            uow=uow,
+            material_repo=m_repo,
+            item_code_service=ItemCodeService(session)
+        )
         try:
             await _validate_variant_material_link(session, tenant_id, body.material_id)
             result = await handler.handle(

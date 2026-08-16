@@ -101,7 +101,7 @@ const setupStepDefinitions: SetupStepDefinition[] = [
     key: "operations",
     title: "Operation Master",
     description: "Create and manage reusable manufacturing operations.",
-    path: "/operations",
+    path: "/manufacturing/operations-master",
     icon: Wrench,
   },
   {
@@ -237,7 +237,7 @@ export default function CompanySetupPage() {
               { key: "categories" as SetupStepKey, label: "Material Categories", path: "/settings/master-data/categories" },
               { key: "locations" as SetupStepKey, label: "Storage Locations", path: "/settings/master-data/locations" },
               { key: "workstations" as SetupStepKey, label: "Workstations", path: "/manufacturing/workstations-master" },
-              { key: "operations" as SetupStepKey, label: "Operation Master", path: "/operations" },
+              { key: "operations" as SetupStepKey, label: "Operation Master", path: "/manufacturing/operations-master" },
               { key: "supplier" as SetupStepKey, label: "Suppliers", path: "/procurement/suppliers" },
               { key: "customer" as SetupStepKey, label: "Customers", path: "/sales/clients" },
               { key: "material" as SetupStepKey, label: "Materials", path: "/inventory/materials" },

@@ -22,9 +22,9 @@ export class NavigationRegistry {
         
       // Manufacturing Routes
       case 'manufacturing.workorders':
-        return '/manufacturing/work-orders';
+        return '/work-orders';
       case 'manufacturing.workorderdetail':
-        return dest.id ? `/manufacturing/work-orders/${dest.id}` : null;
+        return dest.id ? `/work-orders/${dest.id}` : null;
         
       // Procurement Routes
       case 'procurement.purchaseorders':

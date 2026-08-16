@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Box, Plus, Loader2, Pencil, Check, X, Link2, Link2Off } from "lucide-react"
+import { useNavigate } from "react-router-dom"
+import { Box, Plus, Loader2, Pencil, Check, X, Link2, Link2Off, GitBranch } from "lucide-react"
 import { productService, CreateVariantInput, UpdateVariantInput } from "@/services/product.service"
 import { materialService } from "@/services/material.service"
 import { ItemTemplate, ItemVariant } from "@/types/bom.types"
@@ -78,8 +79,8 @@ function EditRow({ variant, fgMaterials, onSave, onCancel, isSaving }: EditRowPr
           />
         </div>
         <div className="col-span-2 space-y-1.5">
-          <Label className="text-xs font-medium text-amber-700">
-            Link to Inventory Material (Required for Sales Orders & Work Orders)
+          <Label className="text-xs font-medium">
+            Finished Good Inventory Item
           </Label>
           <Select value={materialId} onValueChange={setMaterialId}>
             <SelectTrigger className={materialId === NO_MATERIAL ? "border-amber-400" : ""}>
@@ -123,8 +124,8 @@ function EditRow({ variant, fgMaterials, onSave, onCancel, isSaving }: EditRowPr
             </SelectContent>
           </Select>
           {materialId === NO_MATERIAL && (
-            <p className="text-xs text-amber-600">
-              ⚠ Without a linked material, this variant cannot be used in sales orders or production.
+            <p className="text-xs text-amber-600 mt-1">
+              Inventory item not linked. This variant cannot participate in stock reservation/fulfillment until a finished-good inventory item is linked.
             </p>
           )}
         </div>
@@ -163,6 +164,7 @@ function EditRow({ variant, fgMaterials, onSave, onCancel, isSaving }: EditRowPr
 
 export function VariantManager({ template, canEdit }: VariantManagerProps) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   // Create form state
   const [isAdding, setIsAdding] = useState(false)
@@ -256,16 +258,6 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
 
   const fgList = fgMaterials?.items ?? []
 
-  // Separate into finished and other for display ordering
-  const finishedMaterials = fgList.filter(m => {
-    const t = String(m.material_type || "").toLowerCase()
-    return t.includes("finish") || t === "fg"
-  })
-  const otherMaterials = fgList.filter(m => {
-    const t = String(m.material_type || "").toLowerCase()
-    return !t.includes("finish") && t !== "fg"
-  })
-
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -293,7 +285,7 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
               {template.attributes.map(attr => (
                 <div key={attr.key} className="space-y-1.5">
                   <Label className="text-xs">
-                    {attr.label} ({attr.key})
+                    {attr.label}
                   </Label>
                   {attr.values && attr.values.length > 0 ? (
                     <Select
@@ -344,48 +336,48 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
                 onChange={e => setSellingPrice(e.target.value)}
               />
             </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label className="text-xs font-medium text-amber-700">
-                Link to Inventory Material (Required for Sales Orders & Work Orders)
+            <div className="col-span-2 space-y-1.5 p-3 bg-green-50 border border-green-200 rounded-md">
+              <Label className="text-xs font-medium text-green-800 flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5" /> Finished Good inventory item will be created automatically.
               </Label>
-              <p className="text-xs text-muted-foreground">
-                Select the finished-goods material that tracks stock for this variant. Without this link,
-                sales order confirmation will fail.
+              <p className="text-[10px] text-green-700">
+                A new Finished Good inventory material will be provisioned and linked automatically when this variant is saved.
               </p>
-              <Select value={materialId} onValueChange={setMaterialId}>
-                <SelectTrigger className={materialId === NO_MATERIAL ? "border-amber-400" : ""}>
-                  <SelectValue placeholder="Select finished goods material..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_MATERIAL}>— No material linked —</SelectItem>
-                  {finishedMaterials.length > 0 && (
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
-                      Finished Goods
-                    </div>
-                  )}
-                  {finishedMaterials.map(m => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.code} — {m.name}
-                    </SelectItem>
-                  ))}
-                  {otherMaterials.length > 0 && (
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t mt-1 pt-1">
-                      Other Materials
-                    </div>
-                  )}
-                  {otherMaterials.map(m => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.code} — {m.name}{" "}
-                      <span className="text-xs text-muted-foreground">({m.material_type})</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {materialId === NO_MATERIAL && (
-                <p className="text-xs text-amber-600">
-                  ⚠ You must link a finished-goods material to use this variant in sales and production.
-                </p>
-              )}
+            </div>
+          </div>
+
+          {/* Real-time Variant Summary */}
+          <div className="bg-primary/5 rounded-lg p-3 border border-primary/20 text-sm mt-4">
+            <h5 className="font-semibold mb-2">Variant Summary</h5>
+            <div className="grid grid-cols-[1fr_2fr] sm:grid-cols-[150px_1fr] gap-y-1 gap-x-4">
+              <div className="text-muted-foreground">Product:</div>
+              <div className="font-medium">{template.name}</div>
+              
+              <div className="text-muted-foreground">Variant:</div>
+              <div className="font-medium">
+                {Object.keys(newValues).length > 0 
+                  ? Object.entries(newValues).filter(([_, v]) => v.trim()).map(([k, v]) => `${template.attributes.find(a => a.key === k)?.label || k}: ${v}`).join(', ')
+                  : "Standard"}
+              </div>
+
+              <div className="text-muted-foreground">SKU / Code:</div>
+              <div className="font-mono text-xs mt-0.5">
+                {`${template.item_code || template.code}${Object.values(newValues).filter(v => v.trim()).map(v => `-${v.toUpperCase().trim().replace(/\\s+/g, '-')}`).join('')}`}
+              </div>
+
+              <div className="text-muted-foreground">Standard Cost:</div>
+              <div className="font-medium">{formatCurrency(parseFloat(standardCost) || 0)}</div>
+
+              <div className="text-muted-foreground">Selling Price:</div>
+              <div className="font-medium">{sellingPrice ? formatCurrency(parseFloat(sellingPrice)) : "-"}</div>
+
+              <div className="text-muted-foreground">Inventory Item:</div>
+              <div className="font-medium text-primary">
+                Auto-created on save
+              </div>
+              
+              <div className="text-muted-foreground">Status:</div>
+              <div className="font-medium text-green-700">Active</div>
             </div>
           </div>
 
@@ -449,12 +441,12 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
                     {v.material_id ? (
                       <span className="inline-flex items-center gap-1 text-[10px] text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">
                         <Link2 className="w-2.5 h-2.5" />
-                        {fgList.find(m => m.id === v.material_id)?.code ?? "Material linked"}
+                        Tracking: {fgList.find(m => m.id === v.material_id)?.code ?? "Linked"}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
                         <Link2Off className="w-2.5 h-2.5" />
-                        No material linked — cannot use in sales orders
+                        Unlinked — Cannot be used in sales
                       </span>
                     )}
                   </div>
@@ -472,17 +464,27 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
                   <Badge variant={v.is_active ? "outline" : "secondary"} className="mt-1">
                     {v.is_active ? "Active" : "Inactive"}
                   </Badge>
-                  {canEdit && (
+                  <div className="flex items-center gap-1 mt-1">
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => setEditingId(v.id)}
+                        disabled={editingId !== null && editingId !== v.id}
+                      >
+                        <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
+                      </Button>
+                    )}
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className="mt-1 h-7 px-2"
-                      onClick={() => setEditingId(v.id)}
-                      disabled={editingId !== null && editingId !== v.id}
+                      className="h-7 px-2"
+                      onClick={() => navigate(`/bom/new?variant_id=${v.id}`)}
                     >
-                      <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
+                      <GitBranch className="w-3.5 h-3.5 mr-1" /> BOM
                     </Button>
-                  )}
+                  </div>
                 </div>
               </div>
             )

@@ -41,6 +41,40 @@ RAW_MATERIAL_COLUMNS = [
     "opening_stock",
 ]
 
+FRIENDLY_TO_TECHNICAL = {
+    "Item Code": "item_code",
+    "Material Name": "material_name",
+    "Category": "material_category",
+    "Base Unit": "uom",
+    "Barcode": "barcode",
+    "Warehouse": "warehouse",
+    "Zone": "zone",
+    "Rack / Bin": "rack_bin",
+    "Opening Stock": "opening_stock",
+    "Minimum Stock": "min_stock",
+    "Maximum Stock": "max_stock",
+    "Reorder Level": "reorder_level",
+    "Reorder Quantity": "reorder_quantity",
+    "Track by Batch?": "batch_tracking_enabled",
+    "Track Expiry?": "expiry_tracking",
+    "Shelf Life": "shelf_life",
+    "Track Traceability?": "traceability_enabled",
+    "Quality Check Required?": "qc_required",
+    "Preferred Supplier": "approved_supplier",
+    "Supplier Item Code": "supplier_item_code",
+    "Purchase Unit": "purchase_uom",
+    "Lead Time (Days)": "lead_time",
+    "Minimum Order Quantity": "moq",
+    "Length Unit": "length_uom",
+    "Can Be Cut?": "cuttable_inventory",
+    "Track Remaining Quantity?": "remaining_quantity_tracking",
+    "Decimal Places": "decimal_precision",
+    "Reuse Remaining Material?": "reusable_remainder",
+}
+TECHNICAL_TO_FRIENDLY = {v: k for k, v in FRIENDLY_TO_TECHNICAL.items()}
+FRIENDLY_COLUMNS = list(FRIENDLY_TO_TECHNICAL.keys())
+
+
 # Fields that are considered protected (changing them on an existing material requires confirmation)
 PROTECTED_FIELDS = {"material_type", "batch_tracking_enabled", "traceability_enabled", "uom"}
 
@@ -69,11 +103,23 @@ def _suggest_mapping(headers: List[str]) -> Dict[str, str]:
     """Auto-suggest column-to-field mappings based on name similarity."""
     mapping: Dict[str, str] = {}
     for header in headers:
+        if header in FRIENDLY_TO_TECHNICAL:
+            mapping[header] = FRIENDLY_TO_TECHNICAL[header]
+            continue
+        if header in RAW_MATERIAL_COLUMNS:
+            mapping[header] = header
+            continue
+
         best_field, best_score = "", 0.0
         for field in RAW_MATERIAL_COLUMNS:
             score = _similarity(header, field)
             if score > best_score:
                 best_score, best_field = score, field
+        for friendly_field, tech_field in FRIENDLY_TO_TECHNICAL.items():
+            score = _similarity(header, friendly_field)
+            if score > best_score:
+                best_score, best_field = score, tech_field
+
         if best_score >= 0.6:
             mapping[header] = best_field
     return mapping
@@ -139,13 +185,16 @@ def _validate_row(
     uom = str(data.get("uom", "")).strip()
     category = str(data.get("material_category", "")).strip()
 
+    def friendly(f: str) -> str:
+        return TECHNICAL_TO_FRIENDLY.get(f, f)
+
     # Required field checks
     if not name:
-        issues.append({"field": "material_name", "severity": "error", "message": "Material name is required"})
+        issues.append({"field": "material_name", "severity": "error", "message": f"{friendly('material_name')} is required"})
     if not uom:
-        issues.append({"field": "uom", "severity": "error", "message": "Unit of measure (uom) is required"})
+        issues.append({"field": "uom", "severity": "error", "message": f"{friendly('uom')} is required"})
     if not category:
-        issues.append({"field": "material_category", "severity": "warning", "message": "No category specified — will be left blank"})
+        issues.append({"field": "material_category", "severity": "warning", "message": f"No {friendly('material_category')} specified — will be left blank"})
 
     # Numeric validation
     for field in ("reorder_level", "min_stock", "max_stock", "lead_time"):
@@ -154,7 +203,7 @@ def _validate_row(
             try:
                 float(str(val).replace(",", ""))
             except ValueError:
-                issues.append({"field": field, "severity": "error", "message": f"{field} must be a number"})
+                issues.append({"field": field, "severity": "error", "message": f"{friendly(field)} must be a number"})
 
     # Opening stock validation: numeric, >= 0, max 999,999,999.99
     opening_stock_val = str(data.get("opening_stock", "")).strip()
@@ -165,19 +214,19 @@ def _validate_row(
                 issues.append({
                     "field": "opening_stock",
                     "severity": "error",
-                    "message": "opening_stock must be a non-negative number",
+                    "message": f"{friendly('opening_stock')} must be a non-negative number",
                 })
             elif opening_stock_num > 999_999_999.99:
                 issues.append({
                     "field": "opening_stock",
                     "severity": "error",
-                    "message": "opening_stock must not exceed 999,999,999.99",
+                    "message": f"{friendly('opening_stock')} must not exceed 999,999,999.99",
                 })
         except ValueError:
             issues.append({
                 "field": "opening_stock",
                 "severity": "error",
-                "message": "opening_stock must be a non-negative number",
+                "message": f"{friendly('opening_stock')} must be a non-negative number",
             })
 
     # Determine classification and protected changes
@@ -232,12 +281,89 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
     """Return a downloadable template file with the expected column headers."""
     if format == "xlsx":
         try:
+            from openpyxl.worksheet.datavalidation import DataValidation
+            from openpyxl.styles import Font, PatternFill, Alignment
             wb = openpyxl.Workbook()
-            ws = wb.active
-            if ws is None:
+            
+            # 1. Instructions Sheet
+            ws_inst = wb.active
+            if ws_inst is None:
                 raise ValueError("Could not create active worksheet")
-            ws.title = "Materials"
-            ws.append(RAW_MATERIAL_COLUMNS)
+            ws_inst.title = "Instructions"
+            
+            # Title
+            ws_inst.append(["MedTrack ERP - Raw Material Import Instructions"])
+            ws_inst["A1"].font = Font(size=14, bold=True, color="FFFFFF")
+            ws_inst["A1"].fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+            
+            ws_inst.append([])
+            ws_inst.append(["Purpose:", "This template is used to upload raw materials into MedTrack ERP."])
+            ws_inst["A3"].font = Font(bold=True)
+            
+            ws_inst.append([])
+            ws_inst.append(["Rules:"])
+            ws_inst["A5"].font = Font(bold=True, color="B91C1C")
+            
+            rules = [
+                "- One material per row",
+                "- Do not change column headers",
+                "- Required fields are Material Name and Base Unit",
+                "- Do not enter tenant information",
+                "- Material Type is automatically Raw Material",
+                "- Use Yes/No dropdowns where available",
+                "- Do not delete this Instructions sheet",
+                "- Master data like Categories and Base Units are auto-created if they don't exist",
+                "- The first row in the Raw Materials sheet is a sample. Please delete it, or the system will automatically ignore it."
+            ]
+            for rule in rules:
+                ws_inst.append([rule])
+                
+            ws_inst.append([])
+            
+            example_start_row = ws_inst.max_row + 1
+            ws_inst.append(["Example:"])
+            ws_inst[f"A{example_start_row}"].font = Font(bold=True, color="047857")
+            ws_inst.append(["Material Name:", "Brass Tube 20mm"])
+            ws_inst.append(["Category:", "Metal"])
+            ws_inst.append(["Base Unit:", "KG"])
+            ws_inst.append(["Track by Batch?:", "Yes"])
+            
+            ws_inst.column_dimensions['A'].width = 25
+            ws_inst.column_dimensions['B'].width = 90
+            
+            # 2. Materials Sheet
+            ws = wb.create_sheet(title="Raw Materials")
+            
+            # Header styling
+            ws.append(FRIENDLY_COLUMNS)
+            header_font = Font(bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="475569", end_color="475569", fill_type="solid")
+            for cell in ws[1]:
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal="center")
+                
+            ws.append([
+                "DUMMY-SAMPLE", "Sample Material (Delete Me)", "Metal", "KG", "",
+                "", "", "", "100", "10", "500", "20", "50",
+                "No", "No", "", "No", "No",
+                "", "", "", "7", "",
+                "", "No", "No", "2", "No"
+            ])
+            ws.freeze_panes = "A2"
+            
+            for col_idx, column in enumerate(FRIENDLY_COLUMNS, 1):
+                col_letter = openpyxl.utils.get_column_letter(col_idx)
+                ws.column_dimensions[col_letter].width = max(len(column) + 4, 15)
+                
+            yes_no_dv = DataValidation(type="list", formula1='"Yes,No"', allow_blank=True)
+            ws.add_data_validation(yes_no_dv)
+            
+            for col_idx, column in enumerate(FRIENDLY_COLUMNS, 1):
+                if column.endswith("?"):
+                    col_letter = openpyxl.utils.get_column_letter(col_idx)
+                    yes_no_dv.add(f"{col_letter}2:{col_letter}1048576")
+                    
             buf = io.BytesIO()
             wb.save(buf)
             buf.seek(0)
@@ -252,14 +378,13 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
     # CSV
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(RAW_MATERIAL_COLUMNS)
+    writer.writerow(FRIENDLY_COLUMNS)
     writer.writerow([
-        "MAT-001", "Steel Rod 10mm", "Raw Materials", "raw", "KG",
-        "false", "", "", "", "", "",
-        "10", "500", "20", "50", "", "false",
-        "false", "", "", "", "7", "",
-        "", "", "", "2", "",
-        "100",
+        "DUMMY-SAMPLE", "Sample Material (Delete Me)", "Metal", "KG", "",
+        "", "", "", "100", "10", "500", "20", "50",
+        "No", "No", "", "No", "No",
+        "", "", "", "7", "",
+        "", "No", "No", "2", "No"
     ])
     buf.seek(0)
     return StreamingResponse(
@@ -368,8 +493,13 @@ async def validate_session(
     mapping = body.mapping
     processed_rows = []
     for i, raw_row in enumerate(session["raw_rows"], start=2):
-        row_id = str(uuid.uuid4())
         data = _apply_mapping(raw_row, mapping)
+        
+        # Silently ignore the dummy sample row if the user forgot to delete it
+        if data.get("item_code") == "DUMMY-SAMPLE" or data.get("material_name") == "Sample Material (Delete Me)":
+            continue
+            
+        row_id = str(uuid.uuid4())
         classification, row_status, issues, protected_changes = _validate_row(data, i, existing_codes)
         processed_rows.append({
             "id": row_id,
@@ -599,7 +729,7 @@ async def execute_session(
                                     opening_stock_value = 0
 
                             # Determine material_type for prefix resolution
-                            material_type = str(data.get("material_type", "raw")).strip().lower() or "raw"
+                            material_type = "raw"  # Enforced for Raw Material upload
 
                             # Generate item code using Number Series Engine (Req 7.3, 14.2)
                             generated_code = ""
@@ -685,9 +815,7 @@ async def execute_session(
                         else:
                             # Update
                             if session["protected_confirmed"]:
-                                material_type = _f("material_type")
-                                if material_type:
-                                    existing.material_type = material_type
+                                # material_type cannot be changed by raw material import
                                 existing.is_batch_tracked = _bool_val(data.get("batch_tracking_enabled", str(existing.is_batch_tracked)))
                                 existing.is_serialized = _bool_val(data.get("traceability_enabled", str(existing.is_serialized)))
                                 base_unit = uom_id or existing.base_unit_id
@@ -832,7 +960,11 @@ async def validation_report(
     writer.writerow(["row_number", "classification", "status", "material_name", "item_code", "uom", "issues"])
     for row in rows:
         data = row.get("data", {})
-        issues_text = "; ".join(f"[{i['severity']}] {i['field']}: {i['message']}" for i in row.get("issues", []))
+        
+        def friendly(f: str) -> str:
+            return TECHNICAL_TO_FRIENDLY.get(f, f)
+            
+        issues_text = "; ".join(f"[{i['severity']}] {friendly(i['field'])}: {i['message']}" for i in row.get("issues", []))
         writer.writerow([
             row["row_number"],
             row["classification"],

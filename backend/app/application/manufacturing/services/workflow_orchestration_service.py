@@ -346,9 +346,7 @@ class WorkflowOrchestrationService:
             )
 
         fg_material_id = await self._resolve_finished_good_material_id(work_order)
-        fg_quantity = Decimal(str(work_order.produced_quantity or 0)) - Decimal(
-            str(work_order.scrap_quantity or 0)
-        )
+        fg_quantity = Decimal(str(work_order.produced_quantity or 0))
 
         existing_receipt = (
             await self.session.execute(

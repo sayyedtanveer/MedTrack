@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { REALTIME_EVENT_NAME } from '@/components/notifications/RealtimeNotificationsBridge';
 import workOrderService, {
@@ -11,6 +11,7 @@ import { auditService } from '@/services/audit.service';
 import { WO_STATUS_COLORS } from '../components/WorkOrderStatusConfig';
 import { WO_STATUS_ACTIONS, type WorkOrderAction } from '../components/WorkOrderActionConfig';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { AuditHistoryTab } from '@/components/shared/AuditHistoryTab';
 import { usePermissions } from '@/hooks/usePermissions';
 import { AssistantEngine } from '@/lib/assistant/AssistantEngine';
@@ -63,6 +64,11 @@ export default function WorkOrderDetailPage() {
   const [availabilityPreview, setAvailabilityPreview] = useState<any>(null);
 
   const { isAdmin, isQc, isOperator, isManager } = usePermissions();
+
+  const activeJobCard = useMemo(() => {
+    if (!wo?.job_cards || wo.job_cards.length === 0) return null;
+    return wo.job_cards.find((jc: JobCard) => jc.status === 'IN_PROGRESS');
+  }, [wo]);
 
   const load = useCallback(async (silent = false) => {
     if (!id) return;
@@ -162,6 +168,11 @@ export default function WorkOrderDetailPage() {
           break;
         case 'complete':
           await workOrderService.complete(id);
+          toast({ 
+            title: 'Work Order Completed', 
+            description: 'Work order has been marked as complete.',
+            action: <ToastAction altText="Go to Delivery Dashboard" onClick={() => navigate('/delivery/dashboard')}>Next: Delivery</ToastAction>
+          });
           break;
         case 'close':
           await workOrderService.close(id);
@@ -318,12 +329,13 @@ export default function WorkOrderDetailPage() {
     }
   };
 
-  const handleIssueMaterial = async (material: WorkOrderMaterial) => {
+  const handleIssueMaterial = async (material: WorkOrderMaterial, qtyToIssue?: number) => {
     if (!id || actionPending) return;
     
     const remainingQty = Number(material.required_quantity) - Number(material.issued_quantity);
+    const finalQty = qtyToIssue !== undefined ? qtyToIssue : remainingQty;
     
-    if (remainingQty <= 0) {
+    if (finalQty <= 0) {
       toast({ title: 'Already Issued', description: 'This material has been fully issued.', variant: 'destructive' });
       return;
     }
@@ -334,10 +346,10 @@ export default function WorkOrderDetailPage() {
     try {
       await workOrderService.issueMaterial(id, {
         material_id: material.material_id,
-        quantity: remainingQty,
+        quantity: finalQty,
         unit_id: material.unit_id,
       });
-      toast({ title: 'Material Issued', description: `${remainingQty.toFixed(3)} units issued successfully.` });
+      toast({ title: 'Material Issued', description: `${finalQty.toFixed(3)} units issued successfully.` });
       // Refresh materials table without full page reload (Requirement 9.3)
       setTimeout(() => {
         void load(true);
@@ -385,10 +397,11 @@ export default function WorkOrderDetailPage() {
     setError(null);
     try {
       await workOrderService.recordProduction(id, {
+        job_card_id: activeJobCard?.id || undefined,
         produced_quantity: producedQuantity,
         scrap_quantity: scrapQuantity,
         notes: productionDraft.notes.trim() || undefined,
-      });
+      } as any);
       // Clear form on success (Requirement 8.2)
       setProductionDraft({
         produced_quantity: '',
@@ -586,7 +599,12 @@ export default function WorkOrderDetailPage() {
               {documentLoading ? '…' : 'Download PDF'}
             </button>
       {/* Action Buttons per status config */}
-            {actions.map((a: WorkOrderAction) => (
+            {actions
+              .filter((a: WorkOrderAction) => {
+                if (a.actionKey === 'start' && (wo.job_cards || []).length > 0) return false;
+                return true;
+              })
+              .map((a: WorkOrderAction) => (
               <AssistantButton
                 key={a.actionKey}
                 id={`btn-wo-${a.actionKey}`}
@@ -599,7 +617,7 @@ export default function WorkOrderDetailPage() {
               </AssistantButton>
             ))}
             {/* Submit for QC - shown when IN_PRODUCTION and has produced qty */}
-            {wo.status === 'IN_PRODUCTION' && Number(wo.produced_quantity) > 0 && (isAdmin() || isOperator() || isManager()) && (
+            {wo.status === 'IN_PRODUCTION' && Number(wo.produced_quantity) > 0 && (!wo.job_cards || wo.job_cards.length === 0 || wo.job_cards.every((jc: JobCard) => jc.status === 'DONE')) && (isAdmin() || isOperator() || isManager()) && (
               <AssistantButton
                 id="btn-wo-submit-qc"
                 onClick={handleSubmitForQC}
@@ -721,13 +739,28 @@ export default function WorkOrderDetailPage() {
                     <td className="px-4 py-3 tabular-nums text-emerald-600">{Number(m.issued_quantity).toFixed(3)}</td>
                     <td className="px-4 py-3">
                       {canIssue ? (
-                        <button
-                          onClick={() => handleIssueMaterial(m)}
-                          disabled={actionPending}
-                          className="rounded-lg px-3 py-1.5 text-xs font-medium bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Issue {remaining.toFixed(3)}
-                        </button>
+                        <div className="flex items-center">
+                          <input
+                            type="number"
+                            id={`issue-qty-${m.id}`}
+                            defaultValue={remaining.toFixed(3)}
+                            step="0.001"
+                            min="0.001"
+                            max={remaining.toFixed(3)}
+                            className="w-20 rounded-l-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-900 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                          />
+                          <button
+                            onClick={() => {
+                              const input = document.getElementById(`issue-qty-${m.id}`) as HTMLInputElement;
+                              const qty = input ? Number(input.value) : remaining;
+                              handleIssueMaterial(m, qty);
+                            }}
+                            disabled={actionPending}
+                            className="rounded-r-lg border border-l-0 border-violet-600 bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Record Issue
+                          </button>
+                        </div>
                       ) : remaining > 0 ? (
                         <span className="text-xs text-slate-500 font-medium italic">Pending Allocation</span>
                       ) : (
@@ -758,10 +791,16 @@ export default function WorkOrderDetailPage() {
               <p className="mt-1 text-xs text-slate-500">
                 {wo.status === 'MATERIAL_ISSUED' 
                   ? 'Start production before recording output'
-                  : 'Enter produced and scrap quantities (max 500 chars for notes)'}
+                  : ((wo.job_cards || []).length > 0 && wo.job_cards.every((jc: JobCard) => jc.status === 'DONE'))
+                    ? 'All job cards completed. Submit work order for quality inspection.'
+                  : (!activeJobCard && (wo.job_cards || []).length > 0)
+                    ? 'Start a Job Card on the Shop Floor to record production.'
+                    : activeJobCard 
+                      ? `Recording production for OP-${activeJobCard.sequence} — ${activeJobCard.operation_name}`
+                      : 'Enter produced and scrap quantities (max 500 chars for notes)'}
               </p>
             </div>
-            {wo.status === 'MATERIAL_ISSUED' && (
+            {wo.status === 'MATERIAL_ISSUED' && (!wo.job_cards || wo.job_cards.length === 0) && (
               <button
                 onClick={() => handleAction('start')}
                 disabled={actionPending}
@@ -770,9 +809,28 @@ export default function WorkOrderDetailPage() {
                 {actionPending ? '…' : 'Start Production'}
               </button>
             )}
+            {(wo.job_cards || []).length > 0 && !wo.job_cards.every((jc: JobCard) => jc.status === 'DONE') && (wo.status === 'MATERIAL_ISSUED' || wo.status === 'IN_PRODUCTION' || wo.status === 'REWORK') && (
+              <button
+                onClick={() => navigate(`/shop-floor/${id}/job-cards`)}
+                className="rounded-lg px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+              >
+                Go to Shop Floor
+              </button>
+            )}
+            {(wo.job_cards || []).length > 0 && wo.job_cards.every((jc: JobCard) => jc.status === 'DONE') && (wo.status === 'IN_PRODUCTION' || wo.status === 'REWORK') && (
+              <button
+                onClick={handleSubmitForQC}
+                disabled={actionPending || Number(wo.produced_quantity) <= 0}
+                className="rounded-lg px-4 py-2 text-sm font-medium bg-cyan-600 hover:bg-cyan-700 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {actionPending ? '…' : 'Submit for QC'}
+              </button>
+            )}
           </div>
 
-          {(wo.status === 'IN_PRODUCTION' || wo.status === 'REWORK') && (
+          {(wo.status === 'IN_PRODUCTION' || wo.status === 'REWORK') && 
+           ((!wo.job_cards || wo.job_cards.length === 0) || 
+            (wo.job_cards.every((jc: JobCard) => jc.status === 'DONE') && Number(wo.produced_quantity) <= 0)) && (
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <div>
                 <label className="mb-1 block text-xs uppercase tracking-wide text-slate-400">Produced Qty*</label>

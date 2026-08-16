@@ -98,6 +98,7 @@ type MaterialFormValues = z.infer<typeof materialSchema>
 
 interface Props {
   materialId: string | null
+  presetType?: "raw" | "finished"
   open: boolean
   onClose: () => void
 }
@@ -332,7 +333,7 @@ function PurchaseHistoryTable({ materialId }: { materialId: string }) {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export function MaterialFormDrawer({ materialId, open, onClose }: Props) {
+export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Props) {
   const queryClient = useQueryClient()
   const isEditing = Boolean(materialId && materialId !== "new")
 
@@ -415,7 +416,7 @@ export function MaterialFormDrawer({ materialId, open, onClose }: Props) {
         item_code: "",
         code: "",
         name: "",
-        material_type: "raw",
+        material_type: presetType || "raw",
         base_unit_id: null,
         description: "",
         category_id: "",
@@ -428,7 +429,7 @@ export function MaterialFormDrawer({ materialId, open, onClose }: Props) {
         code_locked: true,
       })
     }
-  }, [material, materialId, reset])
+  }, [material, materialId, presetType, reset])
 
   const saveMutation = useMutation({
     mutationFn: async (data: MaterialFormValues) => {
@@ -530,20 +531,24 @@ export function MaterialFormDrawer({ materialId, open, onClose }: Props) {
           {!errors.name && <p className="text-xs text-muted-foreground">{namingHint}</p>}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="material_type">Material Type</Label>
-          <Select 
-            value={watch("material_type") || "raw"} 
-            onValueChange={(val) => setValue("material_type", val as "raw" | "finished" | "semi_finished", { shouldValidate: true })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="raw">Raw Material</SelectItem>
-              <SelectItem value="semi_finished">Semi-finished</SelectItem>
-              <SelectItem value="finished">Finished Good</SelectItem>
-            </SelectContent>
-          </Select>
+          {!(presetType && !isEditing) && (
+            <>
+              <Label htmlFor="material_type">Material Type</Label>
+              <Select 
+                value={watch("material_type") || "raw"} 
+                onValueChange={(val) => setValue("material_type", val as "raw" | "finished" | "semi_finished", { shouldValidate: true })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="raw">Raw Material</SelectItem>
+                  <SelectItem value="semi_finished">Semi-finished</SelectItem>
+                  <SelectItem value="finished">Finished Good</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
       </div>
 
@@ -668,8 +673,14 @@ export function MaterialFormDrawer({ materialId, open, onClose }: Props) {
     <Drawer 
       open={open} 
       onOpenChange={(v) => !v && onClose()} 
-      title={isEditing ? "Edit Material" : "New Material"}
-      description={isEditing ? `Update details for ${material?.name || "material"}` : "Add a new material to your inventory catalog."}
+      title={isEditing ? "Edit Material" : presetType === "finished" ? "New Finished Good" : "New Raw Material"}
+      description={
+        isEditing 
+          ? `Update details for ${material?.name || "material"}` 
+          : presetType === "finished"
+          ? "Finished Good Material is the inventory item used to track physical stock for a manufactured and sellable product or product variant."
+          : "Add a new raw material to your inventory catalog."
+      }
     >
       {(isEditing && isFetching) ? (
          <FormSkeleton fields={5} />

@@ -38,6 +38,8 @@ export interface JobCard {
   started_at: string | null;
   completed_at: string | null;
   remarks: string | null;
+  produced_quantity: number;
+  scrap_quantity: number;
 }
 
 export interface WorkOrderDetail extends WorkOrderSummary {
@@ -90,6 +92,7 @@ export interface IssueMaterialPayload {
 }
 
 export interface RecordProductionPayload {
+  job_card_id: string;
   produced_quantity: number;
   scrap_quantity?: number;
   notes?: string;

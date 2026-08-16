@@ -126,12 +126,12 @@ export function BOMLineForm({ onAdd, onCancel }: BOMLineFormProps) {
             </SelectItem>
             <SelectItem value="template">
               <span className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5" /> Product Template
+                <Layers className="w-3.5 h-3.5" /> Semi-Finished / Sub-Assembly (Base Product)
               </span>
             </SelectItem>
             <SelectItem value="variant">
               <span className="flex items-center gap-2">
-                <Box className="w-3.5 h-3.5" /> Product Variant
+                <Box className="w-3.5 h-3.5" /> Semi-Finished / Sub-Assembly (Specific Variant)
               </span>
             </SelectItem>
           </SelectContent>
@@ -141,7 +141,7 @@ export function BOMLineForm({ onAdd, onCancel }: BOMLineFormProps) {
       {/* Debounced search */}
       <div className="space-y-1.5">
         <Label>
-          Search {compType === "material" ? "Raw Material" : compType === "template" ? "Template" : "Variant"}
+          Search {compType === "material" ? "Raw Material" : "Sub-Assembly"}
         </Label>
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
@@ -150,7 +150,7 @@ export function BOMLineForm({ onAdd, onCancel }: BOMLineFormProps) {
             placeholder={
               compType === "material"
                 ? "Search raw material by name or code..."
-                : "Search by name or code..."
+                : "Search sub-assembly by name or code..."
             }
             value={search}
             onChange={(e) => {
@@ -198,8 +198,8 @@ export function BOMLineForm({ onAdd, onCancel }: BOMLineFormProps) {
           <p className="text-xs text-muted-foreground px-1">No results found.</p>
         )}
         {compType === "material" && (
-          <p className="text-xs text-muted-foreground px-1">
-            BOM material lines are only for consumable raw items. Use template or variant lines for sub-assemblies.
+          <p className="text-xs text-muted-foreground px-1 mt-1">
+            BOM material lines are only for consumable raw items. Use sub-assemblies for manufactured items.
           </p>
         )}
       </div>

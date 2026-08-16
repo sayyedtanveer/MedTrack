@@ -560,6 +560,7 @@ export default function FinanceDashboardPage() {
           onSuccess={() => {
             qc.invalidateQueries({ queryKey: ["invoices"] })
             qc.invalidateQueries({ queryKey: ["finance-dashboard"] })
+            qc.invalidateQueries({ queryKey: ["invoice", paymentModalInvoice.id] })
           }}
         />
       )}

@@ -77,16 +77,15 @@ class DocumentGenerationService:
         template_path = self.template_service.get_template_path(document_type)
         html_content = self.template_service.render_template(template_path, template_context)
 
+        # Generate file path
+        file_path = self.storage_service.generate_file_path(
+            tenant_id, document_type, entity_id, version_number
+        )
+
         # Generate PDF if WeasyPrint is available
-        file_path = None
         if self.pdf_service.available:
             try:
                 pdf_bytes = self.pdf_service.generate_pdf_from_html(html_content)
-
-                # Generate file path
-                file_path = self.storage_service.generate_file_path(
-                    tenant_id, document_type, entity_id, version_number
-                )
 
                 # Save PDF to storage
                 self.storage_service.save_pdf(pdf_bytes, file_path)

@@ -72,6 +72,20 @@ class WorkOrderHandler:
         if not bom:
             raise BOMNotFoundError(f"BOM {cmd.bom_id} not found or inactive")
 
+        # 1.5. Validate Product is active
+        from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+        variant_stmt = select(ItemVariantModel.is_active).where(
+            ItemVariantModel.id == cmd.product_id,
+            ItemVariantModel.tenant_id == cmd.tenant_id,
+            ItemVariantModel.is_deleted.is_(False)
+        )
+        variant_result = await self._session.execute(variant_stmt)
+        is_active = variant_result.scalar_one_or_none()
+        if is_active is None:
+            raise ValueError(f"Product {cmd.product_id} not found")
+        if not is_active:
+            raise ValueError("Inactive products cannot be used to create Work Orders.")
+
         # 2. Generate WO number (atomic)
         wo_number = await self._wo_number.generate(cmd.tenant_id)
 
@@ -295,6 +309,13 @@ class WorkOrderHandler:
 
     async def handle_start(self, cmd: StartWorkOrderCommand) -> None:
         wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)
+        
+        # Guard: Ensure explicit Job Card start is used if Job Cards exist (Rule 4, 11)
+        jc_stmt = select(func.count()).where(JobCardModel.work_order_id == wo.id)
+        jc_count = await self._session.scalar(jc_stmt)
+        if jc_count > 0:
+            raise ValueError("Work Order has Job Cards. Use 'Start Job Card' to begin production.")
+
         entity = self._to_entity(wo)
         entity.start()
         wo.status = entity.status.value
@@ -365,6 +386,37 @@ class WorkOrderHandler:
     async def handle_record_production(self, cmd: RecordProductionCommand) -> None:
         wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)
 
+        if wo.status not in (WorkOrderStatus.IN_PRODUCTION.value, WorkOrderStatus.REWORK.value):
+            raise ValueError(f"Production cannot be recorded because Work Order is in status: {wo.status}")
+
+        all_jcs_stmt = select(JobCardModel).where(JobCardModel.work_order_id == wo.id)
+        all_jcs = (await self._session.execute(all_jcs_stmt)).scalars().all()
+        jc_count = len(all_jcs)
+
+        is_final_operation = True
+        jc = None
+        if jc_count > 0:
+            if cmd.job_card_id is None:
+                # Legacy escape hatch: if all job cards are DONE and no production was recorded, allow WO-level recording.
+                if all(j.status == "DONE" for j in all_jcs) and (wo.produced_quantity or 0) <= 0:
+                    jc = max(all_jcs, key=lambda x: x.sequence)
+                    cmd.job_card_id = jc.id
+                else:
+                    raise ValueError("Production must be associated with a specific Job Card.")
+            
+            if jc is None:
+                jc = next((j for j in all_jcs if j.id == cmd.job_card_id), None)
+            if not jc:
+                raise ValueError(f"Job Card {cmd.job_card_id} not found in this Work Order.")
+            
+            # Allow recording if IN_PROGRESS, or if it's the legacy escape hatch scenario (already DONE)
+            if jc.status != "IN_PROGRESS" and not (all(j.status == "DONE" for j in all_jcs) and (wo.produced_quantity or 0) <= 0):
+                raise ValueError("Production cannot be recorded because this operation has not been started or is already completed.")
+                
+            max_seq = max(j.sequence for j in all_jcs)
+            if jc.sequence < max_seq:
+                is_final_operation = False
+
         rec = ProductionRecordModel(
             work_order_id=wo.id,
             produced_quantity=float(cmd.produced_quantity),
@@ -375,14 +427,19 @@ class WorkOrderHandler:
         self._session.add(rec)
         await self._session.flush()
 
-        new_produced = Decimal(str(wo.produced_quantity)) + cmd.produced_quantity
+        new_produced = Decimal(str(wo.produced_quantity))
+        if is_final_operation:
+            new_produced += cmd.produced_quantity
+
         new_scrap = Decimal(str(wo.scrap_quantity)) + cmd.scrap_quantity
+        
         wo.produced_quantity = float(new_produced)
         wo.scrap_quantity = float(new_scrap)
         wo.updated_at = datetime.now(timezone.utc)
 
         resolved_operation_id = cmd.operation_id
         if cmd.job_card_id is not None:
+            # We already fetched jc in validation above, but we fetch it again safely
             jc = await self._get_job_card(cmd.job_card_id, wo.id, cmd.tenant_id)
             if resolved_operation_id is None:
                 resolved_operation_id = jc.operation_id
@@ -463,6 +520,13 @@ class WorkOrderHandler:
         if entity.status == WorkOrderStatus.IN_PRODUCTION:
             if wo.produced_quantity <= 0:
                 raise MaterialNotIssuedError("Cannot submit for QC: no production has been recorded.")
+
+            # Guard: Ensure all Job Cards are DONE (Rule 8, 10)
+            jc_stmt = select(JobCardModel.status).where(JobCardModel.work_order_id == wo.id)
+            jc_statuses = (await self._session.execute(jc_stmt)).scalars().all()
+            if jc_statuses and any(status != "DONE" for status in jc_statuses):
+                raise ValueError("Complete all manufacturing operations before sending this Work Order to Quality.")
+
             entity.submit_for_qc()
         else:
             entity.complete()  # raises MaterialNotIssuedError if produced_qty == 0
@@ -663,24 +727,32 @@ class WorkOrderHandler:
 
     async def handle_start_job_card(self, cmd: StartJobCardCommand) -> None:
         wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)
-        if wo.status not in ("IN_PRODUCTION", "QC_PENDING", "QC_APPROVED", "QC_REJECTED", "COMPLETED", "CLOSED"):
+        
+        if wo.status not in ("MATERIAL_ISSUED", "IN_PRODUCTION", "REWORK"):
+            raise ValueError(f"Cannot start Job Card: Work Order materials must be issued first. Current status: {wo.status}")
+
+        if wo.status == "MATERIAL_ISSUED":
             wo.status = "IN_PRODUCTION"
             wo.updated_at = datetime.now(timezone.utc)
 
-        stmt = select(JobCardModel).where(
-            JobCardModel.id == cmd.job_card_id, JobCardModel.work_order_id == cmd.work_order_id
-        )
-        result = await self._session.execute(stmt)
-        jc = result.scalar_one_or_none()
-        if not jc:
+        all_jcs_stmt = select(JobCardModel).where(JobCardModel.work_order_id == wo.id).order_by(JobCardModel.sequence)
+        all_jcs = (await self._session.execute(all_jcs_stmt)).scalars().all()
+
+        target_jc = next((jc for jc in all_jcs if jc.id == cmd.job_card_id), None)
+        if not target_jc:
             raise ValueError(f"Job Card {cmd.job_card_id} not found")
 
-        if jc.status != "PENDING":
-            raise ValueError(f"Job card is already {jc.status}")
-        jc.status = "IN_PROGRESS"
-        jc.started_at = datetime.now(timezone.utc)
+        if target_jc.status != "PENDING":
+            raise ValueError(f"Job card is already {target_jc.status}")
+
+        for jc in all_jcs:
+            if jc.sequence < target_jc.sequence and jc.status != "DONE":
+                raise ValueError(f"Complete OP-{jc.sequence} before starting OP-{target_jc.sequence}.")
+
+        target_jc.status = "IN_PROGRESS"
+        target_jc.started_at = datetime.now(timezone.utc)
         if cmd.assigned_to:
-            jc.assigned_to = cmd.assigned_to
+            target_jc.assigned_to = cmd.assigned_to
 
     async def handle_complete_job_card(self, cmd: CompleteJobCardCommand) -> None:
         wo = await self._get_wo(cmd.work_order_id, cmd.tenant_id)

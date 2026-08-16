@@ -29,7 +29,7 @@ from backend.app.interfaces.api.v1.schemas.document_schemas import (
 )
 
 
-router = APIRouter(tags=["Documents"])
+router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
 def _get_document_services(request: Request, session: AsyncSession):
@@ -304,10 +304,10 @@ async def _build_invoice_context(
     if invoice.lines:
         for line in invoice.lines:
             lines.append({
-                "item_code": line.material.code if line.material else "",
-                "name": line.material.name if line.material else line.description,
+                "item_code": "", # invoice_lines don't store material codes natively without a join
+                "name": line.description or "Unknown Item",
                 "quantity": float(line.quantity or 0),
-                "unit": line.unit.name if line.unit else "",
+                "unit": "Units", # Default fallback
                 "unit_price": float(line.unit_price or 0),
                 "line_total": float((line.quantity or 0) * (line.unit_price or 0)),
             })
@@ -319,7 +319,7 @@ async def _build_invoice_context(
             "company_name": tenant.company_name or tenant.name,
             "logo_url": tenant.logo_url or "",
             "gst_number": tenant.gst_number or "",
-            "pan_number": tenant.pan_number or "",
+            "pan_number": getattr(tenant, "pan_number", ""),
             "address": tenant.address or "",
             "phone": tenant.phone or "",
             "email": tenant.email or "",
@@ -346,10 +346,10 @@ async def _build_invoice_context(
             "balance_due": float(invoice.grand_total or 0) - float(invoice.paid_amount or 0),
         },
         "payment_details": {
-            "bank_name": tenant.bank_name or "",
-            "account_number": tenant.bank_account_number or "",
-            "ifsc_code": tenant.bank_ifsc_code or "",
-            "upi_id": tenant.upi_id or "",
+            "bank_name": getattr(tenant, "bank_name", ""),
+            "account_number": getattr(tenant, "bank_account_number", ""),
+            "ifsc_code": getattr(tenant, "bank_ifsc_code", ""),
+            "upi_id": getattr(tenant, "upi_id", ""),
         },
         "signatures": {
             "finance": {
@@ -795,7 +795,7 @@ async def generate_document(
     Returns:
         Generated document metadata
     """
-    from backend.app.infrastructure.container import get_container
+    from backend.app.interfaces.api.v1.dependencies.auth import get_container
     container = get_container(request)
     
     async with container.session_factory() as session:

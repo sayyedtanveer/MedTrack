@@ -158,7 +158,8 @@ export class SalesProvider implements IAssistantProvider<SalesOrder> {
           priority: 'medium',
           progress: buildSalesProgress('completed', ['draft', 'approved', 'confirmed', 'production', 'dispatch']),
           actionId: AssistantAction.RECORD_PAYMENT,
-          pulseActionId: 'record_payment'
+          pulseActionId: 'record_payment',
+          route: { module: 'Sales', destination: 'SalesOrderDetail', id: order.id }
         };
         break;
 

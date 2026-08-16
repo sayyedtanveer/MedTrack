@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
 import {
   ArrowLeft, GitBranch, Package2, Zap, Lock, AlertCircle, Trash2
 } from "lucide-react"
 import { bomService } from "@/services/bom.service"
+import { productService } from "@/services/product.service"
 import { BOM, ItemTemplate, ItemVariant } from "@/types/bom.types"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +43,9 @@ export default function BOMDetailPage() {
   const [activateOpen, setActivateOpen] = useState(false)
   const [copyOpen, setCopyOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("builder")
+  const [searchParams] = useSearchParams()
+  const templateIdParam = searchParams.get("template_id")
+  const variantIdParam = searchParams.get("variant_id")
   
   // For NEW BOM creation flow
   const [creationStep, setCreationStep] = useState<"select-product" | "select-version">("select-product")
@@ -52,13 +56,36 @@ export default function BOMDetailPage() {
 
   const isNewBOM = bomId === "new"
 
-  // Reset creation state when navigating to /bom/new
+  // Reset creation state when navigating to /bom/new without params
   useEffect(() => {
-    if (isNewBOM) {
+    if (isNewBOM && !templateIdParam && !variantIdParam) {
       setCreationStep("select-product")
       setSelectedProduct(null)
     }
-  }, [bomId])
+  }, [bomId, templateIdParam, variantIdParam])
+
+  // Automatically fetch product if query params are present
+  useEffect(() => {
+    async function fetchProduct() {
+      if (isNewBOM && (templateIdParam || variantIdParam) && !selectedProduct) {
+        try {
+          if (templateIdParam) {
+            const product = await bomService.getTemplate(templateIdParam)
+            setSelectedProduct({ product, isTemplate: true })
+            setCreationStep("select-version")
+          } else if (variantIdParam) {
+            // productService.getVariant returns an ItemVariant which has the same base shape
+            const product = await productService.getVariant(variantIdParam) as unknown as ItemVariant
+            setSelectedProduct({ product, isTemplate: false })
+            setCreationStep("select-version")
+          }
+        } catch (error) {
+          toast.error("Failed to load product from URL parameters")
+        }
+      }
+    }
+    fetchProduct()
+  }, [isNewBOM, templateIdParam, variantIdParam, selectedProduct])
 
   // For existing BOMs: fetch the BOM data
   const { data: bom, isLoading, isError, error, refetch } = useQuery({
@@ -110,6 +137,27 @@ export default function BOMDetailPage() {
   // Fetch product context for version panel
   const productId = bom?.variant_id ?? bom?.template_id
   const isTemplateType = !bom?.variant_id
+
+  const targetQuery = useQuery({
+    queryKey: ["bom-target", bom?.template_id, bom?.variant_id],
+    queryFn: async () => {
+      if (bom?.template_id) {
+        const t = await bomService.getTemplate(bom.template_id)
+        return { isTemplate: true, product: t, template: t, variant: null }
+      }
+      if (bom?.variant_id) {
+        // productService.getVariant returns ItemVariant
+        const v = await productService.getVariant(bom.variant_id) as unknown as ItemVariant
+        // We need the template to get the product name
+        // The variant has template_id
+        const t = await bomService.getTemplate(v.template_id)
+        return { isTemplate: false, product: v, template: t, variant: v }
+      }
+      return null
+    },
+    enabled: !!bom,
+    staleTime: 60_000,
+  })
 
   // ─── NEW BOM CREATION FLOW ────────────────────────────────────────────────────
 
@@ -277,42 +325,79 @@ export default function BOMDetailPage() {
   return (
     <div className="w-full space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/bom/list")}
-          className="-ml-2 self-start"
-        >
-          <ArrowLeft className="w-4 h-4 mr-1" />
-          BOMs
-        </Button>
-        <Separator orientation="vertical" className="h-6 hidden sm:block" />
-        <div className="flex flex-1 items-center gap-3 min-w-0 flex-wrap">
-          <h1 className="text-xl font-semibold truncate">
-            BOM v{bom.version}
-          </h1>
-          <Badge
-            className={
-              bom.is_active
-                ? "bg-green-50 text-green-700 border-green-200"
-                : "text-muted-foreground border"
-            }
+      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+        {targetQuery.data?.variant ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/products/templates/${targetQuery.data!.template.id}?tab=variants`)}
+            className="-ml-2 self-start"
           >
-            {bom.is_active ? (
-              <>
-                <Zap className="w-3 h-3 mr-1" />
-                Active
-              </>
-            ) : (
-              "Draft"
-            )}
-          </Badge>
-          {!canEditBOM() && (
-            <Badge variant="outline" className="text-muted-foreground text-xs">
-              <Lock className="w-3 h-3 mr-1" />
-              Read-only
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Back to Variant
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/bom/list")}
+            className="-ml-2 self-start"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            BOMs
+          </Button>
+        )}
+        <Separator orientation="vertical" className="h-10 hidden sm:block" />
+        <div className="flex flex-col flex-1 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl font-semibold truncate">
+              BOM v{bom.version}
+            </h1>
+            <Badge
+              className={
+                bom.is_active
+                  ? "bg-green-50 text-green-700 border-green-200"
+                  : "text-muted-foreground border"
+              }
+            >
+              {bom.is_active ? (
+                <>
+                  <Zap className="w-3 h-3 mr-1" />
+                  Active
+                </>
+              ) : (
+                "Draft"
+              )}
             </Badge>
+            {!canEditBOM() && (
+              <Badge variant="outline" className="text-muted-foreground text-xs">
+                <Lock className="w-3 h-3 mr-1" />
+                Read-only
+              </Badge>
+            )}
+          </div>
+          {targetQuery.data && (
+            <div className="text-sm mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+              <span>
+                Finished Product: <strong className="text-foreground">
+                  {targetQuery.data.isTemplate 
+                    ? targetQuery.data.template.name 
+                    : `${targetQuery.data.template.name} - ${targetQuery.data.variant?.name}`}
+                </strong>
+              </span>
+              {!targetQuery.data.isTemplate && (
+                <>
+                  <span className="text-muted-foreground hidden sm:inline">|</span>
+                  <span className="text-muted-foreground">
+                    Product: <strong className="text-foreground font-medium">{targetQuery.data.template.name}</strong>
+                  </span>
+                  <span className="text-muted-foreground hidden sm:inline">|</span>
+                  <span className="text-muted-foreground">
+                    Variant: <strong className="text-foreground font-medium">{targetQuery.data.variant?.name}</strong>
+                  </span>
+                </>
+              )}
+            </div>
           )}
         </div>
 
@@ -408,8 +493,8 @@ export default function BOMDetailPage() {
               <BOMVersionPanel
                 productId={productId}
                 isTemplate={isTemplateType}
-                productName={`Product ${productId.slice(0, 8)}`}
-                productCode={productId.slice(0, 8)}
+                productName={targetQuery.data ? targetQuery.data.product.name : `Product ${productId.slice(0, 8)}`}
+                productCode={targetQuery.data ? targetQuery.data.product.code : productId.slice(0, 8)}
                 selectedBomId={bom.id}
                 activeBomId={bom.is_active ? bom.id : undefined}
                 onSelectBom={(b) => navigate(`/bom/${b.id}`)}

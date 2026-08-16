@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import { materialOnboardingService, rawMaterialOnboardingColumns, type OnboardingPreview, type OnboardingPreviewRow } from '@/services/material-onboarding.service'
+import { materialOnboardingService, rawMaterialOnboardingColumns, friendlyColumnNames, type OnboardingPreview, type OnboardingPreviewRow } from '@/services/material-onboarding.service'
 
 const steps = ['Upload', 'Mapping', 'Review', 'Summary']
 const fieldOptions = rawMaterialOnboardingColumns
-const editableFields = ['item_code', 'material_name', 'material_category', 'material_type', 'uom', 'barcode', 'approved_supplier', 'supplier_item_code', 'reorder_level', 'min_stock', 'max_stock', 'batch_tracking_enabled', 'traceability_enabled', 'length_uom', 'decimal_precision']
+const editableFields = ['item_code', 'material_name', 'material_category', 'uom', 'barcode', 'approved_supplier', 'supplier_item_code', 'reorder_level', 'min_stock', 'max_stock', 'batch_tracking_enabled', 'traceability_enabled', 'length_uom', 'decimal_precision']
 
 function messageFrom(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong'
@@ -197,7 +197,7 @@ export default function MaterialOnboardingPage() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="_ignore">Ignore column</SelectItem>
-                    {fieldOptions.map((field) => <SelectItem key={field} value={field}>{field}</SelectItem>)}
+                    {fieldOptions.map((field) => <SelectItem key={field} value={field}>{friendlyColumnNames[field] || field}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -309,7 +309,7 @@ export default function MaterialOnboardingPage() {
           <div className="grid gap-4 md:grid-cols-2">
             {editableFields.map((field) => (
               <div key={field} className="space-y-2">
-                <Label htmlFor={`edit-${field}`}>{field.replace(/_/g, ' ')}</Label>
+                <Label htmlFor={`edit-${field}`}>{friendlyColumnNames[field] || field}</Label>
                 <Input id={`edit-${field}`} value={editData[field] ?? ''} onChange={(e) => setEditData((data) => ({ ...data, [field]: e.target.value }))} />
               </div>
             ))}

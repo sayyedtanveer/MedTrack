@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import { formatCurrency } from "@/utils/currency"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useSearchParams } from "react-router-dom"
+import { bomService } from "@/services/bom.service"
+import { Layers, Plus } from "lucide-react"
 
 interface BulkImportError {
   row_number: number
@@ -18,6 +22,10 @@ export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const currentTab = searchParams.get("tab") || "overview"
+  const setTab = (tab: string) => setSearchParams({ tab })
 
   const [showImport, setShowImport] = useState(false)
   const [csvContent, setCsvContent] = useState("")
@@ -41,6 +49,13 @@ export default function ProductDetailPage() {
   const { data: images } = useQuery({
     queryKey: ["products", "template", id, "images"],
     queryFn: () => productService.getTemplateImages(id!),
+    enabled: !!id,
+  })
+
+  // Load BOMs
+  const { data: boms, isLoading: loadingBOMs } = useQuery({
+    queryKey: ["boms", "template", id],
+    queryFn: () => bomService.getBOMsForProduct(id!, true),
     enabled: !!id,
   })
 
@@ -122,129 +137,214 @@ export default function ProductDetailPage() {
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => navigate(`/products/${id}/edit`)} size="sm">
             <Edit2 className="w-4 h-4 mr-1" />
-            Manage Variants
+            Edit Product
           </Button>
-          <Button variant="outline" onClick={() => getTemplateMutation.mutate()} size="sm">
-            <Download className="w-4 h-4 mr-1" />
-            {getTemplateMutation.isPending ? "Downloading..." : "Download Template"}
+          <Button variant="outline" onClick={() => navigate(`/products/${id}/edit`)} size="sm">
+            <Plus className="w-4 h-4 mr-1" />
+            Add Variant
           </Button>
-          <Button onClick={() => setShowImport(true)} size="sm">
-            <Upload className="w-4 h-4 mr-1" />
-            Import Variants
+          <Button onClick={() => navigate(`/bom/new?template_id=${id}`)} size="sm">
+            <Layers className="w-4 h-4 mr-1" />
+            Create BOM
           </Button>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Total Variants</p>
-          <p className="text-2xl font-bold">{variants?.total || 0}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Active</p>
-          <p className="text-2xl font-bold text-green-600">{activeVariants.length}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Inactive</p>
-          <p className="text-2xl font-bold text-orange-600">{inactiveVariants.length}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Images</p>
-          <p className="text-2xl font-bold">{images?.items.length || 0}</p>
-        </div>
-      </div>
+      <Tabs value={currentTab} onValueChange={setTab} className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="variants">Variants ({variants?.total || 0})</TabsTrigger>
+          <TabsTrigger value="bom">BOMs ({boms?.items.length || 0})</TabsTrigger>
+        </TabsList>
 
-      {/* Images Gallery */}
-      {images && images.items.length > 0 && (
-        <div className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-semibold mb-4">Product Images ({images.items.length})</h2>
-          <div className="grid grid-cols-6 gap-4">
-            {images.items.map((img: any) => (
-              <div key={img.id} className="relative group rounded-lg overflow-hidden bg-muted aspect-square flex items-center justify-center">
-                <img src={img.file_path} alt={img.file_name} className="w-full h-full object-cover" />
-                {img.is_primary && (
-                  <div className="absolute top-1 right-1 bg-blue-600 text-white text-xs px-2 py-1 rounded">Primary</div>
-                )}
-              </div>
-            ))}
+        <TabsContent value="overview" className="space-y-6 mt-0">
+          {/* Quick Stats */}
+          <div className="grid grid-cols-4 gap-4">
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Total Variants</p>
+              <p className="text-2xl font-bold">{variants?.total || 0}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Active Variants</p>
+              <p className="text-2xl font-bold text-green-600">{activeVariants.length}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">BOMs</p>
+              <p className="text-2xl font-bold text-blue-600">{boms?.items.length || 0}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Images</p>
+              <p className="text-2xl font-bold">{images?.items.length || 0}</p>
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* Variants Table */}
-      <div className="rounded-lg border bg-card p-6">
-        <div className="flex gap-2 mb-4">
-          <h2 className="text-lg font-semibold flex-1">Variants ({variants?.total})</h2>
-          {activeVariants.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => deactivateMutation.mutate(activeVariants.map(v => v.id))}>
-              Deactivate All Active
-            </Button>
+          {/* Images Gallery */}
+          {images && images.items.length > 0 && (
+            <div className="rounded-lg border bg-card p-6">
+              <h2 className="text-lg font-semibold mb-4">Product Images ({images.items.length})</h2>
+              <div className="grid grid-cols-6 gap-4">
+                {images.items.map((img: any) => (
+                  <div key={img.id} className="relative group rounded-lg overflow-hidden bg-muted aspect-square flex items-center justify-center">
+                    <img src={img.file_path} alt={img.file_name} className="w-full h-full object-cover" />
+                    {img.is_primary && (
+                      <div className="absolute top-1 right-1 bg-blue-600 text-white text-xs px-2 py-1 rounded">Primary</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
-          {inactiveVariants.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => activateMutation.mutate(inactiveVariants.map(v => v.id))}>
-              Activate All Inactive
-            </Button>
-          )}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b">
-              <tr>
-                <th className="h-10 px-4 text-left font-medium">Code</th>
-                <th className="h-10 px-4 text-left font-medium">Name</th>
-                <th className="h-10 px-4 text-left font-medium">Attributes</th>
-                <th className="h-10 px-4 text-right font-medium">Cost</th>
-                <th className="h-10 px-4 text-right font-medium">Price</th>
-                <th className="h-10 px-4 text-center font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {loadingVariants ? (
-                <tr>
-                  <td colSpan={6} className="py-10 text-center text-muted-foreground">
-                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
-                  </td>
-                </tr>
-              ) : variants?.items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-10 text-center text-muted-foreground">
-                    <div className="space-y-3">
-                      <p>No variants yet. Create one standard SKU or import variant rows before using this product in sales and production.</p>
-                      <Button variant="outline" size="sm" onClick={() => navigate(`/products/${id}/edit`)}>
-                        <Edit2 className="w-4 h-4 mr-1" />
-                        Add Variant
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                variants?.items.map(v => (
-                  <tr key={v.id} className="hover:bg-muted/30">
-                    <td className="px-4 py-3 font-mono text-xs">{v.code}</td>
-                    <td className="px-4 py-3">{v.name}</td>
-                    <td className="px-4 py-3 text-xs max-w-xs overflow-hidden text-ellipsis">
-                      {Object.entries(v.attribute_values).map(([k, val]) => (
-                        <span key={k} className="inline-block mr-2 bg-muted px-2 py-1 rounded">
-                          {k}: {String(val)}
-                        </span>
-                      ))}
-                    </td>
-                    <td className="px-4 py-3 text-right">{formatCurrency(Number(v.standard_cost))}</td>
-                    <td className="px-4 py-3 text-right">{v.selling_price ? formatCurrency(Number(v.selling_price)) : "-"}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="inline-block px-2 py-1 rounded text-xs bg-opacity-20" 
-                            style={{ backgroundColor: v.is_active ? "rgb(34 197 94 / 0.2)" : "rgb(239 68 68 / 0.2)" }}>
-                        {v.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+        </TabsContent>
+
+        <TabsContent value="variants" className="space-y-6 mt-0">
+          <div className="rounded-lg border bg-card p-6">
+            <div className="flex gap-2 mb-4">
+              <h2 className="text-lg font-semibold flex-1">Variants ({variants?.total})</h2>
+              <Button variant="outline" onClick={() => getTemplateMutation.mutate()} size="sm">
+                <Download className="w-4 h-4 mr-1" />
+                {getTemplateMutation.isPending ? "Downloading..." : "Download Template"}
+              </Button>
+              <Button onClick={() => setShowImport(true)} size="sm">
+                <Upload className="w-4 h-4 mr-1" />
+                Import Variants
+              </Button>
+              {activeVariants.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => deactivateMutation.mutate(activeVariants.map(v => v.id))}>
+                  Deactivate All Active
+                </Button>
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              {inactiveVariants.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => activateMutation.mutate(inactiveVariants.map(v => v.id))}>
+                  Activate All Inactive
+                </Button>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b">
+                  <tr>
+                    <th className="h-10 px-4 text-left font-medium">Code</th>
+                    <th className="h-10 px-4 text-left font-medium">Name</th>
+                    <th className="h-10 px-4 text-left font-medium">Attributes</th>
+                    <th className="h-10 px-4 text-right font-medium">Cost</th>
+                    <th className="h-10 px-4 text-right font-medium">Price</th>
+                    <th className="h-10 px-4 text-center font-medium">Status</th>
+                    <th className="h-10 px-4 text-center font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {loadingVariants ? (
+                    <tr>
+                      <td colSpan={7} className="py-10 text-center text-muted-foreground">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                      </td>
+                    </tr>
+                  ) : variants?.items.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-10 text-center text-muted-foreground">
+                        <div className="space-y-3">
+                          <p>No variants yet. Create one standard SKU or import variant rows before using this product in sales and production.</p>
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/products/${id}/edit`)}>
+                            <Edit2 className="w-4 h-4 mr-1" />
+                            Add Variant
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    variants?.items.map(v => (
+                      <tr key={v.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-3 font-mono text-xs">{v.code}</td>
+                        <td className="px-4 py-3">{v.name}</td>
+                        <td className="px-4 py-3 text-xs max-w-xs overflow-hidden text-ellipsis">
+                          {Object.entries(v.attribute_values).map(([k, val]) => (
+                            <span key={k} className="inline-block mr-2 bg-muted px-2 py-1 rounded">
+                              {k}: {String(val)}
+                            </span>
+                          ))}
+                        </td>
+                        <td className="px-4 py-3 text-right">{formatCurrency(Number(v.standard_cost))}</td>
+                        <td className="px-4 py-3 text-right">{v.selling_price ? formatCurrency(Number(v.selling_price)) : "-"}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="inline-block px-2 py-1 rounded text-xs bg-opacity-20" 
+                                style={{ backgroundColor: v.is_active ? "rgb(34 197 94 / 0.2)" : "rgb(239 68 68 / 0.2)" }}>
+                            {v.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Button variant="ghost" size="sm" onClick={() => navigate(`/bom/new?variant_id=${v.id}`)}>
+                            Create BOM
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="bom" className="space-y-6 mt-0">
+          <div className="rounded-lg border bg-card p-6">
+            <div className="flex gap-2 mb-4">
+              <h2 className="text-lg font-semibold flex-1">Bills of Materials</h2>
+              <Button onClick={() => navigate(`/bom/new?template_id=${id}`)} size="sm">
+                <Layers className="w-4 h-4 mr-1" />
+                Create BOM
+              </Button>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b">
+                  <tr>
+                    <th className="h-10 px-4 text-left font-medium">Version</th>
+                    <th className="h-10 px-4 text-left font-medium">Target</th>
+                    <th className="h-10 px-4 text-left font-medium">Status</th>
+                    <th className="h-10 px-4 text-center font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {loadingBOMs ? (
+                    <tr>
+                      <td colSpan={4} className="py-10 text-center text-muted-foreground">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                      </td>
+                    </tr>
+                  ) : boms?.items.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-10 text-center text-muted-foreground">
+                        No BOMs found for this product.
+                      </td>
+                    </tr>
+                  ) : (
+                    boms?.items.map(bom => (
+                      <tr key={bom.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-3 font-mono text-sm font-medium">{bom.version}</td>
+                        <td className="px-4 py-3">
+                          {bom.variant_id ? "Variant Specific" : "Template Wide"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-block px-2 py-1 rounded text-xs bg-opacity-20" 
+                                style={{ backgroundColor: bom.is_active ? "rgb(34 197 94 / 0.2)" : "rgb(239 68 68 / 0.2)" }}>
+                            {bom.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Button variant="ghost" size="sm" onClick={() => navigate(`/bom/list/${bom.id}`)}>
+                            View Details
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Import Dialog */}
       <Dialog open={showImport} onOpenChange={setShowImport}>

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import { Truck, PackageCheck, AlertCircle, Info } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { ToastAction } from "@/components/ui/toast"
 import apiClient from "@/services/api-client"
 
 interface DispatchQueueItem {
@@ -120,6 +121,7 @@ export default function DeliveryDashboardPage() {
       toast({
         title: "Success",
         description: "Delivery marked as delivered",
+        action: <ToastAction altText="Go to Invoices" onClick={() => navigate('/finance/invoices')}>Generate Invoice</ToastAction>
       })
       queryClient.invalidateQueries({ queryKey: ["active-deliveries"] })
       queryClient.invalidateQueries({ queryKey: ["delivery-dispatch-queue"] })
