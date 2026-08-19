@@ -82,22 +82,11 @@ class DocumentGenerationService:
             tenant_id, document_type, entity_id, version_number
         )
 
-        # Generate PDF if WeasyPrint is available
-        if self.pdf_service.available:
-            try:
-                pdf_bytes = self.pdf_service.generate_pdf_from_html(html_content)
-
-                # Save PDF to storage
-                self.storage_service.save_pdf(pdf_bytes, file_path)
-            except RuntimeError as e:
-                # PDF generation failed, but we'll still save the document metadata
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"PDF generation failed: {e}. Document metadata saved without PDF file.")
-        else:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning("WeasyPrint not available. Document metadata saved without PDF file.")
+        # Generate PDF and save to Cloudinary storage
+        # This will raise a RuntimeError if WeasyPrint is unavailable or Cloudinary upload fails.
+        # We explicitly allow this to propagate to prevent creating phantom document records.
+        pdf_bytes = self.pdf_service.generate_pdf_from_html(html_content)
+        self.storage_service.save_pdf(pdf_bytes, file_path)
 
         # Create document entity
         document = Document(

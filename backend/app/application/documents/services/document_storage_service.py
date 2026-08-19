@@ -1,47 +1,42 @@
-"""Document storage service for managing PDF files."""
+"""Document storage service for managing PDF files via Cloudinary."""
 
 from __future__ import annotations
 
 import uuid
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+import httpx
 
+import cloudinary
+import cloudinary.uploader
+import cloudinary.utils
+from backend.app.config import settings
+
+logger = logging.getLogger(__name__)
 
 class DocumentStorageService:
-    """Service for storing and managing document PDF files."""
+    """Service for storing and managing document PDF files on Cloudinary."""
 
     def __init__(self, base_storage_path: str = "storage/documents"):
         """Initialize document storage service.
         
         Args:
-            base_storage_path: Base directory for document storage
+            base_storage_path: Base directory for legacy local document storage
         """
         self.base_storage_path = Path(base_storage_path)
-        self._ensure_base_directory()
+        # Ensure Cloudinary is configured
+        cloudinary.config(
+            cloud_name=settings.cloudinary_cloud_name,
+            api_key=settings.cloudinary_api_key,
+            api_secret=settings.cloudinary_api_secret,
+        )
 
-    def _ensure_base_directory(self) -> None:
-        """Ensure base storage directory exists."""
-        self.base_storage_path.mkdir(parents=True, exist_ok=True)
-
-    def _get_document_directory(
-        self,
-        tenant_id: uuid.UUID,
-        document_type: str,
-    ) -> Path:
-        """Get the directory path for a document type.
-        
-        Args:
-            tenant_id: Tenant UUID
-            document_type: Type of document (work_order, purchase_order, etc.)
-            
-        Returns:
-            Path to document directory
-        """
-        tenant_dir = self.base_storage_path / str(tenant_id)
-        type_dir = tenant_dir / document_type
-        type_dir.mkdir(parents=True, exist_ok=True)
-        return type_dir
+    def _is_legacy_local_path(self, file_path: str) -> bool:
+        """Check if a file path is a legacy local filesystem path."""
+        # Strict prefix detection per architectural plan
+        return file_path.startswith("/") or file_path.startswith("C:\\") or file_path.startswith("storage/")
 
     def generate_file_path(
         self,
@@ -51,7 +46,7 @@ class DocumentStorageService:
         version_number: int,
         extension: str = "pdf",
     ) -> str:
-        """Generate a unique file path for a document.
+        """Generate a Cloudinary public_id for a document.
         
         Args:
             tenant_id: Tenant UUID
@@ -61,53 +56,102 @@ class DocumentStorageService:
             extension: File extension (default: pdf)
             
         Returns:
-            Absolute file path
+            Cloudinary public_id (e.g. medtrack/{tenant_id}/{document_type}/{entity_id}_v{version}_{timestamp}.pdf)
         """
-        directory = self._get_document_directory(tenant_id, document_type)
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         filename = f"{entity_id}_v{version_number}_{timestamp}.{extension}"
-        file_path = directory / filename
-        return str(file_path.absolute())
+        # Cloudinary requires the extension in the public_id for raw assets
+        public_id = f"medtrack/{tenant_id}/{document_type}/{filename}"
+        return public_id
 
     def save_pdf(
         self,
         pdf_bytes: bytes,
         file_path: str,
     ) -> None:
-        """Save PDF bytes to file.
+        """Upload PDF bytes to Cloudinary.
         
         Args:
             pdf_bytes: PDF content as bytes
-            file_path: Absolute file path to save to
+            file_path: Cloudinary public_id to use
+            
+        Raises:
+            RuntimeError: If upload to Cloudinary fails
         """
-        path = Path(file_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(pdf_bytes)
+        try:
+            result = cloudinary.uploader.upload(
+                pdf_bytes,
+                resource_type="raw",
+                type="private",
+                public_id=file_path,
+                format="pdf"
+            )
+            logger.info(f"Successfully uploaded PDF to Cloudinary: {file_path}")
+        except Exception as e:
+            logger.error(f"Cloudinary upload failed for {file_path}: {str(e)}")
+            raise RuntimeError(f"Failed to upload document to Cloudinary: {str(e)}") from e
 
     def load_pdf(
         self,
         file_path: str,
     ) -> bytes:
-        """Load PDF bytes from file.
+        """Load PDF bytes from Cloudinary or local legacy fallback.
         
         Args:
-            file_path: Absolute file path to load from
+            file_path: Cloudinary public_id or absolute local file path
             
         Returns:
             PDF content as bytes
+            
+        Raises:
+            FileNotFoundError: If the file does not exist locally (for legacy)
+            RuntimeError: If the Cloudinary download fails
         """
-        path = Path(file_path)
-        return path.read_bytes()
+        if self._is_legacy_local_path(file_path):
+            path = Path(file_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Legacy local PDF file missing: {file_path}")
+            return path.read_bytes()
+
+        # Generate a signed URL for backend-only access
+        try:
+            url, options = cloudinary.utils.cloudinary_url(
+                file_path,
+                resource_type="raw",
+                type="private",
+                sign_url=True
+            )
+            
+            # Fetch the bytes synchronously using httpx
+            with httpx.Client() as client:
+                response = client.get(url)
+                response.raise_for_status()
+                return response.content
+        except Exception as e:
+            logger.error(f"Failed to download PDF from Cloudinary for {file_path}: {str(e)}")
+            raise RuntimeError(f"Failed to download document from Cloudinary: {str(e)}") from e
 
     def delete_pdf(
         self,
         file_path: str,
     ) -> None:
-        """Delete PDF file.
+        """Delete PDF file from Cloudinary or local legacy fallback.
         
         Args:
-            file_path: Absolute file path to delete
+            file_path: Cloudinary public_id or absolute local file path
         """
-        path = Path(file_path)
-        if path.exists():
-            path.unlink()
+        if self._is_legacy_local_path(file_path):
+            path = Path(file_path)
+            if path.exists():
+                path.unlink()
+            return
+
+        try:
+            cloudinary.uploader.destroy(
+                file_path,
+                resource_type="raw",
+                type="private"
+            )
+            logger.info(f"Successfully deleted PDF from Cloudinary: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete PDF from Cloudinary for {file_path}: {str(e)}")

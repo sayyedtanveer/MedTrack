@@ -34,6 +34,8 @@ from backend.app.infrastructure.persistence.models.sales_models import (
 from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
 from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
 from backend.app.infrastructure.persistence.models.user_model import UserModel
+from backend.app.application.documents.services.pdf_generation_service import PDFGenerationService
+from backend.app.application.documents.services.template_service import TemplateService
 
 logger = logging.getLogger(__name__)
 
@@ -1686,16 +1688,22 @@ class FinanceService:
             raise ValueError("Payment not found")
         invoice = await self._get_invoice(tenant_id, payment.invoice_id)
         tenant = await self.session.scalar(select(TenantModel).where(TenantModel.id == tenant_id))
-        tenant_name = tenant.name if tenant else "Tenant"
-        lines = [
-            tenant_name,
-            f"Receipt {payment.payment_number}",
-            f"Invoice: {invoice.invoice_number}",
-            f"Client: {invoice.client_name}",
-            f"Payment Date: {payment.payment_date}",
-            f"Method: {payment.payment_method}",
-            f"Amount Received: {_as_float(payment.amount):.2f}",
-            f"Reference: {payment.reference_number or '-'}",
-            f"Remaining Balance: {_as_float(invoice.grand_total) - _as_float(invoice.paid_amount):.2f}",
-        ]
-        return payment.payment_number, _build_minimal_pdf(lines)
+
+        template_context = {
+            "tenant": tenant,
+            "payment": payment,
+            "invoice": invoice,
+            "remaining_balance": _as_float(invoice.grand_total) - _as_float(invoice.paid_amount),
+            "document_title": f"Receipt {payment.payment_number}"
+        }
+
+        template_service = TemplateService()
+        html_content = template_service.render_template(
+            "payment_receipt/print.html",
+            template_context
+        )
+
+        pdf_service = PDFGenerationService()
+        pdf_bytes = pdf_service.generate_pdf_from_html(html_content)
+
+        return payment.payment_number, pdf_bytes

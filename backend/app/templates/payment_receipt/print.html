@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+    <table style="width: 100%; border: none; margin: 0; font-size: 10pt;">
+        <tr>
+            <td style="border: none; vertical-align: top; width: 50%;">
+                {% if tenant.logo_url %}
+                <img src="{{ tenant.logo_url }}" class="company-logo" alt="Company Logo" style="max-width: 200px; max-height: 80px;">
+                {% else %}
+                <div class="company-name">{{ tenant.company_name or tenant.name }}</div>
+                {% endif %}
+            </td>
+            <td style="border: none; text-align: right; vertical-align: top; width: 50%;">
+                {% if tenant.logo_url %}
+                <div class="company-name">{{ tenant.company_name or tenant.name }}</div>
+                {% endif %}
+                <div class="company-details">
+                    {% if tenant.address %}{{ tenant.address }}<br>{% endif %}
+                    {% if tenant.phone %}{{ tenant.phone }}<br>{% endif %}
+                    {% if tenant.email %}{{ tenant.email }}{% endif %}
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<div class="document-title" style="margin-top: 30px; margin-bottom: 30px; letter-spacing: 2px;">
+    PAYMENT RECEIPT
+</div>
+
+<div class="document-meta" style="margin-bottom: 30px;">
+    <div class="meta-section">
+        <div class="meta-value"><span class="meta-label">Receipt No:</span> {{ payment.payment_number }}</div>
+    </div>
+    <div class="meta-section" style="text-align: right;">
+        <div class="meta-value"><span class="meta-label">Date:</span> {{ payment.payment_date.strftime('%d %b %Y') if payment.payment_date else '' }}</div>
+    </div>
+</div>
+
+<div class="section-title">RECEIVED FROM</div>
+<div style="margin-bottom: 30px;">
+    <strong>{{ invoice.client_name }}</strong><br>
+    <!-- Omitted client address/code as they are not eagerly fetched in finance_service to preserve existing logic safely -->
+</div>
+
+<div class="section-title">PAYMENT DETAILS</div>
+<table style="margin-bottom: 30px;">
+    <tr>
+        <th style="width: 30%;">Field</th>
+        <th style="width: 70%;">Value</th>
+    </tr>
+    <tr>
+        <td><strong>Invoice Number</strong></td>
+        <td>{{ invoice.invoice_number }}</td>
+    </tr>
+    <tr>
+        <td><strong>Payment Method</strong></td>
+        <td>{{ payment.payment_method }}</td>
+    </tr>
+    {% if payment.reference_number %}
+    <tr>
+        <td><strong>Reference No.</strong></td>
+        <td>{{ payment.reference_number }}</td>
+    </tr>
+    {% endif %}
+    {% if payment.notes %}
+    <tr>
+        <td><strong>Notes</strong></td>
+        <td>{{ payment.notes }}</td>
+    </tr>
+    {% endif %}
+</table>
+
+<div style="text-align: center; margin: 40px 0; padding: 20px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
+    <div style="font-size: 11pt; font-weight: bold; color: #4b5563; margin-bottom: 10px;">AMOUNT RECEIVED</div>
+    <div style="font-size: 24pt; font-weight: bold; color: #111827;">
+        {{ tenant.currency_symbol or '' }}{{ "%.2f"|format(payment.amount) }} {{ tenant.currency_code or '' }}
+    </div>
+</div>
+
+<div class="section-title">ACCOUNT SUMMARY</div>
+<table style="margin-bottom: 40px; width: 60%; margin-left: auto; margin-right: auto; text-align: right;">
+    <tr>
+        <td style="border: none; padding: 4px 8px; text-align: left; color: #4b5563;">Invoice Amount:</td>
+        <td style="border: none; padding: 4px 8px; font-weight: bold;">
+            {{ tenant.currency_symbol or '' }}{{ "%.2f"|format(invoice.grand_total) }}
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 4px 8px; text-align: left; color: #4b5563;">Previously Paid:</td>
+        <td style="border: none; padding: 4px 8px; font-weight: bold;">
+            {{ tenant.currency_symbol or '' }}{{ "%.2f"|format(invoice.paid_amount - payment.amount) }}
+        </td>
+    </tr>
+    <tr style="border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; background-color: #f9fafb;">
+        <td style="border: none; padding: 8px; text-align: left; font-weight: bold;">Remaining Balance:</td>
+        <td style="border: none; padding: 8px; font-weight: bold; font-size: 12pt;" 
+            class="{% if remaining_balance <= 0 %}text-success{% else %}text-danger{% endif %}">
+            <style>
+                .text-success { color: #059669; }
+                .text-danger { color: #dc2626; }
+            </style>
+            {{ tenant.currency_symbol or '' }}{{ "%.2f"|format(remaining_balance) }}
+        </td>
+    </tr>
+</table>
+
+{% if remaining_balance <= 0 %}
+<div style="margin-bottom: 30px;">
+    <strong>Payment Status:</strong> <span class="status-badge status-completed">PAID IN FULL</span>
+</div>
+{% else %}
+<div style="margin-bottom: 30px;">
+    <strong>Payment Status:</strong> <span class="status-badge status-in_progress">PARTIAL PAYMENT</span>
+</div>
+{% endif %}
+
+<div style="margin-top: 60px; display: flex; justify-content: space-between; page-break-inside: avoid;">
+    <div style="width: 40%; text-align: center;">
+        <div style="border-bottom: 1px solid #333; height: 40px; margin-bottom: 10px;"></div>
+        <div style="font-size: 9pt; color: #666;">Received By</div>
+    </div>
+    <div style="width: 40%; text-align: center;">
+        <div style="border-bottom: 1px solid #333; height: 40px; margin-bottom: 10px;"></div>
+        <div style="font-size: 9pt; color: #666;">Authorized By</div>
+    </div>
+</div>
+
+<div style="margin-top: 40px; font-size: 9pt; color: #666; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 20px;">
+    Thank you for your payment.<br>
+    This is a computer-generated payment receipt.
+</div>
+{% endblock %}
