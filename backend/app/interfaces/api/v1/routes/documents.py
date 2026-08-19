@@ -846,8 +846,10 @@ async def generate_document(
                 user_id=user_id,
             )
             
+            await session.commit()
             return DocumentResponse.model_validate(document)
         except Exception as e:
+            await session.rollback()
             raise HTTPException(status_code=500, detail=str(e))
 
 
