@@ -119,7 +119,8 @@ class DocumentStorageService:
                 file_path,
                 resource_type="raw",
                 type="private",
-                sign_url=True
+                sign_url=True,
+                secure=True
             )
             
             # Fetch the bytes synchronously using httpx
