@@ -677,7 +677,7 @@ async def test_pdf_generation(
     
     Generates a simple test PDF to verify WeasyPrint is working correctly.
     """
-    from backend.app.infrastructure.container import get_container
+    from backend.app.interfaces.api.v1.dependencies.auth import get_container
     container = get_container(request)
     
     # Check if PDF generation is available
@@ -867,7 +867,7 @@ async def download_document(
     Returns:
         PDF file as binary response
     """
-    from backend.app.infrastructure.container import get_container
+    from backend.app.interfaces.api.v1.dependencies.auth import get_container
     container = get_container(request)
     
     async with container.session_factory() as session:
@@ -909,7 +909,7 @@ async def get_document_html(
     Returns:
         HTML content as text/html response
     """
-    from backend.app.infrastructure.container import get_container
+    from backend.app.interfaces.api.v1.dependencies.auth import get_container
     container = get_container(request)
 
     async with container.session_factory() as session:
@@ -970,7 +970,7 @@ async def list_document_versions(
     Returns:
         List of document versions
     """
-    from backend.app.infrastructure.container import get_container
+    from backend.app.interfaces.api.v1.dependencies.auth import get_container
     container = get_container(request)
     
     async with container.session_factory() as session:
