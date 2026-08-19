@@ -115,21 +115,43 @@ class DocumentStorageService:
 
         # Generate a signed URL for backend-only access
         try:
-            url, options = cloudinary.utils.cloudinary_url(
+            url = cloudinary.utils.private_download_url(
                 file_path,
+                format="pdf",
                 resource_type="raw",
-                type="private",
-                sign_url=True,
-                secure=True
+                type="private"
             )
+            
+            # Safely log the URL without exposing secrets or signatures
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            safe_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?***redacted***"
+            logger.info(f"Downloading from Cloudinary URL: {safe_url}")
+            logger.info(f"Parameters matched for download: public_id='{file_path}', format='pdf', resource_type='raw', type='private'")
             
             # Fetch the bytes synchronously using httpx
             with httpx.Client() as client:
                 response = client.get(url)
-                response.raise_for_status()
-                return response.content
+                
+                # Check 200 explicitly and report body on failure
+                if response.status_code != 200:
+                    error_details = f"Cloudinary HTTP {response.status_code} - Body: {response.text}"
+                    logger.error(f"Download failed: {error_details}")
+                    raise RuntimeError(f"Cloudinary download error: {error_details}")
+                
+                # Verify PDF signatures
+                content_type = response.headers.get('content-type', '')
+                if 'application/pdf' not in content_type:
+                    logger.warning(f"Expected application/pdf, but got Content-Type: {content_type}")
+                
+                content = response.content
+                if not content.startswith(b'%PDF'):
+                    logger.warning(f"Downloaded file does not start with %PDF marker! First 20 bytes: {content[:20]}")
+                    
+                return content
+                
         except Exception as e:
-            logger.error(f"Failed to download PDF from Cloudinary for {file_path}: {str(e)}")
+            logger.error(f"Exception during Cloudinary download for {file_path}: {str(e)}")
             raise RuntimeError(f"Failed to download document from Cloudinary: {str(e)}") from e
 
     def delete_pdf(
