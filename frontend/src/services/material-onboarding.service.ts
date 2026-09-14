@@ -56,9 +56,18 @@ export const friendlyColumnNames: Record<string, string> = {
 
 
 export const materialOnboardingService = {
-  templateUrl: (format: 'csv' | 'xlsx') => {
-    const baseUrl = (apiClient.defaults.baseURL || '/api/v1').replace(/\/+$/, '');
-    return `${baseUrl}/inventory/material-onboarding/template?format=${format}`;
+  downloadTemplate: async (format: 'csv' | 'xlsx') => {
+    const res = await apiClient.get(`/inventory/material-onboarding/template?format=${format}`, {
+      responseType: 'blob'
+    });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `material-onboarding-template.${format}`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
   backendRoutesAvailable: async () => {
     try {
