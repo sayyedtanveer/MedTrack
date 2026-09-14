@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { apiClient, extractErrorMessage } from "@/services/api-client"
 
 interface ForgotPasswordModalProps {
   isOpen: boolean
@@ -21,15 +22,7 @@ interface ForgotPasswordModalProps {
 
 type Step = "request" | "reset" | "success"
 
-const readErrorMessage = async (response: Response, fallback: string) => {
-  try {
-    const data = await response.json()
-    const message = data?.detail || data?.message
-    return typeof message === "string" ? message : message ? JSON.stringify(message) : fallback
-  } catch {
-    return fallback
-  }
-}
+
 
 export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: ForgotPasswordModalProps) {
   const [step, setStep] = useState<Step>("request")
@@ -50,15 +43,12 @@ export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: Forgo
         body.tenant_id = tenantId.trim()
       }
 
-      const response = await fetch("/api/v1/forgot-password/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-      if (!response.ok) {
-        throw new Error(await readErrorMessage(response, "Failed to request password reset"))
+      try {
+        const response = await apiClient.post("/forgot-password/request", body)
+        return response.data
+      } catch (err: any) {
+        throw new Error(extractErrorMessage(err))
       }
-      return response.json()
     },
     onSuccess: (data) => {
       if (data.reset_token) {
@@ -92,18 +82,15 @@ export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: Forgo
         throw new Error("Reset token is missing. Please request a new password reset link.")
       }
 
-      const response = await fetch("/api/v1/forgot-password/reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      try {
+        const response = await apiClient.post("/forgot-password/reset", {
           token: resetToken,
           new_password: newPassword,
-        }),
-      })
-      if (!response.ok) {
-        throw new Error(await readErrorMessage(response, "Failed to reset password"))
+        })
+        return response.data
+      } catch (err: any) {
+        throw new Error(extractErrorMessage(err))
       }
-      return response.json()
     },
     onSuccess: (data) => {
       setMessage(data.message || "Password reset successful!")
