@@ -93,8 +93,7 @@ class BOMHandlers:
             is_active = result.scalar_one_or_none()
             if is_active is None:
                 raise ValueError("Target product template does not exist.")
-            if not is_active:
-                raise ValueError("Inactive templates cannot be used in new BOMs.")
+            # We allow inactive templates since BOMs are often created while products are in DRAFT status
         elif variant_id:
             from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
             stmt = select(ItemVariantModel.is_active).where(
@@ -106,8 +105,7 @@ class BOMHandlers:
             is_active = result.scalar_one_or_none()
             if is_active is None:
                 raise ValueError("Target product variant does not exist.")
-            if not is_active:
-                raise ValueError("Inactive variants cannot be used in new BOMs.")
+            # We allow inactive variants since BOMs are often created while products are in DRAFT status
 
     # ── Commands ─────────────────────────────────────────────────────────────
 

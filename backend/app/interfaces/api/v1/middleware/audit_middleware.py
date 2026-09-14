@@ -104,6 +104,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         if (
             request.method in _WRITE_METHODS
             and not any(path.startswith(p) for p in _SKIP_PATHS)
+            and response.status_code < 400
         ):
             try:
                 entity_type, entity_id = _resolve_entity(path)

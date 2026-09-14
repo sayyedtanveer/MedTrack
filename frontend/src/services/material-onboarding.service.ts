@@ -56,11 +56,14 @@ export const friendlyColumnNames: Record<string, string> = {
 
 
 export const materialOnboardingService = {
-  templateUrl: (format: 'csv' | 'xlsx') =>
-    `/api/v1/inventory/material-onboarding/template?format=${format}`,
+  templateUrl: (format: 'csv' | 'xlsx') => {
+    const baseUrl = (apiClient.defaults.baseURL || '/api/v1').replace(/\/+$/, '');
+    return `${baseUrl}/inventory/material-onboarding/template?format=${format}`;
+  },
   backendRoutesAvailable: async () => {
     try {
-      const response = await fetch('/api/v1/inventory/material-onboarding/template?format=xlsx', { method: 'GET' })
+      const baseUrl = (apiClient.defaults.baseURL || '/api/v1').replace(/\/+$/, '');
+      const response = await fetch(`${baseUrl}/inventory/material-onboarding/template?format=xlsx`, { method: 'GET' })
       return response.ok
     } catch {
       return false
