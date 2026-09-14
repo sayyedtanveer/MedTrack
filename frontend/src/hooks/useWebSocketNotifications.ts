@@ -47,7 +47,7 @@ export const useWebSocketNotifications = ({
 
   // Get API base URL (supports both HTTP and WebSocket protocols)
   const getWebSocketUrl = useCallback(() => {
-    const apiBase = import.meta.env.VITE_API_URL || '/api/v1'
+    const apiBase = import.meta.env.VITE_PROD_BACKEND_URL || import.meta.env.VITE_API_URL || '/api/v1'
     const absoluteBase = apiBase.startsWith('http')
       ? apiBase
       : `${window.location.origin}${apiBase.startsWith('/') ? apiBase : `/${apiBase}`}`

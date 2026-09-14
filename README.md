@@ -22,6 +22,9 @@ backend/app/
 - Python 3.11+ (for local development without Docker)
 - PostgreSQL 15+ (if running locally)
 
+For a complete new-laptop setup with copy-paste commands, see
+[SETUP.md](SETUP.md).
+
 ---
 
 ## Quick Start (Docker)
