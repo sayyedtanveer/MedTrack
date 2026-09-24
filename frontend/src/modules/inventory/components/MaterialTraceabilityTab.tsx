@@ -29,7 +29,7 @@ interface TraceabilityItem {
 }
 
 export function MaterialTraceabilityTab({ materialId }: { materialId: string }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["material-traceability", materialId],
     queryFn: () => apiClient.get(`/inventory/traceability/material/${materialId}`).then((r: any) => r.data),
     enabled: Boolean(materialId),
@@ -41,6 +41,16 @@ export function MaterialTraceabilityTab({ materialId }: { materialId: string }) 
         {[...Array(5)].map((_, i) => (
           <div key={i} className="h-9 bg-muted/50 rounded animate-pulse" />
         ))}
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center text-red-500">
+        <Activity className="h-10 w-10 mb-3 opacity-30" />
+        <p className="text-sm font-medium">Failed to load traceability data.</p>
+        <p className="text-xs mt-1 text-slate-500">{(error as any)?.message || "An unexpected API error occurred."}</p>
       </div>
     )
   }

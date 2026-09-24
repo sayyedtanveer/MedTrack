@@ -1,0 +1,30 @@
+name: Keep Supabase and Render Alive
+
+on:
+  schedule:
+    # Runs every day at 12:00 UTC (Keeps Supabase awake which requires activity every 7 days)
+    - cron: '0 12 * * *'
+  workflow_dispatch: # Allows you to run this manually from the Actions tab
+
+jobs:
+  ping-database:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Database
+        env:
+          # You need to add this secret in your GitHub Repo settings (Settings -> Secrets and variables -> Actions)
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret is not set. Please add it to GitHub Secrets."
+            exit 1
+          fi
+          
+          # Install PostgreSQL client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          
+          # Execute a simple query to keep the database active
+          psql "$DATABASE_URL" -c "SELECT 1;"
+          
+          echo "Successfully pinged Supabase database!"
