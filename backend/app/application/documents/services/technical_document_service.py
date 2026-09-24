@@ -87,7 +87,8 @@ class TechnicalDocumentService:
         stmt = (
             select(TechnicalDocumentModel)
             .options(
-                selectinload(TechnicalDocumentModel.revisions).selectinload(DocumentRevisionModel.file_attachment)
+                selectinload(TechnicalDocumentModel.revisions).selectinload(DocumentRevisionModel.file_attachment),
+                selectinload(TechnicalDocumentModel.revisions).selectinload(DocumentRevisionModel.document)
             )
             .where(TechnicalDocumentModel.id == doc.id)
         )
