@@ -33,6 +33,7 @@ from backend.app.infrastructure.persistence.models import (
     material_request_model,
     subcontract_model,
     finance_models,
+    technical_document_model,
 )
 
 # Import error logging models
