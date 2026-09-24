@@ -83,8 +83,7 @@ class DocumentStorageService:
                 pdf_bytes,
                 resource_type="raw",
                 type="private",
-                public_id=file_path,
-                format="pdf"
+                public_id=file_path
             )
             logger.info(f"Successfully uploaded PDF to Cloudinary: {file_path}")
         except Exception as e:

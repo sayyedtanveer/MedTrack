@@ -14,6 +14,8 @@ from backend.app.infrastructure.persistence.models.inventory_reservation_model i
 from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.models.batch_model import BatchModel
 from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderModel
+from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+from backend.app.infrastructure.persistence.models.item_template_model import ItemTemplateModel
 
 
 class InventoryTraceabilityService:
@@ -35,67 +37,100 @@ class InventoryTraceabilityService:
         tenant_id: uuid.UUID,
         material_id: uuid.UUID,
     ) -> list[dict]:
-        """Get full traceability history for a material."""
+        """Get full traceability history for a material (Work Order consumptions)."""
         stmt = (
-            select(InventoryTransactionModel, MaterialModel, BatchModel)
-            .join(MaterialModel, MaterialModel.id == InventoryTransactionModel.material_id)
-            .outerjoin(BatchModel, BatchModel.id == InventoryTransactionModel.batch_id)
-            .where(
-                InventoryTransactionModel.tenant_id == tenant_id,
-                InventoryTransactionModel.material_id == material_id,
-                InventoryTransactionModel.is_deleted.is_(False),
-                MaterialModel.tenant_id == tenant_id,
-                MaterialModel.is_deleted.is_(False),
+            select(
+                InventoryReservationModel,
+                WorkOrderModel,
+                MaterialModel,
+                BatchModel,
+                ItemVariantModel,
+                ItemTemplateModel
             )
-            .order_by(InventoryTransactionModel.created_at.desc())
+            .join(MaterialModel, MaterialModel.id == InventoryReservationModel.material_id)
+            .outerjoin(BatchModel, BatchModel.id == InventoryReservationModel.batch_id)
+            .join(WorkOrderModel, WorkOrderModel.id == InventoryReservationModel.reference_id)
+            .outerjoin(ItemVariantModel, ItemVariantModel.id == WorkOrderModel.product_id)
+            .outerjoin(ItemTemplateModel, ItemTemplateModel.id == ItemVariantModel.template_id)
+            .where(
+                InventoryReservationModel.tenant_id == tenant_id,
+                InventoryReservationModel.material_id == material_id,
+                InventoryReservationModel.reference_type == "work_order",
+                InventoryReservationModel.consumed_quantity > 0
+            )
+            .order_by(InventoryReservationModel.created_at.desc())
         )
         result = await self._session.execute(stmt)
         rows = result.all()
 
         traceability = []
-        for tx, material, batch in rows:
-            reservation = None
-            work_order = None
-            if tx.reference_type == "work_order" and tx.reference_id is not None:
-                reservation = (
-                    await self._session.execute(
-                        select(InventoryReservationModel).where(
-                            InventoryReservationModel.tenant_id == tenant_id,
-                            InventoryReservationModel.reference_type == "work_order",
-                            InventoryReservationModel.reference_id == tx.reference_id,
-                            InventoryReservationModel.material_id == tx.material_id,
-                            InventoryReservationModel.batch_id == tx.batch_id,
-                        )
-                    )
-                ).scalars().first()
-                work_order = (
-                    await self._session.execute(
-                        select(WorkOrderModel).where(
-                            WorkOrderModel.id == tx.reference_id,
-                            WorkOrderModel.tenant_id == tenant_id,
-                            WorkOrderModel.is_deleted.is_(False),
-                        )
-                    )
-                ).scalar_one_or_none()
+        for res, work_order, material, batch, variant, template in rows:
+            finished_product_name = None
+            if variant:
+                finished_product_name = f"{template.name} ({variant.code})" if template else variant.code
+
             traceability.append({
-                "transaction_id": tx.id,
-                "transaction_type": tx.transaction_type,
+                "transaction_id": res.id,
+                "transaction_type": "CONSUME",
                 "material_code": material.code,
                 "material_name": material.name,
-                "quantity": tx.quantity,
-                "unit_id": tx.unit_id,
-                "batch_id": tx.batch_id,
+                "quantity": res.consumed_quantity,
+                "unit_id": None,
+                "batch_id": res.batch_id,
                 "batch_number": batch.batch_number if batch is not None else None,
-                "reference_type": tx.reference_type,
-                "reference_id": tx.reference_id,
-                "wo_number": work_order.wo_number if work_order is not None else None,
-                "reserved_quantity": reservation.quantity if reservation is not None else None,
-                "issued_quantity": reservation.issued_quantity if reservation is not None else None,
-                "consumed_quantity": reservation.consumed_quantity if reservation is not None else None,
-                "returned_quantity": reservation.returned_quantity if reservation is not None else None,
-                "created_at": tx.created_at,
-                "created_by": tx.created_by,
-                "remarks": tx.remarks,
+                "reference_type": res.reference_type,
+                "reference_id": res.reference_id,
+                "wo_number": work_order.wo_number,
+                "finished_product_name": finished_product_name,
+                "reserved_quantity": res.quantity,
+                "issued_quantity": res.issued_quantity,
+                "consumed_quantity": res.consumed_quantity,
+                "returned_quantity": res.returned_quantity,
+                "created_at": res.created_at,
+                "created_by": None,
+                "remarks": res.notes if hasattr(res, 'notes') else None,
+                "status": str(work_order.status) if work_order else None,
+            })
+
+        return traceability
+
+    async def get_work_order_traceability(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        work_order_id: uuid.UUID,
+    ) -> list[dict]:
+        """Get all materials and batches consumed in a specific Work Order."""
+        stmt = (
+            select(InventoryReservationModel, MaterialModel, BatchModel)
+            .join(MaterialModel, MaterialModel.id == InventoryReservationModel.material_id)
+            .outerjoin(BatchModel, BatchModel.id == InventoryReservationModel.batch_id)
+            .where(
+                InventoryReservationModel.tenant_id == tenant_id,
+                InventoryReservationModel.reference_type == "work_order",
+                InventoryReservationModel.reference_id == work_order_id,
+                InventoryReservationModel.is_deleted.is_(False) if hasattr(InventoryReservationModel, "is_deleted") else True,
+            )
+            .order_by(InventoryReservationModel.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        rows = result.all()
+
+        traceability = []
+        for reservation, material, batch in rows:
+            traceability.append({
+                "material_id": material.id,
+                "material_code": material.code,
+                "material_name": material.name,
+                "batch_id": reservation.batch_id,
+                "batch_number": batch.batch_number if batch else None,
+                "reserved_quantity": reservation.quantity,
+                "issued_quantity": reservation.issued_quantity,
+                "consumed_quantity": reservation.consumed_quantity,
+                "returned_quantity": reservation.returned_quantity,
+                "source": "Inventory" if reservation.batch_id else None,
+                "created_at": reservation.created_at,
+                "updated_at": reservation.updated_at,
             })
 
         return traceability

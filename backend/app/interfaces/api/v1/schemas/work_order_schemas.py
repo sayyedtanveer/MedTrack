@@ -136,6 +136,7 @@ class WorkOrderDetail(WorkOrderSummary):
     notes: Optional[str]
     sales_order_id: Optional[uuid.UUID]
     sales_order_line_id: Optional[uuid.UUID]
+    client_name: Optional[str] = None
     materials: List[WorkOrderMaterialResponse] = []
     job_cards: List[JobCardResponse] = []
 

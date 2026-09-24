@@ -67,6 +67,28 @@ class DocumentService {
     document.body.removeChild(a)
   }
 
+  async downloadDocumentPackage(documentId: string): Promise<Blob> {
+    const response = await apiClient.get(
+      `/documents/${documentId}/download-package`,
+      {
+        responseType: 'blob',
+      }
+    )
+    return response.data
+  }
+
+  async downloadDocumentPackageByUrl(documentId: string, filename?: string): Promise<void> {
+    const blob = await this.downloadDocumentPackage(documentId)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || `document_package_${documentId}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  }
+
   async listDocumentVersions(
     documentType: string,
     entityId: string

@@ -15,12 +15,13 @@ from backend.app.application.documents.services.document_storage_service import 
 from backend.app.application.documents.services.document_generation_service import DocumentGenerationService
 from backend.app.infrastructure.persistence.repositories.document_repository import DocumentRepository
 from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
-from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderModel
+from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderModel, WorkOrderMaterialModel, JobCardModel
 from backend.app.infrastructure.persistence.models.purchase_order_model import PurchaseOrderModel
 from backend.app.infrastructure.persistence.models.finance_models import InvoiceModel
 from backend.app.infrastructure.persistence.models.delivery_model import DeliveryOrderModel
 from backend.app.interfaces.api.v1.dependencies.auth import get_current_tenant_id, get_current_user_id
 from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
+from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
 from backend.app.interfaces.api.v1.schemas.document_schemas import (
     DocumentGenerateRequest,
     DocumentResponse,
@@ -71,8 +72,13 @@ async def _build_work_order_context(
         Template context dictionary
     """
     # Fetch work order with materials and job cards
+    from sqlalchemy.orm import selectinload
     stmt = (
         select(WorkOrderModel)
+        .options(
+            selectinload(WorkOrderModel.materials).selectinload(WorkOrderMaterialModel.material),
+            selectinload(WorkOrderModel.job_cards).selectinload(JobCardModel.operation)
+        )
         .where(
             WorkOrderModel.id == entity_id,
             WorkOrderModel.tenant_id == tenant_id,
@@ -90,6 +96,13 @@ async def _build_work_order_context(
     tenant_result = await session.execute(tenant_stmt)
     tenant = tenant_result.scalar_one()
     
+    # Fetch product variant manually
+    product = None
+    if wo.product_id:
+        product_stmt = select(ItemVariantModel).where(ItemVariantModel.id == wo.product_id)
+        product_result = await session.execute(product_stmt)
+        product = product_result.scalar_one_or_none()
+        
     # Build materials list
     materials = []
     if wo.materials:
@@ -99,7 +112,7 @@ async def _build_work_order_context(
                 "material_name": material.material.name if material.material else material.material_id,
                 "required_qty": float(material.required_quantity or 0),
                 "issued_qty": float(material.issued_quantity or 0),
-                "unit": material.unit.name if material.unit else "",
+                "unit": getattr(material, "unit", None).name if getattr(material, "unit", None) else "",
             })
     
     # Build operations list
@@ -110,7 +123,7 @@ async def _build_work_order_context(
                 "sequence": jc.sequence,
                 "operation_name": jc.operation.name if jc.operation else f"Operation {jc.sequence}",
                 "status": jc.status,
-                "work_center": jc.operation.work_center if jc.operation else "",
+                "work_center": (jc.operation.workstation.name if getattr(jc.operation, "workstation", None) else "") if jc.operation else "",
             })
     
     # Build template context
@@ -120,7 +133,7 @@ async def _build_work_order_context(
             "company_name": tenant.company_name or tenant.name,
             "logo_url": tenant.logo_url or "",
             "gst_number": tenant.gst_number or "",
-            "pan_number": tenant.pan_number or "",
+            "pan_number": getattr(tenant, "pan_number", ""),
             "address": tenant.address or "",
             "phone": tenant.phone or "",
             "email": tenant.email or "",
@@ -129,9 +142,10 @@ async def _build_work_order_context(
         "work_order": {
             "wo_number": wo.wo_number,
             "date": wo.created_at.strftime("%Y-%m-%d") if wo.created_at else "",
-            "sales_order_number": wo.sales_order.order_number if wo.sales_order else "",
-            "client": wo.client.name if wo.client else "N/A",
-            "product": wo.product.name if wo.product else "N/A",
+            "sales_order_number": getattr(wo, 'sales_order_id', ""), # Just fallback to ID if we don't have the SO loaded
+            "client": getattr(wo, 'client_id', "N/A"),
+            "product": product.name if product else "N/A",
+            "variant": product.variant_key if product else "",
             "quantity": float(wo.planned_quantity or 0),
             "priority": wo.priority,
             "due_date": wo.due_date.strftime("%Y-%m-%d") if wo.due_date else "",
@@ -140,6 +154,7 @@ async def _build_work_order_context(
         },
         "materials": materials,
         "operations": operations,
+        "documents": [],
         "signatures": {
             "planner": {
                 "name": "",
@@ -183,9 +198,13 @@ async def _build_purchase_order_context(
     Returns:
         Template context dictionary
     """
-    # Fetch purchase order with lines
+    from sqlalchemy.orm import selectinload
     stmt = (
         select(PurchaseOrderModel)
+        .options(
+            selectinload(PurchaseOrderModel.lines),
+            selectinload(PurchaseOrderModel.supplier)
+        )
         .where(
             PurchaseOrderModel.id == entity_id,
             PurchaseOrderModel.tenant_id == tenant_id,
@@ -208,10 +227,10 @@ async def _build_purchase_order_context(
     if po.lines:
         for line in po.lines:
             items.append({
-                "item_code": line.material.code if line.material else "",
-                "name": line.material.name if line.material else line.description,
+                "item_code": getattr(getattr(line, "material", None), "code", ""),
+                "name": getattr(getattr(line, "material", None), "name", getattr(line, "description", "")),
                 "quantity": float(line.quantity or 0),
-                "unit": line.unit.name if line.unit else "",
+                "unit": getattr(getattr(line, "unit", None), "name", ""),
                 "unit_price": float(line.unit_price or 0),
                 "line_total": float((line.quantity or 0) * (line.unit_price or 0)),
             })
@@ -223,7 +242,7 @@ async def _build_purchase_order_context(
             "company_name": tenant.company_name or tenant.name,
             "logo_url": tenant.logo_url or "",
             "gst_number": tenant.gst_number or "",
-            "pan_number": tenant.pan_number or "",
+            "pan_number": getattr(tenant, "pan_number", ""),
             "address": tenant.address or "",
             "phone": tenant.phone or "",
             "email": tenant.email or "",
@@ -233,8 +252,8 @@ async def _build_purchase_order_context(
             "po_number": po.po_number,
             "order_date": po.created_at.strftime("%Y-%m-%d") if po.created_at else "",
             "expected_delivery": po.expected_delivery.strftime("%Y-%m-%d") if po.expected_delivery else "",
-            "supplier": po.supplier.name if po.supplier else "N/A",
-            "supplier_gst": po.supplier.gst_number if po.supplier else "",
+            "supplier": getattr(po.supplier, "name", "") if getattr(po, "supplier", None) else "N/A",
+            "supplier_gst": getattr(po.supplier, "gst_number", "") if getattr(po, "supplier", None) else "",
             "status": po.status,
             "terms": po.terms or "",
             "notes": po.notes or "",
@@ -282,6 +301,7 @@ async def _build_invoice_context(
     # Fetch invoice with lines
     stmt = (
         select(InvoiceModel)
+        .options(selectinload(InvoiceModel.lines))
         .where(
             InvoiceModel.id == entity_id,
             InvoiceModel.tenant_id == tenant_id,
@@ -379,6 +399,7 @@ async def _build_delivery_challan_context(
     
     stmt = (
         select(DeliveryModel)
+        .options(selectinload(DeliveryModel.lines))
         .where(
             DeliveryModel.id == entity_id,
             DeliveryModel.tenant_id == tenant_id,
@@ -399,10 +420,10 @@ async def _build_delivery_challan_context(
     if delivery.lines:
         for line in delivery.lines:
             items.append({
-                "item_code": line.material.code if line.material else "",
-                "name": line.material.name if line.material else line.description,
+                "item_code": getattr(getattr(line, "material", None), "code", ""),
+                "name": getattr(getattr(line, "material", None), "name", getattr(line, "description", "")),
                 "ordered_qty": float(line.ordered_quantity or 0),
-                "unit": line.unit.name if line.unit else "",
+                "unit": getattr(getattr(line, "unit", None), "name", ""),
                 "delivered_qty": float(line.delivered_quantity or 0),
             })
     
@@ -412,7 +433,7 @@ async def _build_delivery_challan_context(
             "company_name": tenant.company_name or tenant.name,
             "logo_url": tenant.logo_url or "",
             "gst_number": tenant.gst_number or "",
-            "pan_number": tenant.pan_number or "",
+            "pan_number": getattr(tenant, "pan_number", ""),
             "address": tenant.address or "",
             "phone": tenant.phone or "",
             "email": tenant.email or "",
@@ -495,7 +516,7 @@ async def _build_qc_report_context(
             "company_name": tenant.company_name or tenant.name,
             "logo_url": tenant.logo_url or "",
             "gst_number": tenant.gst_number or "",
-            "pan_number": tenant.pan_number or "",
+            "pan_number": getattr(tenant, "pan_number", ""),
             "address": tenant.address or "",
             "phone": tenant.phone or "",
             "email": tenant.email or "",
@@ -882,6 +903,63 @@ async def download_document(
                 media_type="application/pdf",
                 headers={
                     "Content-Disposition": f"attachment; filename=document_{document_id}.pdf"
+                }
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{document_id}/download-package")
+async def download_document_package(
+    document_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Download a document PDF merged with all its attachments."""
+    from backend.app.interfaces.api.v1.dependencies.auth import get_container
+    from backend.app.application.documents.services.technical_document_service import TechnicalDocumentService
+    
+    container = get_container(request)
+    
+    async with container.session_factory() as session:
+        document_service, _ = _get_document_services(request, session)
+        from backend.app.application.documents.services.document_storage_service import DocumentStorageService
+        tech_doc_service = TechnicalDocumentService(session, DocumentStorageService())
+        
+        try:
+            # 1. Get base document PDF
+            base_pdf_bytes = await document_service.get_document_pdf(document_id)
+            
+            # 2. Get document entity to know what it is attached to
+            doc = await document_service.document_repository.find_by_id(document_id)
+            if not doc:
+                raise ValueError("Document not found")
+                
+            # 3. Get attachments
+            attachment_bytes_list = []
+            if doc.document_type == "work_order":
+                associations = await tech_doc_service.get_associations_for_entity(tenant_id, "work_order", doc.entity_id)
+                for assoc in associations:
+                    if assoc.is_print_package_included and assoc.revision and assoc.revision.file_attachment:
+                        try:
+                            att_bytes = await tech_doc_service.get_file_content(assoc.revision.file_attachment.cloudinary_public_id)
+                            attachment_bytes_list.append(att_bytes)
+                        except Exception:
+                            pass # Skip failing attachments
+                            
+            # 4. Merge
+            if attachment_bytes_list:
+                merged_bytes = await document_service.generate_document_package(base_pdf_bytes, attachment_bytes_list)
+            else:
+                merged_bytes = base_pdf_bytes
+                
+            return Response(
+                content=merged_bytes,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"attachment; filename=document_package_{document_id}.pdf"
                 }
             )
         except ValueError as e:

@@ -144,3 +144,42 @@ class DocumentGenerationService:
         return await self.document_repository.list_versions(
             tenant_id, document_type, entity_id
         )
+
+    async def generate_document_package(
+        self,
+        base_pdf_bytes: bytes,
+        attachment_bytes_list: list[bytes]
+    ) -> bytes:
+        """Merge a base PDF with a list of attachment PDFs.
+        
+        Args:
+            base_pdf_bytes: The generated Work Order PDF bytes.
+            attachment_bytes_list: A list of PDF bytes for attachments.
+            
+        Returns:
+            Merged PDF bytes.
+        """
+        import io
+        from pypdf import PdfWriter, PdfReader
+
+        writer = PdfWriter()
+        
+        # Add base document
+        base_reader = PdfReader(io.BytesIO(base_pdf_bytes))
+        for page in base_reader.pages:
+            writer.add_page(page)
+            
+        # Add attachments
+        for att_bytes in attachment_bytes_list:
+            try:
+                att_reader = PdfReader(io.BytesIO(att_bytes))
+                for page in att_reader.pages:
+                    writer.add_page(page)
+            except Exception as e:
+                # Log error but continue with other attachments
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to merge an attachment: {e}")
+                
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()

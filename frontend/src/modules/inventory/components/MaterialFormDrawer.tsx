@@ -17,6 +17,7 @@ import { supplyChainApi } from "@/services/supply-chain.service"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PurchaseHistoryItem } from "@/types/material.types"
+import { MaterialTraceabilityTab } from "./MaterialTraceabilityTab"
 
 const GENERIC_RAW_NAMES = new Set([
   "raw material",
@@ -687,11 +688,12 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
       ) : isEditing ? (
         // ── Existing material: 4 tabs ────────────────────────────────────────
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-4">
+          <TabsList className="grid w-full grid-cols-5 mb-4">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
             <TabsTrigger value="purchasing" disabled={selectedMaterialType !== "raw"}>Purchasing</TabsTrigger>
             <TabsTrigger value="history" disabled={selectedMaterialType !== "raw"}>History</TabsTrigger>
+            <TabsTrigger value="traceability">Traceability</TabsTrigger>
           </TabsList>
 
           {/* ── General tab ── */}
@@ -778,6 +780,13 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
                 </p>
               </div>
               {materialId && <PurchaseHistoryTable materialId={materialId} />}
+            </div>
+          </TabsContent>
+
+          {/* ── Traceability tab ── */}
+          <TabsContent value="traceability">
+            <div className="pb-8">
+              {materialId && <MaterialTraceabilityTab materialId={materialId} />}
             </div>
           </TabsContent>
         </Tabs>

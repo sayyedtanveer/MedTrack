@@ -38,6 +38,9 @@
         <div class="meta-label">Product:</div>
         <div class="meta-value">{{ work_order.product }}</div>
         
+        <div class="meta-label">Variant:</div>
+        <div class="meta-value">{{ work_order.variant or 'Base' }}</div>
+        
         <div class="meta-label">Quantity:</div>
         <div class="meta-value">{{ work_order.quantity }}</div>
         
@@ -114,6 +117,33 @@
     <div class="section-title">Notes / Instructions</div>
     <div class="notes-content">{{ work_order.notes or '-' }}</div>
 </div>
+
+<div class="section-title">Document Control</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Document Name</th>
+            <th>Type</th>
+            <th>Revision</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% if documents %}
+            {% for doc in documents %}
+            <tr class="table-row">
+                <td>{{ doc.name }}</td>
+                <td>{{ doc.document_category }}</td>
+                <td>{{ doc.revision }}</td>
+            </tr>
+            {% endfor %}
+        {% else %}
+            <tr class="table-row">
+                <td colspan="3" style="text-align: center; font-style: italic; color: #666;">No supporting documents attached.</td>
+            </tr>
+        {% endif %}
+    </tbody>
+</table>
 
 <div class="signatures">
     {% if signatures.planner %}

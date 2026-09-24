@@ -484,6 +484,23 @@ async def get_material_traceability(
         )
         return {"items": traceability}
 
+@router.get("/traceability/work-order/{work_order_id}")
+async def get_work_order_traceability(
+    work_order_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    """Get traceability for a specific Work Order."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        service = InventoryTraceabilityService(session)
+        traceability = await service.get_work_order_traceability(
+            tenant_id=tenant_id,
+            work_order_id=work_order_id,
+        )
+        return {"items": traceability}
+
 
 @router.get("/traceability/ledger")
 async def get_stock_ledger(

@@ -263,7 +263,21 @@ async def get_work_order(
         wo = result.scalar_one_or_none()
         if not wo:
             return JSONResponse(status_code=404, content={"error_code": "NOT_FOUND", "message": "Work Order not found", "validation_errors": []})
-        return WorkOrderDetail.model_validate(wo)
+        
+        client_name = None
+        if wo.sales_order_id:
+            from backend.app.infrastructure.persistence.models.sales_models import SalesOrderModel, ClientModel
+            client_stmt = select(ClientModel.name).select_from(SalesOrderModel).join(ClientModel, SalesOrderModel.client_id == ClientModel.id).where(SalesOrderModel.id == wo.sales_order_id)
+            client_result = await session.execute(client_stmt)
+            client_name = client_result.scalar_one_or_none()
+            
+        wo_dict = {
+            **{c.name: getattr(wo, c.name) for c in wo.__table__.columns},
+            "materials": wo.materials,
+            "job_cards": wo.job_cards,
+            "client_name": client_name
+        }
+        return WorkOrderDetail.model_validate(wo_dict)
 
 
 @router.post("/{work_order_id}/release", status_code=status.HTTP_200_OK, dependencies=[Depends(require_permission("manufacturing:write"))])

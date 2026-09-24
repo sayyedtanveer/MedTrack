@@ -12,11 +12,13 @@ import { WO_STATUS_COLORS } from '../components/WorkOrderStatusConfig';
 import { WO_STATUS_ACTIONS, type WorkOrderAction } from '../components/WorkOrderActionConfig';
 import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
-import { AuditHistoryTab } from '@/components/shared/AuditHistoryTab';
 import { usePermissions } from '@/hooks/usePermissions';
 import { AssistantEngine } from '@/lib/assistant/AssistantEngine';
 import { MedTrackAssistant } from '@/components/shared/assistant/MedTrackAssistant';
 import { AssistantButton } from '@/components/shared/assistant/AssistantButton';
+import { WorkOrderDocumentsTab } from '../components/WorkOrderDocumentsTab';
+import { AuditHistoryTab } from '@/components/shared/AuditHistoryTab';
+import { WorkOrderTraceabilityTab } from '../components/WorkOrderTraceabilityTab';
 
 const STATUS_COLORS = WO_STATUS_COLORS;
 
@@ -35,7 +37,7 @@ export default function WorkOrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
   const [productionPending, setProductionPending] = useState(false);
-  const [tab, setTab] = useState<'materials' | 'job-cards' | 'audit'>('materials');
+  const [tab, setTab] = useState<'materials' | 'job-cards' | 'documents' | 'audit' | 'traceability'>('materials');
   const [productionDraft, setProductionDraft] = useState({
     produced_quantity: '',
     scrap_quantity: '0',
@@ -464,6 +466,23 @@ export default function WorkOrderDetailPage() {
     }
   };
 
+  const handleDownloadPackage = async () => {
+    if (!id || documentLoading) return;
+    setDocumentLoading(true);
+    setError(null);
+    try {
+      // Generate document base
+      const document = await documentService.generateDocument('work_order', id);
+      // Download the PDF package
+      await documentService.downloadDocumentPackageByUrl(document.id, `WO-Package-${wo?.wo_number}.pdf`);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to generate PDF Package.';
+      setError(msg);
+    } finally {
+      setDocumentLoading(false);
+    }
+  };
+
   const handlePrintPDF = async () => {
     if (!id || documentLoading) return;
     setDocumentLoading(true);
@@ -561,11 +580,19 @@ export default function WorkOrderDetailPage() {
           ) : null;
         })()}
 
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+          <div className="flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">Manufacturing execution</p>
-            <h1 className="mt-2 text-2xl font-semibold font-mono text-slate-900">{wo.wo_number}</h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <h1 className="mt-2 text-2xl sm:text-3xl font-semibold font-mono text-slate-900 flex items-center gap-3 flex-wrap">
+              {wo.client_name && (
+                <>
+                  <span className="font-sans font-bold text-slate-800">{wo.client_name}</span>
+                  <span className="text-slate-300">/</span>
+                </>
+              )}
+              {wo.wo_number}
+            </h1>
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[wo.status]}`}>
                 {wo.status.replace(/_/g, ' ')}
               </span>
@@ -574,16 +601,16 @@ export default function WorkOrderDetailPage() {
                   Rework #{reworkCount}
                 </span>
               )}
-              <span className="text-xs text-slate-500">Priority: <span className="text-slate-800">{wo.priority}</span></span>
-              <span className="text-xs text-slate-500">Due: <span className="text-slate-800">{wo.due_date}</span></span>
+              <span className="text-xs text-slate-500">Priority: <span className="text-slate-800 font-medium">{wo.priority}</span></span>
+              <span className="text-xs text-slate-500">Due: <span className="text-slate-800 font-medium">{wo.due_date}</span></span>
             </div>
             {(wo.status === 'REWORK' || wo.status === 'QC_REJECTED') && reworkCount >= 10 && (
-              <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 max-w-md">
                 ⚠️ This batch has been sent to rework {reworkCount} times. Consider scrapping it.
               </div>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 w-full lg:w-auto">
             <button
               onClick={handlePrintPDF}
               disabled={documentLoading}
@@ -597,6 +624,14 @@ export default function WorkOrderDetailPage() {
               className="rounded-lg px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               {documentLoading ? '…' : 'Download PDF'}
+            </button>
+            <button
+              onClick={handleDownloadPackage}
+              disabled={documentLoading}
+              className="rounded-lg px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              title="Download Work Order PDF along with attached technical documents"
+            >
+              {documentLoading ? '…' : 'Download Package'}
             </button>
       {/* Action Buttons per status config */}
             {actions
@@ -904,7 +939,7 @@ export default function WorkOrderDetailPage() {
       {/* Tabs — ARIA role="tablist" for screen reader navigation (Req 56.1) */}
       <div>
         <div role="tablist" aria-label="Work order sections" className="flex gap-1 border-b border-slate-200">
-          {(['materials', 'job-cards', 'audit'] as const).map((t) => (
+          {(['materials', 'traceability', 'job-cards', 'documents', 'audit'] as const).map((t) => (
             <button
               key={t}
               role="tab"
@@ -916,7 +951,7 @@ export default function WorkOrderDetailPage() {
                 tab === t ? 'border-b-2 border-blue-600 text-slate-900' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              {t === 'materials' ? 'Materials' : t === 'job-cards' ? 'Job Cards' : 'Audit'}
+              {t === 'materials' ? 'Materials' : t === 'job-cards' ? 'Job Cards' : t === 'documents' ? 'Documents' : t === 'traceability' ? 'Traceability' : 'Audit'}
             </button>
           ))}
         </div>
@@ -968,6 +1003,12 @@ export default function WorkOrderDetailPage() {
           </div>
         )}
 
+        {tab === 'traceability' && (
+          <div role="tabpanel" id="tabpanel-traceability" aria-labelledby="tab-traceability">
+            <WorkOrderTraceabilityTab workOrderId={id || ''} />
+          </div>
+        )}
+
         {tab === 'job-cards' && (
           <div className="space-y-3">
             {wo.job_cards.length === 0 ? (
@@ -1004,6 +1045,12 @@ export default function WorkOrderDetailPage() {
                 Go to <button onClick={() => navigate(`/shop-floor/${id}/job-cards`)} className="font-medium text-blue-600 hover:underline">Shop Floor</button> to start or complete individual operations.
               </p>
             )}
+          </div>
+        )}
+
+        {tab === 'documents' && (
+          <div role="tabpanel" id="tabpanel-documents" aria-labelledby="tab-documents">
+            <WorkOrderDocumentsTab />
           </div>
         )}
 

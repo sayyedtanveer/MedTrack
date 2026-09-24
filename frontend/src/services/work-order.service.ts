@@ -45,6 +45,7 @@ export interface JobCard {
 export interface WorkOrderDetail extends WorkOrderSummary {
   notes: string | null;
   sales_order_id: string | null;
+  client_name?: string | null;
   materials: WorkOrderMaterial[];
   job_cards: JobCard[];
   hold_reason?: string | null;
