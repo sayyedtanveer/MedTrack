@@ -108,7 +108,7 @@ async def approve_tenant(
         handler = ApproveTenantHandler(uow, tenant_repo, audit_repo)
         
         try:
-            await handler.handle(ApproveTenantCommand(tenant_id=tenant_id, acted_by=user_id))
+            await handler.handle(ApproveTenantCommand(tenant_id=tenant_id, user_id=user_id, acted_by=user_id))
         except (DomainException, BusinessRuleViolationException) as e:
             raise HTTPException(status_code=400, detail=str(e))
             
@@ -154,7 +154,7 @@ async def reject_tenant(
         handler = RejectTenantHandler(uow, tenant_repo, audit_repo)
         
         try:
-            await handler.handle(RejectTenantCommand(tenant_id=tenant_id, reason=body.reason, acted_by=user_id))
+            await handler.handle(RejectTenantCommand(tenant_id=tenant_id, user_id=user_id, reason=body.reason, acted_by=user_id))
         except (DomainException, BusinessRuleViolationException) as e:
             raise HTTPException(status_code=400, detail=str(e))
             
@@ -182,7 +182,7 @@ async def suspend_tenant(
         handler = SuspendTenantHandler(uow, tenant_repo, audit_repo)
         
         try:
-            await handler.handle(SuspendTenantCommand(tenant_id=tenant_id, reason=body.reason, acted_by=user_id))
+            await handler.handle(SuspendTenantCommand(tenant_id=tenant_id, user_id=user_id, reason=body.reason, acted_by=user_id))
         except (DomainException, BusinessRuleViolationException) as e:
             raise HTTPException(status_code=400, detail=str(e))
             
@@ -206,7 +206,7 @@ async def reactivate_tenant(
         handler = ReactivateTenantHandler(uow, tenant_repo, audit_repo)
         
         try:
-            await handler.handle(ReactivateTenantCommand(tenant_id=tenant_id, acted_by=user_id))
+            await handler.handle(ReactivateTenantCommand(tenant_id=tenant_id, user_id=user_id, acted_by=user_id))
         except (DomainException, BusinessRuleViolationException) as e:
             raise HTTPException(status_code=400, detail=str(e))
             

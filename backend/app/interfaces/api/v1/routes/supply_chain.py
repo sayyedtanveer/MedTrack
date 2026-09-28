@@ -35,7 +35,7 @@ from backend.app.infrastructure.persistence.models.quality_model import (
     SupplierQuotationModel,
 )
 from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel
-from backend.app.infrastructure.persistence.models.subcontract_model import SubcontractMaterialIssueModel, SubcontractOrderModel
+from backend.app.infrastructure.persistence.models.subcontract_model import SubcontractMaterialIssueModel, SubcontractOrderModel, SubcontractOrderLineModel
 from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
 from backend.app.application.procurement.handlers.purchase_order_handler import PurchaseOrderHandler
 from backend.app.application.procurement.handlers.supplier_quotation_handler import SupplierQuotationHandler
@@ -55,6 +55,7 @@ from backend.app.interfaces.api.v1.schemas.supply_chain_schemas import (
     ReceiveLineItem, GoodsReceiptRequest,
     QualityInspectRequest, NCRCreateRequest,
     SubcontractOrderCreate, SubcontractIssueRequest, SubcontractReceiveRequest,
+    SubcontractReturnMaterialRequest,
     SupplierQuotationCreate, SupplierQuotationResponse,
     MaterialRequestCreate, MaterialRequestUpdate, MaterialRequestResponse,
     RFQLineIn, RFQCreate, RFQAwardRequest,
@@ -1792,7 +1793,7 @@ async def list_grns(
 
 
 @router.get("/grn/{grn_id}", deprecated=True, dependencies=[Depends(require_permission("procurement:read"))])
-async def get_grn(
+async def get_grn_legacy(
     grn_id: uuid.UUID,
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -2123,6 +2124,145 @@ async def quarantine_stock(
 # ── Subcontract ───────────────────────────────────────────────────────────────
 
 
+@router.get(
+    "/subcontract/boms-for-material/{material_id}",
+    dependencies=[Depends(require_permission("procurement:read"))],
+)
+async def get_boms_for_subcontract_material(
+    material_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Return active BOMs for a semi-finished material for use in subcontracting.
+
+    Discovery order:
+      0. Explicit FK: ItemVariant.material_id == material_id  (most reliable)
+      1. Code match: ItemVariant.code == material.code        (legacy fallback)
+
+    Returns link_type="explicit" or "code_match" so the UI can show guidance.
+    """
+    from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel
+    from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+
+    async def _boms_for_variants(session, tenant_id, variants, seen, link_type):
+        results = []
+        for variant in variants:
+            for bom_stmt_filter in [
+                # variant-level BOM
+                (BOMModel.variant_id == variant.id,),
+                # template-level BOM (only if variant has a template)
+                *([(BOMModel.template_id == variant.template_id,)] if variant.template_id else []),
+            ]:
+                bom_stmt = select(BOMModel).where(
+                    BOMModel.tenant_id == tenant_id,
+                    BOMModel.is_deleted.is_(False),
+                    BOMModel.is_active.is_(True),
+                    *bom_stmt_filter,
+                ).order_by(BOMModel.valid_from.desc())
+                for bom in (await session.execute(bom_stmt)).scalars().all():
+                    bid = str(bom.id)
+                    if bid in seen:
+                        continue
+                    seen.add(bid)
+                    line_count = (await session.execute(
+                        select(func.count()).where(BOMLineModel.bom_id == bom.id)
+                    )).scalar_one()
+                    results.append({
+                        "id": bid,
+                        "version": bom.version,
+                        "is_active": bom.is_active,
+                        "valid_from": bom.valid_from.isoformat() if bom.valid_from else None,
+                        "valid_to": bom.valid_to.isoformat() if bom.valid_to else None,
+                        "line_count": line_count,
+                        "variant_id": str(variant.id),
+                        "variant_name": variant.name,
+                        "link_type": link_type,
+                    })
+        return results
+
+    container = get_container(request)
+    async with container.session_factory() as session:
+        mat = await session.get(MaterialModel, material_id)
+        if not mat or mat.tenant_id != tenant_id or mat.is_deleted:
+            raise HTTPException(status_code=404, detail="Material not found")
+
+        seen: set[str] = set()
+        boms = []
+
+        # Strategy 0: explicit FK — most reliable
+        explicit_variants = (await session.execute(
+            select(ItemVariantModel).where(
+                ItemVariantModel.tenant_id == tenant_id,
+                ItemVariantModel.material_id == material_id,
+                ItemVariantModel.is_deleted.is_(False),
+            )
+        )).scalars().all()
+        boms.extend(await _boms_for_variants(session, tenant_id, explicit_variants, seen, "explicit"))
+
+        # Strategy 1: code match fallback — for legacy materials without explicit link
+        if not boms:
+            code_variants = (await session.execute(
+                select(ItemVariantModel).where(
+                    ItemVariantModel.tenant_id == tenant_id,
+                    ItemVariantModel.code == mat.code,
+                    ItemVariantModel.is_deleted.is_(False),
+                )
+            )).scalars().all()
+            boms.extend(await _boms_for_variants(session, tenant_id, code_variants, seen, "code_match"))
+
+    return {
+        "material_id": str(material_id),
+        "material_code": mat.code,
+        "material_name": mat.name,
+        "material_type": mat.material_type,
+        "boms": boms,
+    }
+
+
+def _sco_to_dict(o: SubcontractOrderModel, issues=None, lines=None) -> dict:
+    return {
+        "id": str(o.id),
+        "order_number": o.order_number,
+        "supplier_id": str(o.supplier_id),
+        "product_id": str(o.product_id),
+        "product_type": o.product_type,
+        "quantity": float(o.quantity),
+        "received_quantity": float(o.received_quantity or 0),
+        "status": o.status,
+        "bom_id": str(o.bom_id) if o.bom_id else None,
+        "due_date": o.due_date.isoformat() if o.due_date else None,
+        "notes": o.notes,
+        "output_batch_id": str(o.output_batch_id) if o.output_batch_id else None,
+        "approved_by": str(o.approved_by) if o.approved_by else None,
+        "approved_at": o.approved_at.isoformat() if o.approved_at else None,
+        "created_at": o.created_at.isoformat() if o.created_at else None,
+        "issues": [
+            {
+                "id": str(i.id),
+                "material_id": str(i.material_id),
+                "quantity": float(i.quantity),
+                "returned_quantity": float(i.returned_quantity or 0),
+                "batch_id": str(i.batch_id) if i.batch_id else None,
+                "batch_number": i.batch_number,
+                "from_location_id": str(i.from_location_id) if i.from_location_id else None,
+                "issued_at": i.issued_at.isoformat() if i.issued_at else None,
+            }
+            for i in (issues or [])
+        ],
+        "lines": [
+            {
+                "id": str(ln.id),
+                "material_id": str(ln.material_id),
+                "required_quantity": float(ln.required_quantity),
+                "issued_quantity": float(ln.issued_quantity),
+                "returned_quantity": float(ln.returned_quantity),
+                "status": ln.line_status,
+            }
+            for ln in (lines or [])
+        ],
+    }
+
+
 @router.post(
     "/subcontract/orders",
     status_code=status.HTTP_201_CREATED,
@@ -2132,6 +2272,7 @@ async def create_subcontract_order(
     body: SubcontractOrderCreate,
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
 ):
     container = get_container(request)
     async with container.session_factory() as session:
@@ -2145,65 +2286,55 @@ async def create_subcontract_order(
             product_id=body.product_id,
             product_type=body.product_type,
             quantity=float(body.quantity),
+            bom_id=body.bom_id,
+            due_date=body.due_date,
+            notes=body.notes,
             status="draft",
+            created_by=user_id,
         )
         session.add(o)
         await session.commit()
     return {"id": str(o.id), "order_number": on}
 
 
-@router.get("/subcontract/orders")
+@router.get(
+    "/subcontract/orders",
+    dependencies=[Depends(require_permission("procurement:read"))],
+)
 async def list_subcontract_orders(
     request: Request,
-    status: Optional[str] = Query(None, description="Filter by status: draft, issued, received"),
-    supplier_id: Optional[uuid.UUID] = Query(None, description="Filter by supplier"),
+    status: Optional[str] = Query(None),
+    supplier_id: Optional[uuid.UUID] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
 ):
-    """List subcontract orders with pagination and filtering."""
     container = get_container(request)
     async with container.session_factory() as session:
         query = select(SubcontractOrderModel).where(
             SubcontractOrderModel.tenant_id == tenant_id,
             SubcontractOrderModel.is_deleted.is_(False),
         )
-        
         if status:
             query = query.where(SubcontractOrderModel.status == status)
         if supplier_id:
             query = query.where(SubcontractOrderModel.supplier_id == supplier_id)
-        
-        # Count total
         count_stmt = select(func.count()).select_from(query.subquery())
-        total = await session.execute(count_stmt)
-        total_count = total.scalar_one()
-        
-        # Paginate
+        total = (await session.execute(count_stmt)).scalar_one()
         query = query.order_by(SubcontractOrderModel.created_at.desc()).offset(skip).limit(limit)
-        r = await session.execute(query)
-        rows = r.scalars().all()
-    
+        rows = (await session.execute(query)).scalars().all()
     return {
-        "total": total_count,
+        "total": total,
         "skip": skip,
         "limit": limit,
-        "items": [
-            {
-                "id": str(x.id),
-                "order_number": x.order_number,
-                "supplier_id": str(x.supplier_id),
-                "product_id": str(x.product_id),
-                "product_type": x.product_type,
-                "quantity": float(x.quantity),
-                "status": x.status,
-            }
-            for x in rows
-        ],
+        "items": [_sco_to_dict(x) for x in rows],
     }
 
 
-@router.get("/subcontract/orders/{order_id}")
+@router.get(
+    "/subcontract/orders/{order_id}",
+    dependencies=[Depends(require_permission("procurement:read"))],
+)
 async def get_subcontract_order(
     order_id: uuid.UUID,
     request: Request,
@@ -2214,31 +2345,76 @@ async def get_subcontract_order(
         o = await session.get(SubcontractOrderModel, order_id)
         if not o or o.tenant_id != tenant_id or o.is_deleted:
             raise HTTPException(status_code=404, detail="Subcontract order not found")
-        iss_stmt = select(SubcontractMaterialIssueModel).where(
-            SubcontractMaterialIssueModel.subcontract_order_id == order_id,
-            SubcontractMaterialIssueModel.tenant_id == tenant_id,
-        )
-        ir = await session.execute(iss_stmt)
-        issues = ir.scalars().all()
-    return {
-        "id": str(o.id),
-        "order_number": o.order_number,
-        "supplier_id": str(o.supplier_id),
-        "product_id": str(o.product_id),
-        "product_type": o.product_type,
-        "quantity": float(o.quantity),
-        "status": o.status,
-        "issues": [
-            {
-                "id": str(i.id),
-                "material_id": str(i.material_id),
-                "quantity": float(i.quantity),
-                "batch_number": i.batch_number,
-                "issued_at": i.issued_at.isoformat() if i.issued_at else None,
-            }
-            for i in issues
-        ],
-    }
+        issues = (await session.execute(
+            select(SubcontractMaterialIssueModel).where(
+                SubcontractMaterialIssueModel.subcontract_order_id == order_id,
+                SubcontractMaterialIssueModel.tenant_id == tenant_id,
+            )
+        )).scalars().all()
+        lines = (await session.execute(
+            select(SubcontractOrderLineModel).where(
+                SubcontractOrderLineModel.subcontract_order_id == order_id,
+                SubcontractOrderLineModel.tenant_id == tenant_id,
+            )
+        )).scalars().all()
+    return _sco_to_dict(o, issues=issues, lines=lines)
+
+
+@router.post(
+    "/subcontract/orders/{order_id}/approve",
+    dependencies=[Depends(require_permission("procurement:write"))],
+)
+async def approve_subcontract_order(
+    order_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    """Approve the order. If a bom_id is set, snapshot required components as order lines."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        o = await session.get(SubcontractOrderModel, order_id)
+        if not o or o.tenant_id != tenant_id or o.is_deleted:
+            raise HTTPException(status_code=404, detail="Subcontract order not found")
+        if o.status != "draft":
+            raise HTTPException(status_code=400, detail=f"Cannot approve order in status '{o.status}'")
+
+        # Snapshot BOM components if BOM is linked and no lines exist yet
+        if o.bom_id:
+            from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel
+            from sqlalchemy.orm import selectinload as _sil
+            bom_result = await session.execute(
+                select(BOMModel)
+                .options(_sil(BOMModel.lines))
+                .where(BOMModel.id == o.bom_id, BOMModel.tenant_id == tenant_id, BOMModel.is_deleted.is_(False))
+            )
+            bom = bom_result.scalar_one_or_none()
+            if bom:
+                existing_lines = (await session.execute(
+                    select(SubcontractOrderLineModel).where(
+                        SubcontractOrderLineModel.subcontract_order_id == order_id
+                    )
+                )).scalars().all()
+                if not existing_lines:
+                    qty = Decimal(str(o.quantity))
+                    for bl in bom.lines:
+                        if bl.material_id and not bl.is_deleted:
+                            scrap = Decimal(str(getattr(bl, "scrap_percentage", 0) or 0)) / Decimal("100")
+                            req = Decimal(str(bl.quantity)) * qty * (Decimal("1") + scrap)
+                            session.add(SubcontractOrderLineModel(
+                                id=uuid.uuid4(),
+                                tenant_id=tenant_id,
+                                subcontract_order_id=order_id,
+                                material_id=bl.material_id,
+                                required_quantity=float(req),
+                            ))
+
+        o.status = "approved"
+        o.approved_by = user_id
+        o.approved_at = datetime.now(timezone.utc)
+        o.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+    return {"status": "approved"}
 
 
 @router.post(
@@ -2252,11 +2428,30 @@ async def issue_subcontract_material(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ):
+    """Issue a raw material to the subcontractor location.
+    
+    Accepts batch_id (UUID FK) for full traceability, or batch_number for display.
+    The order status progresses to 'materials_issued'.
+    """
     container = get_container(request)
     async with container.session_factory() as session:
         o = await session.get(SubcontractOrderModel, order_id)
         if not o or o.tenant_id != tenant_id or o.is_deleted:
             raise HTTPException(status_code=404, detail="Subcontract order not found")
+        if o.status not in ("approved", "materials_issued"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot issue materials for order in status '{o.status}'. Order must be approved first.",
+            )
+
+        # Resolve batch_number for display from the BatchModel if only batch_id provided
+        display_batch_number = body.batch_number
+        if body.batch_id and not display_batch_number:
+            from backend.app.infrastructure.persistence.models.batch_model import BatchModel as _BM
+            b = await session.get(_BM, body.batch_id)
+            if b:
+                display_batch_number = b.batch_number
+
         sub_loc = await _subcontractor_location(session, tenant_id, o.supplier_id)
         mat = await session.get(MaterialModel, body.material_id)
         inv = InventoryService(session)
@@ -2269,18 +2464,36 @@ async def issue_subcontract_material(
             subcontract_order_id=o.id,
             unit_id=mat.base_unit_id if mat else None,
             created_by=user_id,
+            batch_id=body.batch_id,
+            batch_number=display_batch_number,
         )
-        session.add(
-            SubcontractMaterialIssueModel(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                subcontract_order_id=o.id,
-                material_id=body.material_id,
-                quantity=float(body.quantity),
-                batch_number=body.batch_number,
+        session.add(SubcontractMaterialIssueModel(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            subcontract_order_id=o.id,
+            material_id=body.material_id,
+            quantity=float(body.quantity),
+            batch_id=body.batch_id,
+            batch_number=display_batch_number,
+            from_location_id=body.from_location_id,
+            issued_by=user_id,
+        ))
+
+        # Update the matching order line's issued_quantity
+        line_result = await session.execute(
+            select(SubcontractOrderLineModel).where(
+                SubcontractOrderLineModel.subcontract_order_id == order_id,
+                SubcontractOrderLineModel.material_id == body.material_id,
+                SubcontractOrderLineModel.tenant_id == tenant_id,
+            ).limit(1)
+        )
+        line = line_result.scalar_one_or_none()
+        if line:
+            line.issued_quantity = float(
+                Decimal(str(line.issued_quantity or 0)) + Decimal(str(body.quantity))
             )
-        )
-        o.status = "issued"
+
+        o.status = "materials_issued"
         o.updated_at = datetime.now(timezone.utc)
         await session.commit()
     return {"status": "ok"}
@@ -2297,14 +2510,25 @@ async def receive_subcontract(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ):
+    """Receive processed output material from vendor.
+    
+    Creates (or updates) a BatchModel for the output and links it to the order.
+    Status transitions: materials_issued → partially_received or completed.
+    """
     container = get_container(request)
     async with container.session_factory() as session:
         o = await session.get(SubcontractOrderModel, order_id)
         if not o or o.tenant_id != tenant_id or o.is_deleted:
             raise HTTPException(status_code=404, detail="Subcontract order not found")
+        if o.status not in ("materials_issued", "partially_received"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot receive for order in status '{o.status}'",
+            )
+
         mat = await session.get(MaterialModel, body.material_id)
         inv = InventoryService(session)
-        await inv.receive_subcontract_finished_goods(
+        output_batch = await inv.receive_subcontract_finished_goods(
             tenant_id=tenant_id,
             material_id=body.material_id,
             quantity=body.quantity,
@@ -2312,11 +2536,250 @@ async def receive_subcontract(
             subcontract_order_id=o.id,
             unit_id=mat.base_unit_id if mat else None,
             created_by=user_id,
+            output_batch_number=body.output_batch_number or f"SCO-{o.order_number}",
         )
-        o.status = "received"
+
+        # Link output batch to the order
+        o.output_batch_id = output_batch.id
+        new_received = float(Decimal(str(o.received_quantity or 0)) + Decimal(str(body.quantity)))
+        o.received_quantity = new_received
+
+        # Status: completed when fully received, else partially_received
+        if new_received >= float(o.quantity):
+            o.status = "completed"
+        else:
+            o.status = "partially_received"
         o.updated_at = datetime.now(timezone.utc)
         await session.commit()
+    return {"status": o.status, "output_batch_id": str(output_batch.id), "output_batch_number": output_batch.batch_number}
+
+
+@router.post(
+    "/subcontract/orders/{order_id}/return-material",
+    dependencies=[Depends(require_permission("procurement:write"))],
+)
+async def return_subcontract_material(
+    order_id: uuid.UUID,
+    body: SubcontractReturnMaterialRequest,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    """Return unused or excess raw materials from the subcontractor back to warehouse."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        o = await session.get(SubcontractOrderModel, order_id)
+        if not o or o.tenant_id != tenant_id or o.is_deleted:
+            raise HTTPException(status_code=404, detail="Subcontract order not found")
+        if o.status not in ("materials_issued", "partially_received", "completed"):
+            raise HTTPException(status_code=400, detail="Order must have materials issued before returning")
+
+        sub_loc = await _subcontractor_location(session, tenant_id, o.supplier_id)
+        mat = await session.get(MaterialModel, body.material_id)
+        inv = InventoryService(session)
+
+        # Move stock from subcontractor location back to warehouse
+        # Reuse add_stock / _deduct pattern: deduct from sub-loc, add to warehouse
+        model = await inv._lock_material(tenant_id, body.material_id)  # noqa: SLF001
+        await inv._add_bucket_quantity(  # noqa: SLF001
+            tenant_id=tenant_id,
+            material_id=body.material_id,
+            location_id=body.to_location_id,
+            stock_status="available",
+            quantity=Decimal(str(body.quantity)),
+        )
+        # Deduct from subcontractor bucket
+        from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel as _SL
+        sub_bucket = await session.execute(
+            select(_SL).where(
+                _SL.tenant_id == tenant_id,
+                _SL.material_id == body.material_id,
+                _SL.location_id == sub_loc,
+                _SL.stock_status == "available",
+            ).with_for_update()
+        )
+        sub_level = sub_bucket.scalar_one_or_none()
+        if sub_level:
+            sub_level.quantity = float(
+                max(Decimal("0"), Decimal(str(sub_level.quantity or 0)) - Decimal(str(body.quantity)))
+            )
+        await inv._sync_material_total_from_buckets(model)  # noqa: SLF001
+        await inv._log_transaction(  # noqa: SLF001
+            tenant_id=tenant_id,
+            material_id=body.material_id,
+            transaction_type="transfer",
+            quantity=Decimal(str(body.quantity)),
+            unit_id=mat.base_unit_id if mat else None,
+            reference_type="subcontract_order",
+            reference_id=o.id,
+            created_by=user_id,
+            remarks="Return material from subcontractor",
+            from_location_id=sub_loc,
+            to_location_id=body.to_location_id,
+            batch_id=body.batch_id,
+        )
+
+        # Update issue records returned_quantity
+        issues_result = await session.execute(
+            select(SubcontractMaterialIssueModel).where(
+                SubcontractMaterialIssueModel.subcontract_order_id == order_id,
+                SubcontractMaterialIssueModel.material_id == body.material_id,
+                SubcontractMaterialIssueModel.tenant_id == tenant_id,
+            )
+        )
+        remaining_to_mark = Decimal(str(body.quantity))
+        for issue in issues_result.scalars().all():
+            if remaining_to_mark <= 0:
+                break
+            issuable = Decimal(str(issue.quantity or 0)) - Decimal(str(issue.returned_quantity or 0))
+            credit = min(issuable, remaining_to_mark)
+            if credit > 0:
+                issue.returned_quantity = float(Decimal(str(issue.returned_quantity or 0)) + credit)
+                remaining_to_mark -= credit
+
+        # Update order line returned_quantity
+        line_res = await session.execute(
+            select(SubcontractOrderLineModel).where(
+                SubcontractOrderLineModel.subcontract_order_id == order_id,
+                SubcontractOrderLineModel.material_id == body.material_id,
+                SubcontractOrderLineModel.tenant_id == tenant_id,
+            ).limit(1)
+        )
+        line = line_res.scalar_one_or_none()
+        if line:
+            line.returned_quantity = float(
+                Decimal(str(line.returned_quantity or 0)) + Decimal(str(body.quantity))
+            )
+
+        await session.commit()
     return {"status": "ok"}
+
+
+@router.post(
+    "/subcontract/orders/{order_id}/cancel",
+    dependencies=[Depends(require_permission("procurement:write"))],
+)
+async def cancel_subcontract_order(
+    order_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Cancel a draft or approved order. Cannot cancel once materials have been issued."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        o = await session.get(SubcontractOrderModel, order_id)
+        if not o or o.tenant_id != tenant_id or o.is_deleted:
+            raise HTTPException(status_code=404, detail="Subcontract order not found")
+        if o.status not in ("draft", "approved"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cancel order in status '{o.status}'. Materials may have already been issued.",
+            )
+        o.status = "cancelled"
+        o.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+    return {"status": "cancelled"}
+
+
+@router.get(
+    "/subcontract/orders/{order_id}/traceability",
+    dependencies=[Depends(require_permission("procurement:read"))],
+)
+async def get_subcontract_traceability(
+    order_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Full traceability chain: SCO → issued batches → output batch → inventory transactions."""
+    from backend.app.infrastructure.persistence.models.batch_model import BatchModel as _BM
+    from backend.app.infrastructure.persistence.models.inventory_transaction_model import InventoryTransactionModel as _TX
+    from backend.app.infrastructure.persistence.models.material_model import MaterialModel as _MM
+
+    container = get_container(request)
+    async with container.session_factory() as session:
+        o = await session.get(SubcontractOrderModel, order_id)
+        if not o or o.tenant_id != tenant_id or o.is_deleted:
+            raise HTTPException(status_code=404, detail="Subcontract order not found")
+
+        # Issued raw material batches
+        issues = (await session.execute(
+            select(SubcontractMaterialIssueModel).where(
+                SubcontractMaterialIssueModel.subcontract_order_id == order_id,
+                SubcontractMaterialIssueModel.tenant_id == tenant_id,
+            )
+        )).scalars().all()
+
+        # Resolve batch details
+        input_batches = []
+        for iss in issues:
+            mat = await session.get(_MM, iss.material_id)
+            batch_info = None
+            if iss.batch_id:
+                b = await session.get(_BM, iss.batch_id)
+                if b:
+                    batch_info = {"id": str(b.id), "batch_number": b.batch_number, "status": b.status}
+            input_batches.append({
+                "material_id": str(iss.material_id),
+                "material_name": mat.name if mat else None,
+                "material_code": mat.code if mat else None,
+                "quantity": float(iss.quantity),
+                "batch_id": str(iss.batch_id) if iss.batch_id else None,
+                "batch_number": iss.batch_number,
+                "batch": batch_info,
+                "issued_at": iss.issued_at.isoformat() if iss.issued_at else None,
+            })
+
+        # Output batch
+        output_batch = None
+        if o.output_batch_id:
+            ob = await session.get(_BM, o.output_batch_id)
+            if ob:
+                out_mat = await session.get(_MM, ob.material_id)
+                output_batch = {
+                    "id": str(ob.id),
+                    "batch_number": ob.batch_number,
+                    "material_id": str(ob.material_id),
+                    "material_name": out_mat.name if out_mat else None,
+                    "quantity": float(ob.quantity),
+                    "remaining_quantity": float(ob.remaining_quantity or ob.quantity),
+                    "status": ob.status,
+                }
+
+        # All inventory transactions referencing this SCO
+        tx_rows = (await session.execute(
+            select(_TX).where(
+                _TX.tenant_id == tenant_id,
+                _TX.reference_type == "subcontract_order",
+                _TX.reference_id == order_id,
+            ).order_by(_TX.created_at)
+        )).scalars().all()
+
+        transactions = [
+            {
+                "id": str(tx.id),
+                "type": tx.transaction_type,
+                "material_id": str(tx.material_id),
+                "quantity": float(tx.quantity),
+                "batch_id": str(tx.batch_id) if tx.batch_id else None,
+                "from_location_id": str(tx.from_location_id) if tx.from_location_id else None,
+                "to_location_id": str(tx.to_location_id) if tx.to_location_id else None,
+                "remarks": tx.remarks,
+                "created_at": tx.created_at.isoformat() if tx.created_at else None,
+            }
+            for tx in tx_rows
+        ]
+
+    return {
+        "order_id": str(order_id),
+        "order_number": o.order_number,
+        "supplier_id": str(o.supplier_id),
+        "status": o.status,
+        "input_batches": input_batches,
+        "output_batch": output_batch,
+        "inventory_transactions": transactions,
+    }
+
+
 
 
 # ── Material Requests (continued) ────────────────────────────────────────────

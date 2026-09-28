@@ -153,6 +153,10 @@ export default function MaterialListPage() {
             <Plus className="mr-2 h-4 w-4" />
             Add Raw Material
           </Button>
+          <Button variant="secondary" onClick={() => setSearchParams({ materialId: "new", presetType: "semi_finished" })}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Semi-Finished
+          </Button>
           <Button variant="secondary" onClick={() => setSearchParams({ materialId: "new", presetType: "finished" })}>
             <Plus className="mr-2 h-4 w-4" />
             Add Finished Good

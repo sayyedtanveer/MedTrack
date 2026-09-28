@@ -99,7 +99,7 @@ type MaterialFormValues = z.infer<typeof materialSchema>
 
 interface Props {
   materialId: string | null
-  presetType?: "raw" | "finished"
+  presetType?: "raw" | "finished" | "semi_finished"
   open: boolean
   onClose: () => void
 }
@@ -674,12 +674,22 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
     <Drawer 
       open={open} 
       onOpenChange={(v) => !v && onClose()} 
-      title={isEditing ? "Edit Material" : presetType === "finished" ? "New Finished Good" : "New Raw Material"}
+      title={
+        isEditing 
+          ? "Edit Material" 
+          : presetType === "finished" 
+          ? "New Finished Good" 
+          : presetType === "semi_finished"
+          ? "New Semi-Finished Material"
+          : "New Raw Material"
+      }
       description={
         isEditing 
           ? `Update details for ${material?.name || "material"}` 
           : presetType === "finished"
           ? "Finished Good Material is the inventory item used to track physical stock for a manufactured and sellable product or product variant."
+          : presetType === "semi_finished"
+          ? "Semi-Finished materials are intermediate products that can be produced internally or through subcontracting and later used in another product."
           : "Add a new raw material to your inventory catalog."
       }
     >
