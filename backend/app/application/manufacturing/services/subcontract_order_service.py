@@ -22,13 +22,15 @@ class SubcontractOrderService:
         supplier_id: uuid.UUID,
         product_id: uuid.UUID,
         quantity: Decimal,
-        bom_id: uuid.UUID,
+        bom_id: Optional[uuid.UUID],
         source_location_id: uuid.UUID,
         vendor_location_id: uuid.UUID,
         expected_return_date: Optional[datetime],
         created_by: uuid.UUID,
     ) -> SubcontractOrderModel:
         # Load BOM
+        if bom_id is None:
+            raise ValueError("bom_id is required")
         bom = await self._session.get(BOMModel, bom_id)
         if not bom or bom.tenant_id != tenant_id:
             raise ValueError("BOM not found")

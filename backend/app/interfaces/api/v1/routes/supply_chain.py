@@ -2383,10 +2383,11 @@ async def approve_subcontract_order(
         if o.bom_id:
             from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel
             from sqlalchemy.orm import selectinload as _sil
+            _bom_id: uuid.UUID = o.bom_id  # narrow Optional[UUID] → UUID for type checker
             bom_result = await session.execute(
                 select(BOMModel)
                 .options(_sil(BOMModel.lines))
-                .where(BOMModel.id == o.bom_id, BOMModel.tenant_id == tenant_id, BOMModel.is_deleted.is_(False))
+                .where(BOMModel.id == _bom_id, BOMModel.tenant_id == tenant_id, BOMModel.is_deleted.is_(False))
             )
             bom = bom_result.scalar_one_or_none()
             if bom:
