@@ -67,6 +67,15 @@ class MaterialResult:
     last_supplier_name: Optional[str] = None
     last_supplier_id: Optional[uuid.UUID] = None
     purchase_count: int = 0
+    
+    # Location-based stock breakdown
+    warehouse_stock: Decimal = Decimal("0")
+    subcontractor_stock: Decimal = Decimal("0")
+    subcontractor_details: list = None
+    
+    def __post_init__(self):
+        if self.subcontractor_details is None:
+            self.subcontractor_details = []
 
 def _to_result(m: Material) -> MaterialResult:
     return MaterialResult(

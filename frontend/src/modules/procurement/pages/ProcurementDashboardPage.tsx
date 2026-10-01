@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
-import { Truck, FileText, AlertTriangle, PackageCheck, RefreshCw, Clock, ChevronDown, ChevronUp, CheckCircle } from "lucide-react"
+import { Truck, FileText, AlertTriangle, PackageCheck, RefreshCw, Clock, ChevronDown, ChevronUp, CheckCircle, Factory } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import apiClient from "@/services/api-client"
 
@@ -24,6 +24,9 @@ interface ProcurementDashboardData {
   overdue_deliveries: number
   grn_pending: number
   material_shortages: number
+  active_subcontracts: number
+  materials_at_subcontractors: number
+  overdue_subcontracts: number
 }
 
 interface PurchaseRequisition {
@@ -255,6 +258,51 @@ export default function ProcurementDashboardPage() {
               )}
             </div>
             <p className="mt-1 text-xs text-slate-500">Supplier deliveries past expected date</p>
+          </CardContent>
+        </Card>
+
+        {/* Active Subcontracts */}
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate("/manufacturing/subcontract-orders")}
+        >
+          <CardHeader className="pb-2">
+            <CardDescription className="flex items-center gap-2">
+              <Factory className="h-4 w-4 text-purple-500" />
+              Active Subcontracts
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <p className="text-3xl font-bold text-slate-900">
+                {isLoading ? "—" : (data?.active_subcontracts ?? 0)}
+              </p>
+              {!isLoading && (data?.overdue_subcontracts ?? 0) > 0 && (
+                <Badge variant="destructive" className="text-xs">
+                  {data?.overdue_subcontracts} overdue
+                </Badge>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Orders in progress or pending receipt</p>
+          </CardContent>
+        </Card>
+
+        {/* Materials at Subcontractors */}
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => navigate("/manufacturing/subcontract-orders")}
+        >
+          <CardHeader className="pb-2">
+            <CardDescription className="flex items-center gap-2">
+              <PackageCheck className="h-4 w-4 text-violet-500" />
+              Materials at Subcontractors
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-slate-900">
+              {isLoading ? "—" : (data?.materials_at_subcontractors ?? 0)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">Unique materials currently with vendors</p>
           </CardContent>
         </Card>
       </div>

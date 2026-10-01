@@ -2310,23 +2310,64 @@ async def list_subcontract_orders(
 ):
     container = get_container(request)
     async with container.session_factory() as session:
-        query = select(SubcontractOrderModel).where(
-            SubcontractOrderModel.tenant_id == tenant_id,
-            SubcontractOrderModel.is_deleted.is_(False),
+        query = (
+            select(SubcontractOrderModel, SupplierModel.name.label("supplier_name"), SupplierModel.code.label("supplier_code"))
+            .join(SupplierModel, SubcontractOrderModel.supplier_id == SupplierModel.id)
+            .where(
+                SubcontractOrderModel.tenant_id == tenant_id,
+                SubcontractOrderModel.is_deleted.is_(False),
+            )
         )
         if status:
             query = query.where(SubcontractOrderModel.status == status)
         if supplier_id:
             query = query.where(SubcontractOrderModel.supplier_id == supplier_id)
-        count_stmt = select(func.count()).select_from(query.subquery())
+        
+        count_stmt = select(func.count()).select_from(
+            select(SubcontractOrderModel).where(
+                SubcontractOrderModel.tenant_id == tenant_id,
+                SubcontractOrderModel.is_deleted.is_(False),
+            ).subquery()
+        )
+        if status:
+            count_stmt = select(func.count()).select_from(
+                select(SubcontractOrderModel).where(
+                    SubcontractOrderModel.tenant_id == tenant_id,
+                    SubcontractOrderModel.is_deleted.is_(False),
+                    SubcontractOrderModel.status == status,
+                ).subquery()
+            )
+        
         total = (await session.execute(count_stmt)).scalar_one()
         query = query.order_by(SubcontractOrderModel.created_at.desc()).offset(skip).limit(limit)
-        rows = (await session.execute(query)).scalars().all()
+        rows = (await session.execute(query)).all()
+    
+    # Fetch product names for materials
+    items = []
+    for row in rows:
+        order, supplier_name, supplier_code = row
+        item_dict = _sco_to_dict(order)
+        item_dict["supplier_name"] = supplier_name
+        item_dict["supplier_code"] = supplier_code
+        
+        # Try to get product/material name
+        try:
+            async with container.session_factory() as session:
+                if order.product_type == "material":
+                    mat = await session.get(MaterialModel, uuid.UUID(order.product_id))
+                    if mat:
+                        item_dict["product_code"] = mat.code
+                        item_dict["product_name"] = mat.name
+        except:
+            pass  # Non-fatal
+        
+        items.append(item_dict)
+    
     return {
         "total": total,
         "skip": skip,
         "limit": limit,
-        "items": [_sco_to_dict(x) for x in rows],
+        "items": items,
     }
 
 
@@ -2381,11 +2422,10 @@ async def approve_subcontract_order(
         # Snapshot BOM components if BOM is linked and no lines exist yet
         if o.bom_id:
             from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel
-            from sqlalchemy.orm import selectinload as _sil
             _bom_id: uuid.UUID = o.bom_id  # narrow Optional[UUID] → UUID for type checker
             bom_result = await session.execute(
                 select(BOMModel)
-                .options(_sil(BOMModel.lines))
+                .options(selectinload(BOMModel.lines))
                 .where(BOMModel.id == _bom_id, BOMModel.tenant_id == tenant_id, BOMModel.is_deleted.is_(False))
             )
             bom = bom_result.scalar_one_or_none()
@@ -2543,6 +2583,17 @@ async def receive_subcontract(
         o.output_batch_id = output_batch.id
         new_received = float(Decimal(str(o.received_quantity or 0)) + Decimal(str(body.quantity)))
         o.received_quantity = new_received
+
+        # Consume raw materials proportional to output received (BOM-based calculation)
+        # This happens on EVERY receipt (partial or complete) to track consumption accurately
+        sub_loc = await _subcontractor_location(session, tenant_id, o.supplier_id)
+        await inv.consume_subcontract_raw_materials(
+            tenant_id=tenant_id,
+            subcontract_order_id=o.id,
+            subcontractor_location_id=sub_loc,
+            created_by=user_id,
+            receipt_quantity=Decimal(str(body.quantity)),  # Incremental quantity just received
+        )
 
         # Status: completed when fully received, else partially_received
         if new_received >= float(o.quantity):

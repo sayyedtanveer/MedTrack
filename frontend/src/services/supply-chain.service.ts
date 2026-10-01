@@ -75,7 +75,11 @@ export type SubcontractOrderSummary = {
   id: string
   order_number: string
   supplier_id: string
+  supplier_name?: string
+  supplier_code?: string
   product_id: string
+  product_code?: string
+  product_name?: string
   product_type: string
   quantity: number
   received_quantity: number

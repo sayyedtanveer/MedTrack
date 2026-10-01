@@ -43,6 +43,7 @@ export interface BOMTreeNode {
   name: string;
   code?: string;
   type: "material" | "template" | "variant";
+  material_type?: "raw_material" | "semi_finished" | "finished_good"; // Material classification
   quantity: number;
   unit?: string;
   unit_id?: string;

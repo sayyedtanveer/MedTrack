@@ -73,6 +73,36 @@ class DocumentRepository(IDocumentRepository):
             return self._model_to_entity(model)
         return None
 
+    async def find_by_id_and_tenant(
+        self,
+        document_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> Optional[Document]:
+        """Find a document by ID, scoped to a specific tenant.
+
+        This is the preferred lookup for authenticated endpoints — it prevents
+        one tenant from accessing another tenant's documents even if the UUID
+        is somehow obtained.
+
+        Args:
+            document_id: Document UUID
+            tenant_id: Tenant UUID that must own the document
+
+        Returns:
+            Document entity if found and owned by tenant, None otherwise
+        """
+        stmt = select(DocumentModel).where(
+            DocumentModel.id == document_id,
+            DocumentModel.tenant_id == tenant_id,
+            DocumentModel.is_deleted.is_(False),
+        )
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
+
+        if model:
+            return self._model_to_entity(model)
+        return None
+
     async def find_latest_version(
         self,
         tenant_id: uuid.UUID,

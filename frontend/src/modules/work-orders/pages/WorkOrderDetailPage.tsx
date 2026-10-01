@@ -44,6 +44,8 @@ export default function WorkOrderDetailPage() {
     notes: '',
   });
   const [documentLoading, setDocumentLoading] = useState(false);
+  // Dropdown open state for the Download Work Order menu
+  const [woDownloadOpen, setWoDownloadOpen] = useState(false);
   
   // Dialog states for QC actions
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -466,9 +468,25 @@ export default function WorkOrderDetailPage() {
     }
   };
 
+  const handleDownloadBOM = async () => {
+    if (!id || documentLoading) return;
+    setDocumentLoading(true);
+    setWoDownloadOpen(false);
+    setError(null);
+    try {
+      await documentService.downloadBomDocumentByUrl(id, `WO-${wo?.wo_number}-BOM.pdf`);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to generate BOM PDF.';
+      setError(msg);
+    } finally {
+      setDocumentLoading(false);
+    }
+  };
+
   const handleDownloadPackage = async () => {
     if (!id || documentLoading) return;
     setDocumentLoading(true);
+    setWoDownloadOpen(false);
     setError(null);
     try {
       // Generate document base
@@ -618,13 +636,49 @@ export default function WorkOrderDetailPage() {
             >
               {documentLoading ? '…' : 'Print'}
             </button>
-            <button
-              onClick={handleDownloadPDF}
-              disabled={documentLoading}
-              className="rounded-lg px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {documentLoading ? '…' : 'Download PDF'}
-            </button>
+            {/* Download Work Order dropdown */}
+            <div className="relative">
+              <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+                <button
+                  onClick={() => { setWoDownloadOpen(false); handleDownloadPDF(); }}
+                  disabled={documentLoading}
+                  className="px-4 py-2 text-sm font-medium bg-white text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50 border-r border-slate-300"
+                >
+                  {documentLoading ? '…' : 'Download Work Order'}
+                </button>
+                <button
+                  onClick={() => setWoDownloadOpen((o) => !o)}
+                  disabled={documentLoading}
+                  aria-label="More download options"
+                  className="px-2 py-2 text-sm bg-white text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+              {woDownloadOpen && (
+                <div
+                  className="absolute right-0 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1"
+                  onMouseLeave={() => setWoDownloadOpen(false)}
+                >
+                  <button
+                    onClick={() => { setWoDownloadOpen(false); handleDownloadPDF(); }}
+                    disabled={documentLoading}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Work Order Only
+                  </button>
+                  <button
+                    onClick={handleDownloadBOM}
+                    disabled={documentLoading}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Work Order + BOM
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={handleDownloadPackage}
               disabled={documentLoading}

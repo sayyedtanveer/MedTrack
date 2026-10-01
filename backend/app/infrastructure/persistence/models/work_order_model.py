@@ -102,6 +102,67 @@ class WorkOrderModel(Base):
     production_records: Mapped[list["ProductionRecordModel"]] = relationship(
         "ProductionRecordModel", back_populates="work_order", cascade="all, delete-orphan"
     )
+    lines: Mapped[list["WorkOrderLineModel"]] = relationship(
+        "WorkOrderLineModel", back_populates="work_order", cascade="all, delete-orphan"
+    )
+
+
+class WorkOrderLineModel(Base):
+    """One row per product within a Work Order.
+
+    A single-product WO has exactly 1 line (mirroring WorkOrderModel.product_id).
+    A multi-product WO has 1 line per product.
+
+    Each line carries its own product_id, bom_id, and quantities so that production,
+    materials, and documents can all be scoped to a specific product independently.
+    """
+
+    __tablename__ = "work_order_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("item_variants.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    bom_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("boms.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    planned_quantity: Mapped[float] = mapped_column(Numeric(15, 3), nullable=False)
+    produced_quantity: Mapped[float] = mapped_column(Numeric(15, 3), nullable=False, default=0)
+    scrap_quantity: Mapped[float] = mapped_column(Numeric(15, 3), nullable=False, default=0)
+
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="PLANNED")
+
+    # Soft delete — follows the same convention as the parent WO
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    work_order: Mapped["WorkOrderModel"] = relationship("WorkOrderModel", back_populates="lines")
 
 
 class WorkOrderMaterialModel(Base):

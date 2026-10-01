@@ -11,8 +11,10 @@ from backend.app.infrastructure.persistence.models.technical_document_model impo
     FileAttachmentModel,
     DocumentAssociationModel
 )
+from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderLineModel, WorkOrderModel
 from backend.app.application.documents.services.document_storage_service import DocumentStorageService
 from backend.app.utils.file_validation import validate_upload, sanitize_filename
+
 
 class TechnicalDocumentService:
     def __init__(self, session: AsyncSession, storage_service: DocumentStorageService):
@@ -51,13 +53,13 @@ class TechnicalDocumentService:
             tenant_id=tenant_id,
             document_type="technical_documents",
             entity_id=revision_id,
-            version_number=1, # We can use 1 or the rev code
+            version_number=1,  # We can use 1 or the rev code
             extension=safe_filename.split('.')[-1] if '.' in safe_filename else 'pdf'
         )
-        
+
         # Upload to Cloudinary
         self.storage_service.save_pdf(content, public_id)
-        
+
         attachment = FileAttachmentModel(
             tenant_id=tenant_id,
             file_name=safe_filename,
@@ -68,7 +70,7 @@ class TechnicalDocumentService:
         )
         self.session.add(attachment)
         await self.session.flush()
-        
+
         # Create Revision
         rev = DocumentRevisionModel(
             id=revision_id,
@@ -82,7 +84,7 @@ class TechnicalDocumentService:
         )
         self.session.add(rev)
         await self.session.flush()
-        
+
         # Reload doc with relationships
         stmt = (
             select(TechnicalDocumentModel)
@@ -101,12 +103,14 @@ class TechnicalDocumentService:
         revision_id: uuid.UUID,
         target_type: str,
         target_id: uuid.UUID,
-        is_print_package_included: bool = False
+        is_print_package_included: bool = False,
+        show_on_wo: bool = True,
     ) -> DocumentAssociationModel:
         assoc = DocumentAssociationModel(
             tenant_id=tenant_id,
             revision_id=revision_id,
-            is_print_package_included=is_print_package_included
+            is_print_package_included=is_print_package_included,
+            show_on_wo=show_on_wo,
         )
         if target_type == "work_order":
             assoc.work_order_id = target_id
@@ -114,12 +118,53 @@ class TechnicalDocumentService:
             assoc.variant_id = target_id
         elif target_type == "template":
             assoc.template_id = target_id
+        elif target_type == "work_order_line":
+            # Resolve the line and validate it belongs to this tenant.
+            # The CheckConstraint requires work_order_id to be set (not work_order_line_id alone),
+            # so we set BOTH work_order_id (from the line) and work_order_line_id.
+            line = await self._get_work_order_line(tenant_id, target_id)
+            assoc.work_order_id = line.work_order_id
+            assoc.work_order_line_id = line.id
         else:
-            raise ValueError("Invalid target_type")
-            
+            raise ValueError(
+                f"Invalid target_type '{target_type}'. "
+                "Must be one of: work_order, work_order_line, variant, template"
+            )
+
         self.session.add(assoc)
         await self.session.flush()
         return assoc
+
+    async def _get_work_order_line(
+        self,
+        tenant_id: uuid.UUID,
+        line_id: uuid.UUID,
+    ):
+        """Fetch a WorkOrderLine and verify it belongs to the given tenant.
+
+        Tenant isolation is enforced by joining through the parent WorkOrder
+        and checking work_orders.tenant_id.
+
+        Raises:
+            ValueError: If the line is not found or does not belong to the tenant.
+        """
+        stmt = (
+            select(WorkOrderLineModel)
+            .join(WorkOrderModel, WorkOrderModel.id == WorkOrderLineModel.work_order_id)
+            .where(
+                WorkOrderLineModel.id == line_id,
+                WorkOrderLineModel.is_deleted.is_(False),
+                WorkOrderModel.tenant_id == tenant_id,
+                WorkOrderModel.is_deleted.is_(False),
+            )
+        )
+        result = await self.session.execute(stmt)
+        line = result.scalar_one_or_none()
+        if line is None:
+            raise ValueError(
+                f"Work order line '{line_id}' not found or does not belong to this tenant."
+            )
+        return line
 
     async def get_associations_for_entity(
         self,
@@ -136,12 +181,16 @@ class TechnicalDocumentService:
             .where(DocumentAssociationModel.tenant_id == tenant_id)
         )
         if target_type == "work_order":
+            # Return all associations for this WO — both WO-level docs
+            # and any line-specific docs (which also carry work_order_id).
             stmt = stmt.where(DocumentAssociationModel.work_order_id == target_id)
+        elif target_type == "work_order_line":
+            stmt = stmt.where(DocumentAssociationModel.work_order_line_id == target_id)
         elif target_type == "variant":
             stmt = stmt.where(DocumentAssociationModel.variant_id == target_id)
         elif target_type == "template":
             stmt = stmt.where(DocumentAssociationModel.template_id == target_id)
-            
+
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -160,3 +209,41 @@ class TechnicalDocumentService:
 
     async def get_file_content(self, file_path: str) -> bytes:
         return self.storage_service.load_pdf(file_path)
+
+    async def update_association(
+        self,
+        tenant_id: uuid.UUID,
+        association_id: uuid.UUID,
+        is_print_package_included: bool | None = None,
+        show_on_wo: bool | None = None,
+    ) -> DocumentAssociationModel:
+        """Update display flags on an existing association.
+
+        Only updates the fields that are explicitly provided (not None).
+        Enforces tenant isolation — raises ValueError if not found for this tenant.
+        """
+        stmt = (
+            select(DocumentAssociationModel)
+            .options(
+                selectinload(DocumentAssociationModel.revision).selectinload(DocumentRevisionModel.document),
+                selectinload(DocumentAssociationModel.revision).selectinload(DocumentRevisionModel.file_attachment),
+            )
+            .where(
+                DocumentAssociationModel.id == association_id,
+                DocumentAssociationModel.tenant_id == tenant_id,
+            )
+        )
+        result = await self.session.execute(stmt)
+        assoc = result.scalar_one_or_none()
+        if assoc is None:
+            raise ValueError(
+                f"Association '{association_id}' not found or does not belong to this tenant."
+            )
+
+        if is_print_package_included is not None:
+            assoc.is_print_package_included = is_print_package_included
+        if show_on_wo is not None:
+            assoc.show_on_wo = show_on_wo
+
+        await self.session.flush()
+        return assoc

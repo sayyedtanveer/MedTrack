@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import (
     String,
     DateTime,
@@ -105,6 +106,16 @@ class DocumentAssociationModel(Base):
     work_order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=True
     )
+    # work_order_line_id and show_on_wo are added by migration c5d9f2b1e8a3.
+    # The FK to work_order_lines is deferred to the migration to avoid startup
+    # failures when the work_order_lines table does not yet exist in the DB.
+    # These columns are defined without FK here so the ORM can read/write them
+    # once the migration has been applied; before the migration they will not
+    # exist in the DB and queries that reference them will raise a DB error
+    # that must be caught at the call site.
+    work_order_line_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     variant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("item_variants.id", ondelete="CASCADE"), nullable=True
     )
@@ -113,6 +124,7 @@ class DocumentAssociationModel(Base):
     )
 
     is_print_package_included: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    show_on_wo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

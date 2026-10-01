@@ -56,9 +56,10 @@ class PurchaseHistoryQueryService:
         purchase_count = (await self._session.execute(count_stmt)).scalar() or 0
 
         if latest_res:
+            receipt_date = latest_res[1]
             return {
                 "latest_purchase_price": Decimal(str(latest_res[0])),
-                "last_purchase_date": latest_res[1],
+                "last_purchase_date": receipt_date.date() if receipt_date is not None else None,
                 "last_supplier_name": latest_res[2],
                 "last_supplier_id": latest_res[3],
                 "purchase_count": purchase_count

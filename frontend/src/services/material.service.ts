@@ -59,6 +59,16 @@ export const materialService = {
     return data;
   },
 
+  async getMaterialStock(materialId: string): Promise<StockInfo> {
+    const { data } = await apiClient.get(`/inventory/materials/${materialId}/stock`);
+    return data;
+  },
+
+  async getMaterialStockByLocation(materialId: string): Promise<any> {
+    const { data } = await apiClient.get(`/inventory/materials/${materialId}/stock-by-location`);
+    return data;
+  },
+
   async createTransaction(payload: StockOperationInput): Promise<Material> {
     const { data } = await apiClient.post("/inventory/transactions", payload);
     return data;

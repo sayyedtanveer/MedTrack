@@ -4,18 +4,32 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class CreateWorkOrderCommand(BaseModel):
-    tenant_id: uuid.UUID
+class WorkOrderLineCommand(BaseModel):
+    """Represents one product line in a multi-product Work Order creation request."""
     product_id: uuid.UUID
     bom_id: uuid.UUID
+    planned_quantity: Decimal = Field(..., gt=0)
+
+
+class CreateWorkOrderCommand(BaseModel):
+    tenant_id: uuid.UUID
+
+    # Single-product fields — required when lines is empty/absent
+    product_id: Optional[uuid.UUID] = None
+    bom_id: Optional[uuid.UUID] = None
+    planned_quantity: Optional[Decimal] = Field(None, gt=0)
+
+    # Multi-product lines — when provided, product_id/bom_id/planned_quantity
+    # describe the "primary" product for backward compat display; the lines list
+    # drives actual WO Line + BOM snapshot creation.
+    lines: Optional[List[WorkOrderLineCommand]] = None
 
     # Canonical fields
-    planned_quantity: Decimal = Field(..., gt=0)
     start_date: date
     due_date: date
 
@@ -45,12 +59,8 @@ class CreateWorkOrderCommand(BaseModel):
         if "due_date" in incoming and isinstance(incoming["due_date"], datetime):
             incoming["due_date"] = incoming["due_date"].date()
 
-        # If due_date is a string datetime/date, let pydantic parse it later,
-        # but if it's datetime-like it will still fail date validation if time exists.
-        # We'll also coerce iso strings ending with time by taking first 10 chars.
         if "due_date" in incoming and isinstance(incoming["due_date"], str) and len(incoming["due_date"]) >= 19:
             try:
-                # assumes ISO-8601; take YYYY-MM-DD
                 incoming["due_date"] = incoming["due_date"][:10]
             except Exception:
                 pass
@@ -58,7 +68,6 @@ class CreateWorkOrderCommand(BaseModel):
         # Default start_date when missing
         if "start_date" not in incoming:
             if "due_date" in incoming:
-                # At this point due_date may be date or YYYY-MM-DD string
                 if isinstance(incoming["due_date"], str):
                     incoming["start_date"] = incoming["due_date"]
                 elif isinstance(incoming["due_date"], date):
@@ -66,11 +75,13 @@ class CreateWorkOrderCommand(BaseModel):
             else:
                 incoming["start_date"] = date.today()
 
-        # Provide a deterministic bom_id placeholder if missing.
-        # This keeps test payloads runnable while the real E2E setup for BOM
-        # may still be handled elsewhere.
-        if "bom_id" not in incoming or incoming["bom_id"] is None:
-            incoming["bom_id"] = uuid.uuid5(uuid.NAMESPACE_DNS, f"placeholder:bom:{incoming.get('product_id')}:{incoming.get('tenant_id')}")
+        # Provide a deterministic bom_id placeholder if missing AND no lines provided.
+        has_lines = bool(incoming.get("lines"))
+        if not has_lines and ("bom_id" not in incoming or incoming["bom_id"] is None):
+            incoming["bom_id"] = uuid.uuid5(
+                uuid.NAMESPACE_DNS,
+                f"placeholder:bom:{incoming.get('product_id')}:{incoming.get('tenant_id')}",
+            )
 
         return incoming
 
@@ -78,6 +89,15 @@ class CreateWorkOrderCommand(BaseModel):
     def due_after_start(self) -> "CreateWorkOrderCommand":
         if self.due_date < self.start_date:
             raise ValueError("due_date must be on or after start_date")
+
+        # Ensure we have enough information to create a WO
+        has_lines = bool(self.lines)
+        has_single = self.product_id is not None and self.bom_id is not None and self.planned_quantity is not None
+        if not has_lines and not has_single:
+            raise ValueError(
+                "Either provide product_id + bom_id + planned_quantity (single-product) "
+                "or a non-empty lines list (multi-product)."
+            )
         return self
 
 

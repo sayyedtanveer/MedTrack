@@ -72,12 +72,12 @@ class BOMHandlers:
         invalid_materials = [
             row.name
             for row in materials.values()
-            if str(row.material_type).strip().lower() != MaterialType.RAW.value
+            if str(row.material_type).strip().lower() not in (MaterialType.RAW.value, MaterialType.SEMI_FINISHED.value)
         ]
         if invalid_materials:
             raise ValueError(
-                "Only raw materials can be added as BOM material lines. "
-                "Use template or variant lines for sub-assemblies or finished goods: "
+                "Only raw and semi-finished materials can be added as BOM material lines. "
+                "Use template or variant lines for finished products: "
                 + ", ".join(invalid_materials[:3])
             )
 

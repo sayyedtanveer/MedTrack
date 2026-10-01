@@ -37,9 +37,11 @@ export interface DocumentAssociation {
   id: string;
   revision_id: string;
   work_order_id?: string;
+  work_order_line_id?: string;
   variant_id?: string;
   template_id?: string;
   is_print_package_included: boolean;
+  show_on_wo: boolean;
   created_at: string;
   revision?: DocumentRevision;
 }
@@ -56,16 +58,31 @@ export const technicalDocumentService = {
 
   async associateDocument(data: {
     revision_id: string;
-    target_type: 'work_order' | 'variant' | 'template';
+    target_type: 'work_order' | 'work_order_line' | 'variant' | 'template';
     target_id: string;
     is_print_package_included: boolean;
+    show_on_wo?: boolean;
   }): Promise<DocumentAssociation> {
     const response = await apiClient.post<DocumentAssociation>('/technical-documents/associations', data);
     return response.data;
   },
 
-  async getAssociations(targetType: 'work_order' | 'variant' | 'template', targetId: string): Promise<DocumentAssociation[]> {
+  async getAssociations(
+    targetType: 'work_order' | 'work_order_line' | 'variant' | 'template',
+    targetId: string
+  ): Promise<DocumentAssociation[]> {
     const response = await apiClient.get<DocumentAssociation[]>(`/technical-documents/associations/${targetType}/${targetId}`);
+    return response.data;
+  },
+
+  async updateAssociation(
+    associationId: string,
+    data: { is_print_package_included?: boolean; show_on_wo?: boolean }
+  ): Promise<DocumentAssociation> {
+    const response = await apiClient.patch<DocumentAssociation>(
+      `/technical-documents/associations/${associationId}`,
+      data
+    );
     return response.data;
   },
 

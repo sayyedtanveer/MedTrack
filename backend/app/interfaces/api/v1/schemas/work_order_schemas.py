@@ -8,16 +8,36 @@ from typing import Optional, List
 from pydantic import BaseModel, Field, model_validator
 
 
+
+class WorkOrderLineCreateRequest(BaseModel):
+    product_id: Optional[uuid.UUID] = None
+    bom_id: Optional[uuid.UUID] = None
+    planned_quantity: Optional[Decimal] = Field(None, gt=0)
+
+class WorkOrderLineResponse(BaseModel):
+    id: uuid.UUID
+    product_id: Optional[uuid.UUID] = None
+    product_name: Optional[str] = None
+    bom_id: Optional[uuid.UUID] = None
+    planned_quantity: Decimal
+    produced_quantity: Decimal
+    scrap_quantity: Decimal
+    status: str
+
+    model_config = {"from_attributes": True}
+
+
 class WorkOrderCreateRequest(BaseModel):
-    product_id: uuid.UUID
-    bom_id: uuid.UUID
-    planned_quantity: Decimal = Field(..., gt=0)
+    product_id: Optional[uuid.UUID] = None
+    bom_id: Optional[uuid.UUID] = None
+    planned_quantity: Optional[Decimal] = Field(None, gt=0)
     start_date: date
     due_date: date
     priority: str = Field("NORMAL", pattern="^(LOW|NORMAL|HIGH|URGENT)$")
     sales_order_id: Optional[uuid.UUID] = None
     sales_order_line_id: Optional[uuid.UUID] = None
     notes: Optional[str] = None
+    lines: Optional[List[WorkOrderLineCreateRequest]] = None
 
     @model_validator(mode="after")
     def validate_dates(self) -> "WorkOrderCreateRequest":
@@ -38,6 +58,7 @@ class RecordProductionRequest(BaseModel):
     job_card_id: Optional[uuid.UUID] = None
     operation_id: Optional[uuid.UUID] = None
     notes: Optional[str] = None
+    lines: Optional[List[WorkOrderLineCreateRequest]] = None
 
 
 class MaterialAvailabilityLineResponse(BaseModel):
@@ -54,8 +75,8 @@ class MaterialAvailabilityLineResponse(BaseModel):
 
 
 class MaterialAvailabilityResponse(BaseModel):
-    product_id: uuid.UUID
-    bom_id: uuid.UUID
+    product_id: Optional[uuid.UUID] = None
+    bom_id: Optional[uuid.UUID] = None
     planned_quantity: Decimal
     has_shortage: bool
     shortage_count: int
@@ -70,6 +91,7 @@ class StartJobCardRequest(BaseModel):
 class CompleteJobCardRequest(BaseModel):
     remarks: Optional[str] = None
     operator_notes: Optional[str] = None
+    lines: Optional[List[WorkOrderLineCreateRequest]] = None
     produced_quantity: Optional[Decimal] = Field(default=None, ge=0)
     scrap_quantity: Optional[Decimal] = Field(default=None, ge=0)
     rework_quantity: Optional[Decimal] = Field(default=None, ge=0)
@@ -79,6 +101,7 @@ class CompleteJobCardRequest(BaseModel):
 # ── Response Schemas ────────────────────────────────────────────────────────────
 
 class JobCardResponse(BaseModel):
+    work_order_line_id: Optional[uuid.UUID] = None
     id: uuid.UUID
     operation_id: uuid.UUID
     operation_name: str
@@ -98,12 +121,14 @@ class JobCardResponse(BaseModel):
     progress_percent: float = 0
     pause_reason: Optional[str] = None
     operator_notes: Optional[str] = None
+    lines: Optional[List[WorkOrderLineCreateRequest]] = None
     remarks: Optional[str]
 
     model_config = {"from_attributes": True}
 
 
 class WorkOrderMaterialResponse(BaseModel):
+    work_order_line_id: Optional[uuid.UUID] = None
     id: uuid.UUID
     material_id: uuid.UUID
     material_code: Optional[str] = None
@@ -118,8 +143,8 @@ class WorkOrderMaterialResponse(BaseModel):
 class WorkOrderSummary(BaseModel):
     id: uuid.UUID
     wo_number: str
-    product_id: uuid.UUID
-    bom_id: uuid.UUID
+    product_id: Optional[uuid.UUID] = None
+    bom_id: Optional[uuid.UUID] = None
     status: str
     priority: str
     planned_quantity: Decimal
@@ -139,6 +164,7 @@ class WorkOrderDetail(WorkOrderSummary):
     client_name: Optional[str] = None
     materials: List[WorkOrderMaterialResponse] = []
     job_cards: List[JobCardResponse] = []
+    lines: List[WorkOrderLineResponse] = []
 
 
 class WorkOrderErrorResponse(BaseModel):

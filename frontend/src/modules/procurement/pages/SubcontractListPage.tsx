@@ -191,14 +191,14 @@ export default function SubcontractListPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 sm:p-6">
       {/* ── Header ── */}
-      <div className="flex justify-between items-start gap-4">
-        <div className="flex items-center gap-3">
-          <Factory className="h-6 w-6 text-muted-foreground" />
-          <div>
-            <h1 className="text-2xl font-semibold">Subcontracting</h1>
-            <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <Factory className="h-6 w-6 text-muted-foreground flex-shrink-0 mt-1" />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-semibold">Subcontracting</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
               Send materials to a vendor for outside processing and receive semi-finished output.
             </p>
           </div>
@@ -206,9 +206,11 @@ export default function SubcontractListPage() {
 
         <Dialog open={open} onOpenChange={(v) => { if (!v) resetForm(); setOpen(v) }}>
           <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" />New order</Button>
+            <Button className="w-full sm:w-auto flex-shrink-0">
+              <Plus className="mr-2 h-4 w-4" />New order
+            </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>New subcontract order</DialogTitle>
             </DialogHeader>
@@ -350,9 +352,9 @@ export default function SubcontractListPage() {
               )}
             </div>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { resetForm(); setOpen(false) }}>Cancel</Button>
-              <Button onClick={create} disabled={creating}>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => { resetForm(); setOpen(false) }} className="w-full sm:w-auto">Cancel</Button>
+              <Button onClick={create} disabled={creating} className="w-full sm:w-auto">
                 {creating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : "Create"}
               </Button>
             </DialogFooter>
@@ -361,34 +363,96 @@ export default function SubcontractListPage() {
       </div>
 
       {/* ── Orders table ── */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Order</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Due</TableHead>
-            <TableHead className="text-right">Ordered</TableHead>
-            <TableHead className="text-right">Received</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+      <div className="border rounded-lg overflow-hidden">
+        {/* Desktop table */}
+        <div className="hidden md:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Output</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Due</TableHead>
+                <TableHead className="text-right">Ordered</TableHead>
+                <TableHead className="text-right">Received</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {orders.map((o) => (
+                <TableRow key={o.id}>
+                  <TableCell className="font-mono text-sm">{o.order_number}</TableCell>
+                  <TableCell className="text-sm">{o.supplier_name || "—"}</TableCell>
+                  <TableCell className="text-sm">
+                    <div className="max-w-[200px] truncate" title={o.product_code}>
+                      {o.product_code || "—"}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={statusColor(o.status)} className="whitespace-nowrap">
+                      {o.status.replace(/_/g, " ")}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                    {o.due_date ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-right">{o.quantity}</TableCell>
+                  <TableCell className="text-right">{o.received_quantity ?? 0}</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="link" size="sm" asChild>
+                      <Link to={`/procurement/subcontract/${o.id}`}>Open →</Link>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="md:hidden divide-y">
           {orders.map((o) => (
-            <TableRow key={o.id}>
-              <TableCell className="font-mono text-sm">{o.order_number}</TableCell>
-              <TableCell>
-                <Badge variant={statusColor(o.status)}>{o.status.replace(/_/g, " ")}</Badge>
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">{o.due_date ?? "—"}</TableCell>
-              <TableCell className="text-right">{o.quantity}</TableCell>
-              <TableCell className="text-right">{o.received_quantity ?? 0}</TableCell>
-              <TableCell className="text-right">
-                <Button variant="link" asChild><Link to={`/procurement/subcontract/${o.id}`}>Open →</Link></Button>
-              </TableCell>
-            </TableRow>
+            <Link
+              key={o.id}
+              to={`/procurement/subcontract/${o.id}`}
+              className="block p-4 hover:bg-accent transition-colors"
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="font-mono font-medium text-sm break-all">{o.order_number}</div>
+                <Badge variant={statusColor(o.status)} className="shrink-0 text-xs">
+                  {o.status.replace(/_/g, " ")}
+                </Badge>
+              </div>
+              {o.supplier_name && (
+                <div className="text-sm text-muted-foreground mb-1">
+                  Supplier: {o.supplier_name}
+                </div>
+              )}
+              {o.product_code && (
+                <div className="text-sm text-muted-foreground mb-2 break-words">
+                  Output: {o.product_code}
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2 text-xs mt-3">
+                <div>
+                  <div className="text-muted-foreground mb-1">Ordered</div>
+                  <div className="font-medium">{o.quantity}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground mb-1">Received</div>
+                  <div className="font-medium">{o.received_quantity ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground mb-1">Due</div>
+                  <div className="font-medium text-xs">{o.due_date ? new Date(o.due_date).toLocaleDateString() : "—"}</div>
+                </div>
+              </div>
+            </Link>
           ))}
-        </TableBody>
-      </Table>
+        </div>
+      </div>
+
       {orders.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <Factory className="h-8 w-8 mx-auto mb-2 opacity-40" />

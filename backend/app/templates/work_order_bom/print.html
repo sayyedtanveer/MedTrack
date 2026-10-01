@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+    {% if tenant.logo_url %}
+    <img src="{{ tenant.logo_url }}" alt="{{ tenant.company_name or tenant.name }}" class="company-logo">
+    {% endif %}
+    <div class="company-info">
+        <div class="company-name">{{ tenant.company_name or tenant.name }}</div>
+        <div class="company-details">
+            {{ tenant.address or '' }}<br>
+            {{ tenant.phone or '' }} | {{ tenant.email or '' }}
+        </div>
+        {% if tenant.gst_number %}
+        <div class="company-gst">GST: {{ tenant.gst_number }}</div>
+        {% endif %}
+        {% if tenant.pan_number %}
+        <div class="company-pan">PAN: {{ tenant.pan_number }}</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="document-title">Work Order — Bill of Materials</div>
+
+<div class="document-meta">
+    <div class="meta-section">
+        <div class="meta-label">Work Order Number:</div>
+        <div class="meta-value">{{ work_order.wo_number }}</div>
+
+        <div class="meta-label">Date:</div>
+        <div class="meta-value">{{ work_order.date }}</div>
+
+        <div class="meta-label">Status:</div>
+        <div class="meta-value">
+            <span class="status-badge status-{{ work_order.status|lower }}">{{ work_order.status }}</span>
+        </div>
+    </div>
+    <div class="meta-section">
+        <div class="meta-label">Priority:</div>
+        <div class="meta-value">
+            <span class="status-badge status-{{ work_order.priority|lower }}">{{ work_order.priority }}</span>
+        </div>
+
+        <div class="meta-label">Due Date:</div>
+        <div class="meta-value">{{ work_order.due_date }}</div>
+
+        {% if work_order.notes %}
+        <div class="meta-label">Notes:</div>
+        <div class="meta-value">{{ work_order.notes }}</div>
+        {% endif %}
+    </div>
+</div>
+
+{# ─── Multi-product: one BOM section per line ─────────────────────────────── #}
+{% if product_lines %}
+    {% for line in product_lines %}
+    <div class="section-title">
+        {{ line.product_name }}
+        <span style="font-size:9pt; font-weight:normal; color:#6b7280;">
+            &nbsp;— Qty: {{ line.planned_quantity }}
+            {% if line.bom_version %}&nbsp;(BOM v{{ line.bom_version }}){% endif %}
+        </span>
+    </div>
+
+    {% if line.materials %}
+    <table>
+        <thead>
+            <tr>
+                <th style="width:12%">Item Code</th>
+                <th style="width:38%">Material / Component</th>
+                <th style="width:12%">Required Qty</th>
+                <th style="width:10%">Unit</th>
+                <th style="width:12%">Issued Qty</th>
+                <th style="width:16%">Balance</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for mat in line.materials %}
+            <tr class="table-row">
+                <td>{{ mat.item_code or '-' }}</td>
+                <td>{{ mat.material_name }}</td>
+                <td>{{ mat.required_qty }}</td>
+                <td>{{ mat.unit or '-' }}</td>
+                <td>{{ mat.issued_qty }}</td>
+                <td
+                    {% if mat.required_qty - mat.issued_qty > 0 %}
+                    style="color:#b91c1c; font-weight:bold;"
+                    {% endif %}
+                >
+                    {{ mat.required_qty - mat.issued_qty }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="font-style:italic; color:#6b7280; font-size:10pt; margin-bottom:20px;">
+        No materials listed for this product line.
+    </p>
+    {% endif %}
+    {% endfor %}
+
+{# ─── Single-product: one flat BOM table ─────────────────────────────────── #}
+{% else %}
+    <div class="section-title">
+        {{ work_order.product }}
+        <span style="font-size:9pt; font-weight:normal; color:#6b7280;">
+            &nbsp;— Qty: {{ work_order.quantity }}
+        </span>
+    </div>
+
+    {% if materials %}
+    <table>
+        <thead>
+            <tr>
+                <th style="width:12%">Item Code</th>
+                <th style="width:38%">Material / Component</th>
+                <th style="width:12%">Required Qty</th>
+                <th style="width:10%">Unit</th>
+                <th style="width:12%">Issued Qty</th>
+                <th style="width:16%">Balance</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for mat in materials %}
+            <tr class="table-row">
+                <td>{{ mat.item_code or '-' }}</td>
+                <td>{{ mat.material_name }}</td>
+                <td>{{ mat.required_qty }}</td>
+                <td>{{ mat.unit or '-' }}</td>
+                <td>{{ mat.issued_qty }}</td>
+                <td
+                    {% if mat.required_qty - mat.issued_qty > 0 %}
+                    style="color:#b91c1c; font-weight:bold;"
+                    {% endif %}
+                >
+                    {{ mat.required_qty - mat.issued_qty }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="font-style:italic; color:#6b7280; font-size:10pt;">
+        No materials in the BOM snapshot for this Work Order.
+    </p>
+    {% endif %}
+{% endif %}
+
+<div class="footer">
+    <div class="footer-text">
+        This BOM is a snapshot taken at the time the Work Order was created.
+        It does not reflect live BOM changes made after release.
+    </div>
+    <div class="footer-text">Generated on: {{ generated_at }}</div>
+</div>
+{% endblock %}

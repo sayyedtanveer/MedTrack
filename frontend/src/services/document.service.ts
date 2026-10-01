@@ -82,7 +82,31 @@ class DocumentService {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = filename || `document_package_${documentId}.pdf`
+    // Default to .zip — the backend always returns application/zip for this endpoint
+    a.download = filename || `document_package_${documentId}.zip`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  }
+
+  /**
+   * Generate and download the Work Order + BOM PDF.
+   * Uses the work_order_bom document type which renders
+   * the material snapshot grouped by product line.
+   */
+  async downloadBomDocument(entityId: string): Promise<Blob> {
+    const doc = await this.generateDocument('work_order_bom', entityId)
+    const blob = await this.downloadDocument(doc.id)
+    return blob
+  }
+
+  async downloadBomDocumentByUrl(entityId: string, filename?: string): Promise<void> {
+    const blob = await this.downloadBomDocument(entityId)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || `work-order-bom_${entityId}.pdf`
     document.body.appendChild(a)
     a.click()
     window.URL.revokeObjectURL(url)

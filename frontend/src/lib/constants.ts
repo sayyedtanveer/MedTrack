@@ -159,6 +159,12 @@ export const NAV_ITEMS: NavItem[] = [
         icon: ShieldAlert,
         roles: QUALITY_ROLES,
       },
+      {
+        title: "Subcontracting",
+        href: "/procurement/subcontract",
+        icon: Factory,
+        roles: PROCUREMENT_ROLES,
+      },
     ],
   },
 

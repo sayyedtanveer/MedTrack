@@ -137,6 +137,17 @@ function TreeNode({
           {cfg.label}
         </Badge>
 
+        {/* Semi-finished material badge */}
+        {node.type === "material" && node.material_type === "semi_finished" && (
+          <Badge
+            variant="outline"
+            className="text-xs flex-shrink-0 bg-purple-100 text-purple-800 border-purple-200"
+            title="This semi-finished material has its own BOM"
+          >
+            Semi-Finished
+          </Badge>
+        )}
+
         {/* Children count badge */}
         {hasChildren && (
           <Badge

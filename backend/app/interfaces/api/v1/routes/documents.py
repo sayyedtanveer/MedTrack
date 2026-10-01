@@ -56,6 +56,83 @@ def _get_document_services(request: Request, session: AsyncSession):
     return document_service, storage_service
 
 
+async def _build_document_control_list(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    work_order_id: uuid.UUID,
+) -> list:
+    """Build the Document Control list for the WO PDF.
+
+    Returns only associations where show_on_wo=True, ordered by:
+      1. WO-level docs first (no work_order_line_id), then line-specific docs
+      2. Within each group, ordered by document name
+
+    Each entry contains the fields consumed by print.html:
+      name, document_category, revision, product_name (for line-specific docs)
+    """
+    from sqlalchemy.orm import selectinload
+    from backend.app.infrastructure.persistence.models.technical_document_model import (
+        DocumentAssociationModel,
+        DocumentRevisionModel,
+    )
+    from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderLineModel
+
+    stmt = (
+        select(DocumentAssociationModel)
+        .options(
+            selectinload(DocumentAssociationModel.revision).selectinload(
+                DocumentRevisionModel.document
+            ),
+        )
+        .where(
+            DocumentAssociationModel.tenant_id == tenant_id,
+            DocumentAssociationModel.work_order_id == work_order_id,
+            DocumentAssociationModel.show_on_wo.is_(True),
+        )
+    )
+    result = await session.execute(stmt)
+    associations = result.scalars().all()
+
+    if not associations:
+        return []
+
+    # Resolve product names for line-specific associations in one pass
+    line_product_names: dict[uuid.UUID, str] = {}
+    line_ids = {
+        assoc.work_order_line_id
+        for assoc in associations
+        if assoc.work_order_line_id
+    }
+    if line_ids:
+        line_stmt = (
+            select(WorkOrderLineModel.id, ItemVariantModel.name)
+            .join(ItemVariantModel, ItemVariantModel.id == WorkOrderLineModel.product_id)
+            .where(WorkOrderLineModel.id.in_(line_ids))
+        )
+        line_result = await session.execute(line_stmt)
+        for line_id, product_name in line_result.all():
+            line_product_names[line_id] = product_name or ""
+
+    documents = []
+    for assoc in associations:
+        if not assoc.revision or not assoc.revision.document:
+            continue
+        doc = assoc.revision.document
+        entry = {
+            "name": doc.name,
+            "document_category": doc.document_category,
+            "revision": assoc.revision.revision_code,
+            "product_name": (
+                line_product_names.get(assoc.work_order_line_id, "")
+                if assoc.work_order_line_id
+                else ""
+            ),
+        }
+        documents.append(entry)
+
+    return documents
+
+
 async def _build_work_order_context(
     session: AsyncSession,
     tenant_id: uuid.UUID,
@@ -154,7 +231,7 @@ async def _build_work_order_context(
         },
         "materials": materials,
         "operations": operations,
-        "documents": [],
+        "documents": await _build_document_control_list(session, tenant_id, entity_id),
         "signatures": {
             "planner": {
                 "name": "",
@@ -180,6 +257,156 @@ async def _build_work_order_context(
         "generated_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
     }
     
+    return context
+
+
+async def _build_work_order_bom_context(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    entity_id: uuid.UUID,
+) -> dict:
+    """Build template context for Work Order BOM PDF.
+
+    Groups materials by Work Order Line when multiple product lines exist.
+    For single-product WOs, emits a single flat materials list.
+
+    Materials are drawn from the WO snapshot (work_order_materials table) —
+    the data that was frozen at WO creation time, not the live BOM.
+
+    Args:
+        session: Async SQLAlchemy session
+        tenant_id: Tenant UUID
+        entity_id: Work Order UUID
+
+    Returns:
+        Template context dictionary
+    """
+    from sqlalchemy.orm import selectinload
+
+    stmt = (
+        select(WorkOrderModel)
+        .options(
+            selectinload(WorkOrderModel.materials).selectinload(WorkOrderMaterialModel.material),
+            selectinload(WorkOrderModel.lines),
+        )
+        .where(
+            WorkOrderModel.id == entity_id,
+            WorkOrderModel.tenant_id == tenant_id,
+            WorkOrderModel.is_deleted.is_(False),
+        )
+    )
+    result = await session.execute(stmt)
+    wo = result.scalar_one_or_none()
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    tenant_stmt = select(TenantModel).where(TenantModel.id == tenant_id)
+    tenant_result = await session.execute(tenant_stmt)
+    tenant = tenant_result.scalar_one()
+
+    # Resolve single-product name for backward compat
+    single_product = None
+    if getattr(wo, "product_id", None):
+        p_result = await session.execute(
+            select(ItemVariantModel).where(ItemVariantModel.id == wo.product_id)
+        )
+        single_product = p_result.scalar_one_or_none()
+
+    def _mat_dict(m: WorkOrderMaterialModel) -> dict:
+        return {
+            "item_code": m.material.code if m.material else "",
+            "material_name": m.material.name if m.material else str(m.material_id)[:8],
+            "required_qty": float(m.required_quantity or 0),
+            "issued_qty": float(m.issued_quantity or 0),
+            "unit": getattr(m, "unit", None).name if getattr(m, "unit", None) else "",
+        }
+
+    all_materials = [_mat_dict(m) for m in (wo.materials or [])]
+
+    # Build per-line sections when lines exist
+    product_lines: list[dict] = []
+    if hasattr(wo, "lines") and wo.lines:
+        # Resolve product names for each line in one pass
+        line_product_names: dict[str, str] = {}
+        line_bom_versions: dict[str, str] = {}
+        for line in wo.lines:
+            if line.product_id:
+                pn_result = await session.execute(
+                    select(ItemVariantModel.name).where(ItemVariantModel.id == line.product_id)
+                )
+                line_product_names[str(line.id)] = pn_result.scalar_one_or_none() or str(line.product_id)[:8]
+
+        # For single-line WOs that mirror the root WO, all materials go under that line.
+        # For multi-line WOs, we can only attribute materials to lines if work_order_line_id
+        # is set on the material row. If not (single-product legacy path), show all under the
+        # one line.
+        from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderLineModel
+
+        # Check if any material has work_order_line_id set
+        has_line_materials = any(
+            getattr(m, "work_order_line_id", None) for m in (wo.materials or [])
+        )
+
+        if has_line_materials:
+            # Group materials by their line
+            from collections import defaultdict
+            mats_by_line: dict = defaultdict(list)
+            for m in (wo.materials or []):
+                line_id = str(getattr(m, "work_order_line_id", None) or "unassigned")
+                mats_by_line[line_id].append(_mat_dict(m))
+
+            for line in wo.lines:
+                product_lines.append({
+                    "product_name": line_product_names.get(str(line.id), f"Product {str(line.product_id)[:8]}"),
+                    "planned_quantity": float(line.planned_quantity or 0),
+                    "bom_version": line_bom_versions.get(str(line.id), ""),
+                    "materials": mats_by_line.get(str(line.id), []),
+                })
+        else:
+            # Single-product legacy or materials not yet split by line:
+            # Show all materials under the single/first line
+            if len(wo.lines) == 1:
+                line = wo.lines[0]
+                product_lines.append({
+                    "product_name": line_product_names.get(str(line.id), "Product"),
+                    "planned_quantity": float(line.planned_quantity or 0),
+                    "bom_version": "",
+                    "materials": all_materials,
+                })
+            else:
+                # Multiple lines but no per-line material split — show all materials once
+                # as a combined section to avoid duplication
+                product_lines = []  # Fall through to single-product flat view
+
+    context = {
+        "tenant": {
+            "name": tenant.name,
+            "company_name": tenant.company_name or tenant.name,
+            "logo_url": tenant.logo_url or "",
+            "gst_number": tenant.gst_number or "",
+            "pan_number": getattr(tenant, "pan_number", ""),
+            "address": tenant.address or "",
+            "phone": tenant.phone or "",
+            "email": tenant.email or "",
+            "footer_text": tenant.footer_text or "",
+        },
+        "work_order": {
+            "wo_number": wo.wo_number,
+            "date": wo.created_at.strftime("%Y-%m-%d") if wo.created_at else "",
+            "product": single_product.name if single_product else "Multiple Products",
+            "quantity": float(getattr(wo, "planned_quantity", 0) or 0),
+            "priority": wo.priority,
+            "due_date": wo.due_date.strftime("%Y-%m-%d") if wo.due_date else "",
+            "status": wo.status,
+            "notes": wo.notes or "",
+        },
+        # Multi-product: list of {product_name, planned_quantity, bom_version, materials[]}
+        "product_lines": product_lines,
+        # Single-product fallback
+        "materials": all_materials,
+        "generated_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
+    }
+
     return context
 
 
@@ -794,7 +1021,11 @@ async def test_pdf_generation(
             }
 
 
-@router.post("/{document_type}/{entity_id}/generate", response_model=DocumentResponse)
+@router.post(
+    "/{document_type}/{entity_id}/generate",
+    response_model=DocumentResponse,
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
 async def generate_document(
     document_type: str,
     entity_id: uuid.UUID,
@@ -825,6 +1056,8 @@ async def generate_document(
         # Build template context based on document type
         if document_type == "work_order":
             template_context = await _build_work_order_context(session, tenant_id, entity_id)
+        elif document_type == "work_order_bom":
+            template_context = await _build_work_order_bom_context(session, tenant_id, entity_id)
         elif document_type == "purchase_order":
             template_context = await _build_purchase_order_context(session, tenant_id, entity_id)
         elif document_type == "invoice":
@@ -874,7 +1107,10 @@ async def generate_document(
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{document_id}/download")
+@router.get(
+    "/{document_id}/download",
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
 async def download_document(
     document_id: uuid.UUID,
     request: Request,
@@ -897,78 +1133,182 @@ async def download_document(
         document_service, _ = _get_document_services(request, session)
         
         try:
+            # Verify document exists and belongs to this tenant
+            doc = await document_service.document_repository.find_by_id_and_tenant(
+                document_id, tenant_id
+            )
+            if not doc:
+                raise HTTPException(status_code=404, detail="Document not found")
+
             pdf_bytes = await document_service.get_document_pdf(document_id)
+            filename = f"document_{document_id}.pdf"
             return Response(
                 content=pdf_bytes,
                 media_type="application/pdf",
                 headers={
-                    "Content-Disposition": f"attachment; filename=document_{document_id}.pdf"
+                    "Content-Disposition": f"attachment; filename={filename}"
                 }
             )
+        except HTTPException:
+            raise
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{document_id}/download-package")
+@router.get(
+    "/{document_id}/download-package",
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
 async def download_document_package(
     document_id: uuid.UUID,
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
 ):
-    """Download a document PDF merged with all its attachments."""
+    """Download a Work Order PDF and all its technical attachments as a ZIP package."""
     from backend.app.interfaces.api.v1.dependencies.auth import get_container
     from backend.app.application.documents.services.technical_document_service import TechnicalDocumentService
-    
+    import io
+    import zipfile
+
     container = get_container(request)
-    
+
     async with container.session_factory() as session:
         document_service, _ = _get_document_services(request, session)
         from backend.app.application.documents.services.document_storage_service import DocumentStorageService
         tech_doc_service = TechnicalDocumentService(session, DocumentStorageService())
-        
+
         try:
-            # 1. Get base document PDF
-            base_pdf_bytes = await document_service.get_document_pdf(document_id)
-            
-            # 2. Get document entity to know what it is attached to
-            doc = await document_service.document_repository.find_by_id(document_id)
-            if not doc:
-                raise ValueError("Document not found")
-                
-            # 3. Get attachments
-            attachment_bytes_list = []
-            if doc.document_type == "work_order":
-                associations = await tech_doc_service.get_associations_for_entity(tenant_id, "work_order", doc.entity_id)
-                for assoc in associations:
-                    if assoc.is_print_package_included and assoc.revision and assoc.revision.file_attachment:
-                        try:
-                            att_bytes = await tech_doc_service.get_file_content(assoc.revision.file_attachment.cloudinary_public_id)
-                            attachment_bytes_list.append(att_bytes)
-                        except Exception:
-                            pass # Skip failing attachments
-                            
-            # 4. Merge
-            if attachment_bytes_list:
-                merged_bytes = await document_service.generate_document_package(base_pdf_bytes, attachment_bytes_list)
-            else:
-                merged_bytes = base_pdf_bytes
-                
-            return Response(
-                content=merged_bytes,
-                media_type="application/pdf",
-                headers={
-                    "Content-Disposition": f"attachment; filename=document_package_{document_id}.pdf"
-                }
+            # 1. Verify document ownership and existence
+            doc = await document_service.document_repository.find_by_id_and_tenant(
+                document_id, tenant_id
             )
+            if not doc:
+                raise HTTPException(status_code=404, detail="Document not found")
+
+            # 2. Get base document PDF
+            base_pdf_bytes = await document_service.get_document_pdf(document_id)
+
+            # 3. Determine a human-readable filename stem.
+            #    For work_order documents, look up the WO number.
+            zip_stem = f"WO-{doc.entity_id}"
+            if doc.document_type == "work_order":
+                try:
+                    wo_stmt = select(WorkOrderModel).where(
+                        WorkOrderModel.id == doc.entity_id,
+                        WorkOrderModel.tenant_id == tenant_id,
+                        WorkOrderModel.is_deleted.is_(False),
+                    )
+                    wo_result = await session.execute(wo_stmt)
+                    wo = wo_result.scalar_one_or_none()
+                    if wo:
+                        zip_stem = wo.wo_number
+                except Exception:
+                    pass  # Fall back to entity_id stem
+
+            # 4. Build ZIP in memory
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                # ── Root: base WO PDF ────────────────────────────────────────
+                zip_file.writestr(f"{zip_stem}.pdf", base_pdf_bytes)
+
+                if doc.document_type == "work_order":
+                    # ── Root: BOM PDF (generated on-the-fly) ─────────────────
+                    try:
+                        bom_context = await _build_work_order_bom_context(
+                            session, tenant_id, doc.entity_id
+                        )
+                        bom_html = document_service.template_service.render_template(
+                            "work_order_bom/print.html", bom_context
+                        )
+                        bom_pdf_bytes = document_service.pdf_service.generate_pdf_from_html(bom_html)
+                        zip_file.writestr(f"{zip_stem}-BOM.pdf", bom_pdf_bytes)
+                    except Exception:
+                        pass  # BOM generation failure is non-fatal; skip the PDF
+
+                    # ── Resolve product names for subfolder labels ────────────
+                    # Build a map: work_order_line_id → "Product Name"
+                    line_folder_names: dict[str, str] = {}
+                    try:
+                        from sqlalchemy.orm import selectinload as _sil
+                        from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderLineModel as _WOL
+                        lines_stmt = (
+                            select(_WOL)
+                            .where(
+                                _WOL.work_order_id == doc.entity_id,
+                                _WOL.is_deleted.is_(False),
+                            )
+                        )
+                        lines_result = await session.execute(lines_stmt)
+                        for line in lines_result.scalars().all():
+                            if line.product_id:
+                                pn_result = await session.execute(
+                                    select(ItemVariantModel.name).where(
+                                        ItemVariantModel.id == line.product_id
+                                    )
+                                )
+                                product_name = pn_result.scalar_one_or_none() or ""
+                                # Sanitise: replace filesystem-unsafe chars
+                                safe_name = (
+                                    product_name
+                                    .replace("/", "-")
+                                    .replace("\\", "-")
+                                    .replace(":", "-")
+                                    .strip()
+                                ) or f"Line-{str(line.id)[:8]}"
+                                line_folder_names[str(line.id)] = safe_name
+                    except Exception:
+                        pass  # Folder naming failure is non-fatal
+
+                    # ── Technical document attachments ────────────────────────
+                    associations = await tech_doc_service.get_associations_for_entity(
+                        tenant_id, "work_order", doc.entity_id
+                    )
+                    for assoc in associations:
+                        if (
+                            assoc.is_print_package_included
+                            and assoc.revision
+                            and assoc.revision.file_attachment
+                        ):
+                            try:
+                                att_bytes = await tech_doc_service.get_file_content(
+                                    assoc.revision.file_attachment.cloudinary_public_id
+                                )
+                                file_name = assoc.revision.file_attachment.file_name
+                                line_id = getattr(assoc, "work_order_line_id", None)
+                                if line_id:
+                                    # Place in product-specific subfolder
+                                    folder = line_folder_names.get(
+                                        str(line_id), f"Line-{str(line_id)[:8]}"
+                                    )
+                                    zip_path = f"{folder}/{file_name}"
+                                else:
+                                    # WO-level doc: stays at root
+                                    zip_path = file_name
+                                zip_file.writestr(zip_path, att_bytes)
+                            except Exception:
+                                pass  # Skip individual failures; continue building ZIP
+
+            return Response(
+                content=zip_buffer.getvalue(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{zip_stem}.zip"'
+                },
+            )
+        except HTTPException:
+            raise
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{document_type}/{entity_id}/html")
+@router.get(
+    "/{document_type}/{entity_id}/html",
+    dependencies=[Depends(require_permission("manufacturing:read"))],
+)
 async def get_document_html(
     document_type: str,
     entity_id: uuid.UUID,
@@ -999,6 +1339,8 @@ async def get_document_html(
             # Build template context based on document type
             if document_type == "work_order":
                 template_context = await _build_work_order_context(session, tenant_id, entity_id)
+            elif document_type == "work_order_bom":
+                template_context = await _build_work_order_bom_context(session, tenant_id, entity_id)
             elif document_type == "purchase_order":
                 template_context = await _build_purchase_order_context(session, tenant_id, entity_id)
             elif document_type == "invoice":

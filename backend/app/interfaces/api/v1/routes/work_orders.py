@@ -270,14 +270,49 @@ async def get_work_order(
             client_stmt = select(ClientModel.name).select_from(SalesOrderModel).join(ClientModel, SalesOrderModel.client_id == ClientModel.id).where(SalesOrderModel.id == wo.sales_order_id)
             client_result = await session.execute(client_stmt)
             client_name = client_result.scalar_one_or_none()
-            
+
+        # Resolve product names for lines so the UI can show human-readable labels.
+        # Wrapped in try/except so the endpoint still works if the work_order_lines
+        # migration hasn't been applied yet on this database instance.
+        from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+        lines_with_names = []
+        try:
+            lines_stmt = (
+                select(WorkOrderModel)
+                .options(selectinload(WorkOrderModel.lines))
+                .where(WorkOrderModel.id == work_order_id)
+            )
+            lines_result = await session.execute(lines_stmt)
+            wo_with_lines = lines_result.scalar_one_or_none()
+            for line in (wo_with_lines.lines if wo_with_lines else []):
+                product_name = None
+                if line.product_id:
+                    variant_result = await session.execute(
+                        select(ItemVariantModel.name).where(ItemVariantModel.id == line.product_id)
+                    )
+                    product_name = variant_result.scalar_one_or_none()
+                lines_with_names.append({
+                    **{c.name: getattr(line, c.name) for c in line.__table__.columns},
+                    "product_name": product_name,
+                })
+        except Exception:
+            # work_order_lines table may not exist yet — degrade gracefully
+            lines_with_names = []
+
         wo_dict = {
             **{c.name: getattr(wo, c.name) for c in wo.__table__.columns},
             "materials": wo.materials,
             "job_cards": wo.job_cards,
+            "lines": lines_with_names,
             "client_name": client_name
         }
-        return WorkOrderDetail.model_validate(wo_dict)
+        try:
+            return WorkOrderDetail.model_validate(wo_dict)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("WorkOrderDetail validation failed for %s", work_order_id)
+            from fastapi.responses import JSONResponse as _JSONResponse
+            raise
 
 
 @router.post("/{work_order_id}/release", status_code=status.HTTP_200_OK, dependencies=[Depends(require_permission("manufacturing:write"))])
