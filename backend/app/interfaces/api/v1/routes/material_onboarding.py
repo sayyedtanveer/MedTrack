@@ -823,21 +823,36 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
             logging.error(f"❌ Unexpected error during Excel template generation: {type(e).__name__}: {e}", exc_info=True)
             pass  # fall through to csv
 
-    # CSV
-    logging.info("📄 Falling back to CSV template generation")
+    # CSV - Simple single file (matches the single data tab in Excel)
+    logging.info("📄 Generating CSV template")
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(FRIENDLY_COLUMNS)
+    # Sample rows for different material types
     writer.writerow([
-        "DUMMY-SAMPLE", "Sample Material (Delete Me)", "Metal", "KG", "",
+        "SAMPLE-RAW-001", "Sample Raw Material (Delete Me)", "Metals", "KG", "",
         "", "", "", "100", "10", "500", "20", "50",
         "No", "No", "", "No", "No",
         "", "", "", "7", "",
         "", "No", "No", "2", "No"
     ])
+    writer.writerow([
+        "SAMPLE-SEMI-001", "Sample Semi-Finished (Delete Me)", "Components", "PCS", "",
+        "", "", "", "50", "5", "200", "10", "25",
+        "Yes", "No", "", "Yes", "Yes",
+        "", "", "", "14", "",
+        "", "No", "No", "0", "No"
+    ])
+    writer.writerow([
+        "SAMPLE-FG-001", "Sample Finished Good (Delete Me)", "Products", "PCS", "",
+        "", "", "", "20", "2", "100", "5", "10",
+        "Yes", "No", "", "Yes", "Yes",
+        "", "", "", "21", "",
+        "", "No", "No", "0", "No"
+    ])
     buf.seek(0)
     return StreamingResponse(
-        io.BytesIO(buf.read().encode()),
+        io.BytesIO(buf.read().encode('utf-8-sig')),  # UTF-8 with BOM for Excel compatibility
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=material-onboarding-template.csv"},
     )
