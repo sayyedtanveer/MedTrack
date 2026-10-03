@@ -46,17 +46,28 @@ class TechnicalDocumentResponse(TechnicalDocumentBase):
 
 class DocumentAssociationCreate(BaseModel):
     revision_id: uuid.UUID
-    target_type: str = Field(..., description="'work_order', 'variant', or 'template'")
+    target_type: str = Field(
+        ...,
+        description="'work_order', 'work_order_line', 'variant', or 'template'"
+    )
     target_id: uuid.UUID
     is_print_package_included: bool = False
+    show_on_wo: bool = True
+
+class DocumentAssociationUpdate(BaseModel):
+    """Partial update for a document association's display flags."""
+    is_print_package_included: Optional[bool] = None
+    show_on_wo: Optional[bool] = None
 
 class DocumentAssociationResponse(BaseModel):
     id: uuid.UUID
     revision_id: uuid.UUID
     work_order_id: Optional[uuid.UUID] = None
+    work_order_line_id: Optional[uuid.UUID] = None
     variant_id: Optional[uuid.UUID] = None
     template_id: Optional[uuid.UUID] = None
     is_print_package_included: bool
+    show_on_wo: bool = True
     created_at: datetime
     revision: Optional[DocumentRevisionResponse] = None
 

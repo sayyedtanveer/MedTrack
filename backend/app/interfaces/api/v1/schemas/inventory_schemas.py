@@ -105,6 +105,14 @@ class TransactionRequest(BaseModel):
     new_quantity: Optional[Decimal] = Field(None, ge=0)
 
 
+# ── Subcontractor Stock Detail ───────────────────────────────────────────
+class SubcontractorStockDetail(BaseModel):
+    """Details of stock at a specific subcontractor/vendor."""
+    vendor_id: uuid.UUID
+    vendor_name: str
+    quantity: Decimal
+
+
 # ── Material Response Schemas ─────────────────────────────────────────────
 class MaterialResponse(BaseModel):
     id: uuid.UUID
@@ -137,6 +145,11 @@ class MaterialResponse(BaseModel):
     last_supplier_name: Optional[str] = None
     last_supplier_id: Optional[uuid.UUID] = None
     purchase_count: int = 0
+    
+    # Location-based stock breakdown
+    warehouse_stock: Decimal = Decimal("0")
+    subcontractor_stock: Decimal = Decimal("0")
+    subcontractor_details: List[SubcontractorStockDetail] = []
 
     model_config = {"from_attributes": True}
 

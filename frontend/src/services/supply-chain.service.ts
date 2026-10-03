@@ -75,20 +75,46 @@ export type SubcontractOrderSummary = {
   id: string
   order_number: string
   supplier_id: string
+  supplier_name?: string
+  supplier_code?: string
   product_id: string
+  product_code?: string
+  product_name?: string
   product_type: string
   quantity: number
+  received_quantity: number
+  status: string
+  bom_id?: string | null
+  due_date?: string | null
+  notes?: string | null
+  output_batch_id?: string | null
+}
+
+export type SubcontractOrderLine = {
+  id: string
+  material_id: string
+  required_quantity: number
+  issued_quantity: number
+  returned_quantity: number
   status: string
 }
 
+export type SubcontractIssueRecord = {
+  id: string
+  material_id: string
+  quantity: number
+  returned_quantity: number
+  batch_id?: string | null
+  batch_number?: string | null
+  from_location_id?: string | null
+  issued_at?: string | null
+}
+
 export type SubcontractOrderDetail = SubcontractOrderSummary & {
-  issues: {
-    id: string
-    material_id: string
-    quantity: number
-    batch_number?: string | null
-    issued_at?: string | null
-  }[]
+  lines: SubcontractOrderLine[]
+  issues: SubcontractIssueRecord[]
+  approved_by?: string | null
+  approved_at?: string | null
 }
 
 export type MaterialRequest = {
@@ -206,18 +232,72 @@ export const supplyChainApi = {
   listMaterialRequests: () => apiClient.get<MaterialRequest[]>(`${BASE}/material-requests`),
   runMrp: () => apiClient.post<{ created: number }>(`${BASE}/material-requests/run-mrp`),
 
-  listSubcontractOrders: () => apiClient.get<SubcontractOrderSummary[]>(`${BASE}/subcontract/orders`),
+  listSubcontractOrders: () => apiClient.get<{ total: number; items: SubcontractOrderSummary[] }>(`${BASE}/subcontract/orders`),
   getSubcontractOrder: (id: string) => apiClient.get<SubcontractOrderDetail>(`${BASE}/subcontract/orders/${id}`),
   createSubcontractOrder: (body: {
     supplier_id: string
     product_id: string
     product_type?: string
     quantity: number
+    bom_id?: string | null
+    due_date?: string | null
+    notes?: string | null
   }) => apiClient.post(`${BASE}/subcontract/orders`, body),
-  issueSubcontract: (orderId: string, body: Record<string, unknown>) =>
-    apiClient.post(`${BASE}/subcontract/orders/${orderId}/issue`, body),
-  receiveSubcontract: (orderId: string, body: Record<string, unknown>) =>
-    apiClient.post(`${BASE}/subcontract/orders/${orderId}/receive`, body),
+  approveSubcontractOrder: (id: string) =>
+    apiClient.post(`${BASE}/subcontract/orders/${id}/approve`, {}),
+  cancelSubcontractOrder: (id: string) =>
+    apiClient.post(`${BASE}/subcontract/orders/${id}/cancel`, {}),
+  issueSubcontract: (orderId: string, body: {
+    material_id: string
+    quantity: number
+    from_location_id: string
+    batch_id?: string | null
+    batch_number?: string | null
+  }) => apiClient.post(`${BASE}/subcontract/orders/${orderId}/issue`, body),
+  receiveSubcontract: (orderId: string, body: {
+    material_id: string
+    quantity: number
+    warehouse_location_id: string
+    output_batch_number?: string | null
+  }) => apiClient.post(`${BASE}/subcontract/orders/${orderId}/receive`, body),
+  returnSubcontractMaterial: (orderId: string, body: {
+    material_id: string
+    quantity: number
+    to_location_id: string
+    batch_id?: string | null
+  }) => apiClient.post(`${BASE}/subcontract/orders/${orderId}/return-material`, body),
+  getSubcontractTraceability: (id: string) =>
+    apiClient.get(`${BASE}/subcontract/orders/${id}/traceability`),
+  getBOMsForSubcontractMaterial: (materialId: string) =>
+    apiClient.get<{
+      material_id: string
+      material_code: string
+      material_name: string
+      material_type: string
+      boms: Array<{
+        id: string
+        version: string
+        is_active: boolean
+        valid_from: string | null
+        valid_to: string | null
+        line_count: number
+        variant_id: string
+        variant_name: string
+        link_type: "explicit" | "code_match"
+      }>
+    }>(`${BASE}/subcontract/boms-for-material/${materialId}`),
+
+  getBOMLines: (bomId: string) =>
+    apiClient.get<{
+      id: string
+      version: string
+      lines: Array<{
+        id: string
+        material_id: string | null
+        quantity: number
+        scrap_percentage: number
+      }>
+    }>(`/boms/${bomId}`),
 
   supplierPortalPOs: (params?: { status?: string; skip?: number; limit?: number }) => {
     const qs = new URLSearchParams()

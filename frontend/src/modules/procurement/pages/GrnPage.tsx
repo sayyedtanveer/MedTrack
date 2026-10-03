@@ -300,7 +300,7 @@ export default function GrnPage() {
               })}
             </TableBody>
           </Table>
-          <Button onClick={submit}>Post receipt</Button>
+          <Button onClick={submit} className="w-full sm:w-auto">Post receipt</Button>
         </>
       )}
 

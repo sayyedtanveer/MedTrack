@@ -497,11 +497,11 @@ export default function SuppliersListPage() {
                 </Alert>
               )}
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-0">
               {portalCredentials ? (
-                <Button onClick={() => handleCreateOpenChange(false)}>Done</Button>
+                <Button onClick={() => handleCreateOpenChange(false)} className="w-full sm:w-auto">Done</Button>
               ) : (
-                <Button onClick={create} disabled={saving}>
+                <Button onClick={create} disabled={saving} className="w-full sm:w-auto">
                   {saving ? "Saving..." : "Save supplier"}
                 </Button>
               )}
@@ -750,8 +750,8 @@ export default function SuppliersListPage() {
               </p>
             </div>
           )}
-          <DialogFooter>
-            <Button onClick={saveEdit}>Save changes</Button>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button onClick={saveEdit} className="w-full sm:w-auto">Save changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

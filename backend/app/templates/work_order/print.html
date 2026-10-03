@@ -132,7 +132,12 @@
         {% if documents %}
             {% for doc in documents %}
             <tr class="table-row">
-                <td>{{ doc.name }}</td>
+                <td>
+                    {% if doc.product_name %}
+                    <span style="font-size:0.75em; color:#6b7280; display:block; margin-bottom:2px;">{{ doc.product_name }}</span>
+                    {% endif %}
+                    {{ doc.name }}
+                </td>
                 <td>{{ doc.document_category }}</td>
                 <td>{{ doc.revision }}</td>
             </tr>

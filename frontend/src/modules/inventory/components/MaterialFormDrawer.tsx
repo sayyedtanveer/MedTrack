@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PurchaseHistoryItem } from "@/types/material.types"
 import { MaterialTraceabilityTab } from "./MaterialTraceabilityTab"
+import { MaterialStockByLocation } from "./MaterialStockByLocation"
 
 const GENERIC_RAW_NAMES = new Set([
   "raw material",
@@ -99,7 +100,7 @@ type MaterialFormValues = z.infer<typeof materialSchema>
 
 interface Props {
   materialId: string | null
-  presetType?: "raw" | "finished"
+  presetType?: "raw" | "finished" | "semi_finished"
   open: boolean
   onClose: () => void
 }
@@ -674,12 +675,22 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
     <Drawer 
       open={open} 
       onOpenChange={(v) => !v && onClose()} 
-      title={isEditing ? "Edit Material" : presetType === "finished" ? "New Finished Good" : "New Raw Material"}
+      title={
+        isEditing 
+          ? "Edit Material" 
+          : presetType === "finished" 
+          ? "New Finished Good" 
+          : presetType === "semi_finished"
+          ? "New Semi-Finished Material"
+          : "New Raw Material"
+      }
       description={
         isEditing 
           ? `Update details for ${material?.name || "material"}` 
           : presetType === "finished"
           ? "Finished Good Material is the inventory item used to track physical stock for a manufactured and sellable product or product variant."
+          : presetType === "semi_finished"
+          ? "Semi-Finished materials are intermediate products that can be produced internally or through subcontracting and later used in another product."
           : "Add a new raw material to your inventory catalog."
       }
     >
@@ -688,12 +699,13 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
       ) : isEditing ? (
         // ── Existing material: 4 tabs ────────────────────────────────────────
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-4">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="inventory">Inventory</TabsTrigger>
-            <TabsTrigger value="purchasing" disabled={selectedMaterialType !== "raw"}>Purchasing</TabsTrigger>
-            <TabsTrigger value="history" disabled={selectedMaterialType !== "raw"}>History</TabsTrigger>
-            <TabsTrigger value="traceability">Traceability</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 md:grid-cols-6 mb-4 h-auto">
+            <TabsTrigger value="general" className="text-xs md:text-sm">Info</TabsTrigger>
+            <TabsTrigger value="inventory" className="text-xs md:text-sm">Stock</TabsTrigger>
+            <TabsTrigger value="stock-locations" className="text-xs md:text-sm">Location</TabsTrigger>
+            <TabsTrigger value="purchasing" disabled={selectedMaterialType !== "raw"} className="text-xs md:text-sm">Buy</TabsTrigger>
+            <TabsTrigger value="history" disabled={selectedMaterialType !== "raw"} className="text-xs md:text-sm">History</TabsTrigger>
+            <TabsTrigger value="traceability" className="text-xs md:text-sm">Trace</TabsTrigger>
           </TabsList>
 
           {/* ── General tab ── */}
@@ -722,6 +734,11 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
                 </Button>
               </div>
             </form>
+          </TabsContent>
+
+          {/* ── Stock Locations tab ── */}
+          <TabsContent value="stock-locations">
+            {materialId && <MaterialStockByLocation materialId={materialId} />}
           </TabsContent>
 
           {/* ── Purchasing tab ── */}

@@ -79,6 +79,10 @@ class ProcurementSummary:
     overdue_deliveries: int = 0
     grn_pending: int = 0
     material_shortages: int = 0
+    # Subcontract metrics
+    active_subcontracts: int = 0
+    materials_at_subcontractors: float = 0.0
+    overdue_subcontracts: int = 0
 
 
 @dataclass
@@ -561,6 +565,47 @@ class KPIQueryService:
         )
         material_shortages = result.scalar() or 0
 
+        # Active subcontract orders (not yet completed)
+        result = await self._session.execute(
+            text("""
+                SELECT COUNT(*) FROM subcontract_orders
+                WHERE tenant_id = :tid
+                  AND status IN ('approved', 'materials_issued', 'partially_received')
+                  AND is_deleted = false
+            """),
+            {"tid": tenant_id},
+        )
+        active_subcontracts = result.scalar() or 0
+
+        # Materials at subcontractors (total quantity)
+        result = await self._session.execute(
+            text("""
+                SELECT COALESCE(SUM(sl.quantity), 0)
+                FROM stock_levels sl
+                JOIN locations l ON l.id = sl.location_id
+                WHERE sl.tenant_id = :tid
+                  AND l.type = 'subcontractor'
+                  AND sl.is_deleted = false
+                  AND l.is_deleted = false
+            """),
+            {"tid": tenant_id},
+        )
+        materials_at_subcontractors = float(result.scalar() or 0)
+
+        # Overdue subcontract returns (past due date, not completed)
+        result = await self._session.execute(
+            text("""
+                SELECT COUNT(*) FROM subcontract_orders
+                WHERE tenant_id = :tid
+                  AND due_date IS NOT NULL
+                  AND due_date < :today
+                  AND status NOT IN ('completed', 'cancelled')
+                  AND is_deleted = false
+            """),
+            {"tid": tenant_id, "today": today},
+        )
+        overdue_subcontracts = result.scalar() or 0
+
         return ProcurementSummary(
             pending_requisitions=pending_requisitions,
             approved_requisitions=approved_requisitions,
@@ -569,6 +614,9 @@ class KPIQueryService:
             overdue_deliveries=overdue_deliveries,
             grn_pending=grn_pending,
             material_shortages=material_shortages,
+            active_subcontracts=active_subcontracts,
+            materials_at_subcontractors=materials_at_subcontractors,
+            overdue_subcontracts=overdue_subcontracts,
         )
 
     async def get_manufacturing_kpis(

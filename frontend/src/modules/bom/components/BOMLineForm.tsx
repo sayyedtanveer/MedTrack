@@ -63,12 +63,14 @@ export function BOMLineForm({ onAdd, onCancel }: BOMLineFormProps) {
     queryKey: ["component-search", compType, debouncedSearch],
     queryFn: async (): Promise<ComponentResult[]> => {
       if (compType === "material") {
+        // Fetch raw and semi-finished materials (exclude finished goods)
         const r = await bomService.getMaterials({
           query: debouncedSearch,
-          material_type: "raw",
           page_size: 20,
         })
-        return r.items.map((m) => ({ id: m.id, label: m.name, sub: m.code, type: "material" }))
+        // Filter out finished goods on the client side
+        const filtered = r.items.filter((m: any) => m.material_type !== "finished")
+        return filtered.map((m: any) => ({ id: m.id, label: m.name, sub: m.code, type: "material" }))
       } else if (compType === "template") {
         const r = await bomService.getTemplates({ query: debouncedSearch, page_size: 20 })
         return r.items.map((t) => ({ id: t.id, label: t.name, sub: t.code, type: "template" }))

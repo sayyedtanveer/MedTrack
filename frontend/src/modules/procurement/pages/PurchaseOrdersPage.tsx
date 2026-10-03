@@ -219,8 +219,8 @@ export default function PurchaseOrdersPage() {
                 ))}
               </div>
             </div>
-            <DialogFooter>
-              <Button onClick={submitCreate} disabled={loading}>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button onClick={submitCreate} disabled={loading} className="w-full sm:w-auto">
                 Create PO
               </Button>
             </DialogFooter>

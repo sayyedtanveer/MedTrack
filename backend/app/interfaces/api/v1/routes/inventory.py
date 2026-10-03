@@ -299,6 +299,134 @@ async def get_stock(
     )
 
 
+@router.get(
+    "/materials/{material_id}/stock-by-location",
+    summary="Get stock breakdown by location with vendor details",
+    dependencies=[Depends(require_permission("inventory:read"))],
+)
+async def get_stock_by_location(
+    material_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Get detailed stock breakdown by location including subcontractor/vendor information."""
+    from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel
+    from backend.app.infrastructure.persistence.models.location_model import LocationModel
+    from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
+    from backend.app.infrastructure.persistence.models.subcontract_model import (
+        SubcontractOrderModel,
+        SubcontractMaterialIssueModel,
+    )
+    from sqlalchemy import select, and_
+    
+    container = get_container(request)
+    async with container.session_factory() as session:
+        # Get material info
+        material_repo = MaterialRepository(session)
+        material = await material_repo.get_by_id(material_id, tenant_id)
+        if not material:
+            raise HTTPException(status_code=404, detail="Material not found")
+        
+        # Get stock levels by location
+        stmt = (
+            select(StockLevelModel, LocationModel)
+            .join(LocationModel, LocationModel.id == StockLevelModel.location_id)
+            .where(
+                StockLevelModel.tenant_id == tenant_id,
+                StockLevelModel.material_id == material_id,
+                StockLevelModel.is_deleted == False,
+                StockLevelModel.quantity > 0,
+                LocationModel.is_deleted == False,
+            )
+            .order_by(LocationModel.type, LocationModel.name)
+        )
+        result = await session.execute(stmt)
+        stock_rows = result.all()
+        
+        locations = []
+        warehouse_total = 0
+        subcontractor_total = 0
+        
+        for stock_level, location in stock_rows:
+            location_data = {
+                "location_id": str(location.id),
+                "location_name": location.name,
+                "location_type": location.type,
+                "location_code": location.code,
+                "quantity": float(stock_level.quantity),
+                "stock_status": stock_level.stock_status,
+            }
+            
+            # Track totals
+            if location.type in ['warehouse', 'zone', 'rack', 'bin', 'production']:
+                warehouse_total += float(stock_level.quantity)
+            elif location.type == 'subcontractor':
+                subcontractor_total += float(stock_level.quantity)
+                
+                # Get supplier/vendor info for subcontractor locations
+                # Subcontractor locations are linked to suppliers
+                supplier_stmt = select(SupplierModel).where(
+                    SupplierModel.tenant_id == tenant_id,
+                    SupplierModel.is_deleted == False,
+                )
+                supplier_result = await session.execute(supplier_stmt)
+                suppliers = {s.id: s for s in supplier_result.scalars().all()}
+                
+                # Find subcontract orders associated with this location
+                orders_stmt = (
+                    select(SubcontractOrderModel)
+                    .where(
+                        SubcontractOrderModel.tenant_id == tenant_id,
+                        SubcontractOrderModel.is_deleted == False,
+                        SubcontractOrderModel.status.in_(['materials_issued', 'partially_received']),
+                    )
+                )
+                orders_result = await session.execute(orders_stmt)
+                orders = orders_result.scalars().all()
+                
+                # Find orders that have issued this material
+                related_orders = []
+                for order in orders:
+                    issues_stmt = select(SubcontractMaterialIssueModel).where(
+                        SubcontractMaterialIssueModel.subcontract_order_id == order.id,
+                        SubcontractMaterialIssueModel.material_id == material_id,
+                        SubcontractMaterialIssueModel.tenant_id == tenant_id,
+                    )
+                    issues_result = await session.execute(issues_stmt)
+                    issues = issues_result.scalars().all()
+                    
+                    if issues:
+                        supplier = suppliers.get(order.supplier_id)
+                        related_orders.append({
+                            "order_id": str(order.id),
+                            "order_number": order.order_number,
+                            "supplier_id": str(order.supplier_id),
+                            "supplier_name": supplier.name if supplier else None,
+                            "issued_date": order.created_at.isoformat() if order.created_at else None,
+                            "status": order.status,
+                        })
+                
+                if related_orders:
+                    location_data["subcontract_orders"] = related_orders
+                    # Use first order's supplier as the location's vendor
+                    if related_orders[0].get("supplier_name"):
+                        location_data["vendor_name"] = related_orders[0]["supplier_name"]
+            
+            locations.append(location_data)
+        
+        return {
+            "material_id": str(material_id),
+            "material_code": material.code,
+            "material_name": material.name,
+            "total_stock": float(material.current_stock),
+            "warehouse_stock": warehouse_total,
+            "subcontractor_stock": subcontractor_total,
+            "reserved_stock": float(material.reserved_stock),
+            "available_stock": float(material.current_stock - material.reserved_stock),
+            "locations": locations,
+        }
+
+
 # ── Transactions ───────────────────────────────────────────────────────────────
 
 @router.post(

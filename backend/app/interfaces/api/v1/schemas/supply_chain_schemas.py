@@ -129,12 +129,27 @@ class SubcontractOrderCreate(BaseModel):
     product_id: uuid.UUID
     product_type: str = "variant"
     quantity: Decimal
+    bom_id: Optional[uuid.UUID] = None
+    due_date: Optional[date] = None
+    notes: Optional[str] = None
 
 
 class SubcontractIssueRequest(BaseModel):
     material_id: uuid.UUID
     quantity: Decimal
     from_location_id: uuid.UUID
+    # batch_id (UUID) is preferred for full traceability
+    batch_id: Optional[uuid.UUID] = None
+    # batch_number kept for backward compat / display
+    batch_number: Optional[str] = None
+
+
+class SubcontractReturnMaterialRequest(BaseModel):
+    """Return unused / excess materials back from vendor to warehouse."""
+    material_id: uuid.UUID
+    quantity: Decimal
+    to_location_id: uuid.UUID
+    batch_id: Optional[uuid.UUID] = None
     batch_number: Optional[str] = None
 
 
@@ -142,6 +157,8 @@ class SubcontractReceiveRequest(BaseModel):
     material_id: uuid.UUID
     quantity: Decimal
     warehouse_location_id: uuid.UUID
+    # output batch number — auto-generated from SCO number if omitted
+    output_batch_number: Optional[str] = None
 
 
 class SupplierQuotationCreate(BaseModel):

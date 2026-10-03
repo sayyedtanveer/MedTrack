@@ -11,12 +11,14 @@ import { materialService } from "@/services/material.service"
 export default function InventoryDashboard() {
   const { data: realtimeStock, isLoading: stockLoading } = useQuery({
     queryKey: ["realtimeStock"],
-    queryFn: () => materialService.getRealtimeStock()
+    queryFn: () => materialService.getRealtimeStock(),
+    staleTime: 0, // Always consider data stale to ensure fresh data after imports
   })
 
   const { data: ledger, isLoading: ledgerLoading } = useQuery({
     queryKey: ["stockLedger"],
-    queryFn: () => materialService.getStockLedger({ limit: 10 })
+    queryFn: () => materialService.getStockLedger({ limit: 10 }),
+    staleTime: 0, // Always consider data stale to ensure fresh data after imports
   })
 
   if (stockLoading || ledgerLoading) {

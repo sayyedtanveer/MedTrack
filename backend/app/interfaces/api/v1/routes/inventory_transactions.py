@@ -95,6 +95,10 @@ class ProcurementDashboardResponse(BaseModel):
     overdue_deliveries: int
     grn_pending: int
     material_shortages: int
+    # Subcontract metrics
+    active_subcontracts: int = 0
+    materials_at_subcontractors: float = 0.0
+    overdue_subcontracts: int = 0
 
 
 # ── Routers ─────────────────────────────────────────────────────────────────────

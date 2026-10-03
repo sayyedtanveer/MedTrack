@@ -1,3 +1,9 @@
+export interface SubcontractorStockDetail {
+  vendor_id: string;
+  vendor_name: string;
+  quantity: number;
+}
+
 export interface Material {
   id: string;
   tenant_id: string;
@@ -29,6 +35,11 @@ export interface Material {
   last_supplier_name?: string | null;
   last_supplier_id?: string | null;
   purchase_count?: number;
+  
+  // Location-based stock breakdown
+  warehouse_stock?: number;
+  subcontractor_stock?: number;
+  subcontractor_details?: SubcontractorStockDetail[];
 }
 
 export interface StockInfo {

@@ -16,7 +16,7 @@ export type OnboardingPreview = {
 }
 
 export const rawMaterialOnboardingColumns = [
-  'item_code', 'material_name', 'material_category', 'uom',
+  'item_code', 'material_name', 'material_category', 'material_type', 'uom',
   'batch_tracking_enabled', 'shelf_life', 'expiry_tracking', 'warehouse', 'zone', 'rack_bin',
   'min_stock', 'max_stock', 'reorder_level', 'reorder_quantity', 'opening_stock', 'barcode', 'traceability_enabled',
   'qc_required', 'approved_supplier', 'supplier_item_code', 'purchase_uom', 'lead_time', 'moq',
@@ -27,6 +27,7 @@ export const friendlyColumnNames: Record<string, string> = {
   item_code: 'Item Code',
   material_name: 'Material Name',
   material_category: 'Category',
+  material_type: 'Material Type',
   uom: 'Base Unit',
   barcode: 'Barcode',
   warehouse: 'Warehouse',

@@ -2,13 +2,14 @@ import uuid
 from typing import List, Optional, Tuple, Type
 
 from sqlalchemy import select, update, func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from backend.app.domain.bom.entities.bom import BillOfMaterial
 from backend.app.domain.bom.entities.bom_line import BOMLine
 from backend.app.domain.bom.entities.bom_operation import BOMOperation
 from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel
 from backend.app.infrastructure.persistence.models.bom_operation_model import BOMOperationModel
+from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
 from backend.app.infrastructure.persistence.repositories.base_repository import BaseRepository
 
 
@@ -212,3 +213,33 @@ class BOMRepository(BaseRepository[BillOfMaterial, BOMModel]):
         )
         rows = (await self._session.execute(paged)).scalars().all()
         return [self._to_entity(r) for r in rows], total
+
+    async def get_bom_for_material(
+        self, tenant_id: uuid.UUID, material_id: uuid.UUID
+    ) -> Optional[BillOfMaterial]:
+        """
+        Gets the active BOM for a semi-finished material by finding the variant
+        that references this material and returning its BOM.
+        
+        Logic:
+        1. Find ItemVariant where material_id = material_id
+        2. Get active BOM for that variant_id
+        3. Return BOM with eagerly loaded lines and operations
+        """
+        # Join ItemVariant → BOM to find active BOM for material
+        stmt = (
+            select(BOMModel)
+            .join(ItemVariantModel, BOMModel.variant_id == ItemVariantModel.id)
+            .options(selectinload(BOMModel.lines), selectinload(BOMModel.operations))
+            .where(
+                ItemVariantModel.material_id == material_id,
+                ItemVariantModel.tenant_id == tenant_id,
+                BOMModel.tenant_id == tenant_id,
+                BOMModel.is_active.is_(True),
+                BOMModel.is_deleted.is_(False),
+            )
+        )
+        
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return self._to_entity(model) if model else None

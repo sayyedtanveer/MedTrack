@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useEffect } from 'react'
 import { CheckCircle2, Download, FileSpreadsheet, Pencil, ShieldAlert, Upload, XCircle } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
+import { useQueryClient } from '@tanstack/react-query'
 import { materialOnboardingService, rawMaterialOnboardingColumns, friendlyColumnNames, type OnboardingPreview, type OnboardingPreviewRow } from '@/services/material-onboarding.service'
 
 const steps = ['Upload', 'Mapping', 'Review', 'Summary']
@@ -40,11 +41,20 @@ export default function MaterialOnboardingPage() {
   const [editingRow, setEditingRow] = useState<OnboardingPreviewRow | null>(null)
   const [editData, setEditData] = useState<Record<string, string>>({})
   const { toast } = useToast()
+  const queryClient = useQueryClient()
+  const errorRef = useRef<HTMLDivElement>(null)
 
   const protectedCount = useMemo(() => preview?.rows.reduce((n, r) => n + r.protected_changes.length, 0) ?? 0, [preview])
   const errors = preview?.rows.flatMap((r) => r.issues.filter((i) => i.severity === 'error').map((i) => ({ row: r.row_number, ...i }))) ?? []
   const warnings = preview?.rows.flatMap((r) => r.issues.filter((i) => i.severity !== 'error').map((i) => ({ row: r.row_number, ...i }))) ?? []
   const mappedRequired = ['material_name', 'material_category', 'uom'].every((field) => Object.values(mapping).includes(field))
+
+  // Scroll to error when it appears
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [error])
 
   async function withBusy(action: () => Promise<void>) {
     setBusy(true)
@@ -78,7 +88,14 @@ export default function MaterialOnboardingPage() {
   async function validate() {
     if (!sessionId) return
     await withBusy(async () => {
-      await materialOnboardingService.validate(sessionId, mapping)
+      const validateResult = await materialOnboardingService.validate(sessionId, mapping)
+      
+      // Check if validation returned a warning about no valid data
+      if (validateResult.data.validated === 0 && validateResult.data.warning) {
+        setError(validateResult.data.warning)
+        return
+      }
+      
       const res = await materialOnboardingService.preview(sessionId)
       setPreview(res.data)
       setStep(2)
@@ -108,6 +125,22 @@ export default function MaterialOnboardingPage() {
       const res = await materialOnboardingService.execute(sessionId, dryRun)
       setSummary(res.data)
       setStep(3)
+      
+      if (!dryRun) {
+        // Wait a moment for database to fully commit
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // Invalidate all related caches to show new materials immediately
+        await queryClient.invalidateQueries({ queryKey: ['materials'], refetchType: 'all' })
+        await queryClient.invalidateQueries({ queryKey: ['realtimeStock'], refetchType: 'all' })
+        await queryClient.invalidateQueries({ queryKey: ['stockLedger'], refetchType: 'all' })
+        
+        // Force refetch to ensure data is immediately available
+        await queryClient.refetchQueries({ queryKey: ['realtimeStock'], type: 'all' })
+        
+        console.log('Cache invalidated and refetched after material import')
+      }
+      
       toast({
         title: dryRun ? "Dry run complete" : "Import successful",
         description: dryRun ? "Review the summary before confirming the import." : "Materials have been successfully imported.",
@@ -148,7 +181,7 @@ export default function MaterialOnboardingPage() {
       </div>
 
       {error && (
-        <Alert variant="destructive">
+        <Alert ref={errorRef} variant="destructive">
           <XCircle className="h-4 w-4" />
           <AlertTitle>Onboarding failed</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
@@ -314,9 +347,9 @@ export default function MaterialOnboardingPage() {
               </div>
             ))}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingRow(null)} disabled={busy}>Cancel</Button>
-            <Button onClick={saveRowCorrection} disabled={busy}>Save correction</Button>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEditingRow(null)} disabled={busy} className="w-full sm:w-auto">Cancel</Button>
+            <Button onClick={saveRowCorrection} disabled={busy} className="w-full sm:w-auto">Save correction</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

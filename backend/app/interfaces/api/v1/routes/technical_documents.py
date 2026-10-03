@@ -8,7 +8,8 @@ from backend.app.interfaces.api.v1.dependencies.permissions import require_permi
 from backend.app.interfaces.api.v1.schemas.technical_document_schemas import (
     TechnicalDocumentResponse,
     DocumentAssociationResponse,
-    DocumentAssociationCreate
+    DocumentAssociationCreate,
+    DocumentAssociationUpdate,
 )
 from backend.app.application.documents.services.technical_document_service import TechnicalDocumentService
 
@@ -82,7 +83,8 @@ async def associate_document(
                 revision_id=data.revision_id,
                 target_type=data.target_type,
                 target_id=data.target_id,
-                is_print_package_included=data.is_print_package_included
+                is_print_package_included=data.is_print_package_included,
+                show_on_wo=data.show_on_wo,
             )
             await session.commit()
             
@@ -160,6 +162,44 @@ async def download_revision(
             )
         except HTTPException:
             raise
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch(
+    "/associations/{association_id}",
+    response_model=DocumentAssociationResponse,
+    dependencies=[Depends(require_permission("documents:write"))],
+    summary="Update display flags on a document association",
+)
+async def update_association(
+    request: Request,
+    association_id: uuid.UUID,
+    data: DocumentAssociationUpdate,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Update is_print_package_included and/or show_on_wo on an existing association.
+
+    Only the fields that are explicitly provided in the request body are updated.
+    Both fields are optional — you can toggle one or both in a single request.
+    """
+    container = get_container(request)
+    async with container.session_factory() as session:
+        from backend.app.application.documents.services.document_storage_service import DocumentStorageService
+        service = TechnicalDocumentService(session, DocumentStorageService())
+        try:
+            assoc = await service.update_association(
+                tenant_id=tenant_id,
+                association_id=association_id,
+                is_print_package_included=data.is_print_package_included,
+                show_on_wo=data.show_on_wo,
+            )
+            await session.commit()
+            return assoc
+        except ValueError as e:
+            await session.rollback()
+            raise HTTPException(status_code=404, detail=str(e))
         except Exception as e:
             await session.rollback()
             raise HTTPException(status_code=400, detail=str(e))

@@ -23,6 +23,10 @@ class InfrastructureBOMProvider(BOMProvider):
 
     async def get_active_bom(self, tenant_id: uuid.UUID, template_id: Optional[uuid.UUID] = None, variant_id: Optional[uuid.UUID] = None) -> Optional[BillOfMaterial]:
         return await self._bom_repo.get_active_bom(tenant_id, template_id, variant_id)
+    
+    async def get_bom_for_material(self, tenant_id: uuid.UUID, material_id: uuid.UUID) -> Optional[BillOfMaterial]:
+        """Get active BOM for a semi-finished material via variant-material relationship"""
+        return await self._bom_repo.get_bom_for_material(tenant_id, material_id)
 
 class InfrastructureTenantProvider(TenantProvider):
     def __init__(self, session):
@@ -69,12 +73,26 @@ class InfrastructureComponentDetailProvider(ComponentDetailProvider):
         
     async def get_component_details(self, tenant_id: uuid.UUID, is_material: bool, component_id: uuid.UUID) -> Dict[str, Any]:
         if is_material:
-            stmt = select(MaterialModel.name, MaterialModel.code, UnitOfMeasureModel.name.label("unit_name")).outerjoin(
+            stmt = select(
+                MaterialModel.name, 
+                MaterialModel.code, 
+                MaterialModel.material_type,
+                UnitOfMeasureModel.name.label("unit_name")
+            ).outerjoin(
                 UnitOfMeasureModel, MaterialModel.base_unit_id == UnitOfMeasureModel.id
             ).where(
                 MaterialModel.id == component_id,
                 MaterialModel.tenant_id == tenant_id
             )
+            res = (await self._session.execute(stmt)).first()
+            if res:
+                return {
+                    "name": res.name, 
+                    "code": res.code, 
+                    "unit_name": res.unit_name or "pcs",
+                    "material_type": res.material_type
+                }
+            return {"name": "Unknown", "code": "???", "unit_name": "pcs", "material_type": None}
         else:
             # Try Variant first, then Template.
             stmt = select(ItemVariantModel.name, ItemVariantModel.code, UnitOfMeasureModel.name.label("unit_name")).outerjoin(
@@ -95,8 +113,3 @@ class InfrastructureComponentDetailProvider(ComponentDetailProvider):
             if res:
                 return {"name": res.name, "code": res.code, "unit_name": res.unit_name or "pcs"}
             return {"name": "Unknown", "code": "???", "unit_name": "pcs"}
-
-        res = (await self._session.execute(stmt)).first()
-        if res:
-            return {"name": res.name, "code": res.code, "unit_name": res.unit_name or "pcs"}
-        return {"name": "Unknown", "code": "???", "unit_name": "pcs"}

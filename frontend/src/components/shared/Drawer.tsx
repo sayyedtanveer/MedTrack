@@ -29,12 +29,14 @@ export function Drawer({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       {trigger && <SheetTrigger asChild>{trigger}</SheetTrigger>}
-      <SheetContent side={side} className="sm:max-w-md w-full overflow-y-auto">
-        <SheetHeader className="mb-6">
-          <SheetTitle>{title}</SheetTitle>
-          {description && <SheetDescription>{description}</SheetDescription>}
+      <SheetContent side={side} className="w-full sm:max-w-2xl overflow-y-auto p-4 sm:p-6">
+        <SheetHeader className="mb-4 sm:mb-6">
+          <SheetTitle className="text-lg sm:text-xl">{title}</SheetTitle>
+          {description && <SheetDescription className="text-sm">{description}</SheetDescription>}
         </SheetHeader>
-        {children}
+        <div className="overflow-x-hidden">
+          {children}
+        </div>
       </SheetContent>
     </Sheet>
   )

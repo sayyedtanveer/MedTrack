@@ -85,15 +85,13 @@ export default function MaterialListPage() {
     },
     {
       id: "current_stock",
-      header: "Stock",
+      header: "Total Stock",
       cell: ({ row }) => {
         const product = row.original
         const qty = Number(product.current_stock ?? 0)
         const isLow = product.is_low_stock
         const unit = units?.find(u => u.id === product.base_unit_id)
         const unitLabel = unit?.code || ""
-        const reservedStock = Number(product.reserved_stock ?? 0)
-        const availableStock = Math.max(0, qty - reservedStock)
         return (
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
@@ -102,21 +100,58 @@ export default function MaterialListPage() {
               </span>
               {isLow && <StatusBadge status="low-stock" label="Low" />}
             </div>
-            {reservedStock > 0 && (
-              <span className="text-xs text-muted-foreground">
-                {reservedStock} quantity is reserved remaining is {availableStock}
+          </div>
+        )
+      },
+    },
+    {
+      id: "warehouse_stock",
+      header: "Warehouse",
+      cell: ({ row }) => {
+        const product = row.original
+        const qty = Number(product.warehouse_stock ?? 0)
+        const unit = units?.find(u => u.id === product.base_unit_id)
+        const unitLabel = unit?.code || ""
+        return <span>{qty} {unitLabel}</span>
+      },
+    },
+    {
+      id: "subcontractor_stock",
+      header: "At Subcontractor",
+      cell: ({ row }) => {
+        const product = row.original
+        const qty = Number(product.subcontractor_stock ?? 0)
+        const unit = units?.find(u => u.id === product.base_unit_id)
+        const unitLabel = unit?.code || ""
+        const details = product.subcontractor_details || []
+        
+        if (qty === 0 || details.length === 0) {
+          return <span className="text-muted-foreground">—</span>
+        }
+        
+        // Single vendor
+        if (details.length === 1) {
+          return (
+            <div className="flex flex-col">
+              <span className="text-sm text-orange-600 font-medium">
+                {details[0].vendor_name}
               </span>
-            )}
-            {isLow && (
-              <Link
-                to="/procurement/purchase-orders"
-                state={{ shortagePrefill: { lines: [{ material_id: product.id, quantity: product.reorder_level ?? 0 }] } }}
-                className="text-xs text-blue-600 hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
-                Suggest PO
-              </Link>
-            )}
+              <span className="text-xs text-muted-foreground">
+                {Number(details[0].quantity).toFixed(1)} {unitLabel}
+              </span>
+            </div>
+          )
+        }
+        
+        // Multiple vendors - show compact with tooltip
+        return (
+          <div className="flex flex-col">
+            <span className="text-sm text-orange-600 font-medium">
+              {details.length} vendors
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {qty} {unitLabel} total
+            </span>
           </div>
         )
       },
@@ -148,14 +183,21 @@ export default function MaterialListPage() {
         </Button>
       )}
       {canWrite() && (
-        <div className="flex gap-2">
-          <Button onClick={() => setSearchParams({ materialId: "new", presetType: "raw" })}>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button onClick={() => setSearchParams({ materialId: "new", presetType: "raw" })} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
-            Add Raw Material
+            <span className="hidden sm:inline">Add Raw Material</span>
+            <span className="sm:hidden">Raw</span>
           </Button>
-          <Button variant="secondary" onClick={() => setSearchParams({ materialId: "new", presetType: "finished" })}>
+          <Button variant="secondary" onClick={() => setSearchParams({ materialId: "new", presetType: "semi_finished" })} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
-            Add Finished Good
+            <span className="hidden sm:inline">Add Semi-Finished</span>
+            <span className="sm:hidden">Semi-Finished</span>
+          </Button>
+          <Button variant="secondary" onClick={() => setSearchParams({ materialId: "new", presetType: "finished" })} className="w-full sm:w-auto">
+            <Plus className="mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">Add Finished Good</span>
+            <span className="sm:hidden">Finished</span>
           </Button>
         </div>
       )}
@@ -224,6 +266,11 @@ export default function MaterialListPage() {
                 const qty = Number(product.current_stock ?? 0);
                 const isLow = product.is_low_stock;
                 const reservedStock = Number(product.reserved_stock ?? 0);
+                const warehouseStock = Number(product.warehouse_stock ?? 0);
+                const subcontractorStock = Number(product.subcontractor_stock ?? 0);
+                const details = product.subcontractor_details || [];
+                const unit = units?.find(u => u.id === product.base_unit_id);
+                const unitLabel = unit?.code || "";
                 
                 return (
                   <Card key={product.id} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSearchParams({ materialId: product.id })}>
@@ -237,36 +284,64 @@ export default function MaterialListPage() {
                           <Replace className="h-4 w-4 mr-1"/> Stock
                         </Button>
                       </div>
-                      <div className="flex justify-between items-end mt-4">
-                        <span className="text-sm text-muted-foreground">
-                          {categories?.find(c => c.id === product.category_id)?.name || "Uncategorized"}
-                        </span>
-                        <div className="flex flex-col items-end">
+                      <div className="text-sm text-muted-foreground mb-3">
+                        {categories?.find(c => c.id === product.category_id)?.name || "Uncategorized"}
+                      </div>
+                      
+                      {/* Stock breakdown */}
+                      <div className="space-y-1.5">
+                        {/* Total */}
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">Total:</span>
                           <div className="flex items-center gap-2">
                             <span className={isLow ? "text-destructive font-medium text-sm" : "text-sm font-medium"}>
-                              {qty} {units?.find(u => u.id === product.base_unit_id)?.code || ""}
+                              {qty} {unitLabel}
                             </span>
-                            {isLow && (
-                              <StatusBadge status="low-stock" label="Low" />
-                            )}
+                            {isLow && <StatusBadge status="low-stock" label="Low" />}
                           </div>
-                          {reservedStock > 0 && (
-                            <span className="text-xs text-muted-foreground">
-                              {reservedStock} quantity is reserved remaining is {Math.max(0, qty - reservedStock)}
-                            </span>
-                          )}
-                          {isLow && (
-                            <Link
-                              to="/procurement/purchase-orders"
-                              state={{ shortagePrefill: { lines: [{ material_id: product.id, quantity: product.reorder_level ?? 0 }] } }}
-                              className="text-xs text-blue-600 hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              Suggest PO
-                            </Link>
-                          )}
                         </div>
+                        
+                        {/* Warehouse */}
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">Warehouse:</span>
+                          <span className="text-sm">{warehouseStock} {unitLabel}</span>
+                        </div>
+                        
+                        {/* Subcontractor */}
+                        {subcontractorStock > 0 && details.length > 0 && (
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs text-muted-foreground">At Vendor:</span>
+                            <div className="flex flex-col items-end">
+                              {details.map((detail, idx) => (
+                                <span key={idx} className="text-sm text-orange-600 font-medium">
+                                  {detail.vendor_name} — {Number(detail.quantity).toFixed(1)} {unitLabel}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Reserved stock info */}
+                        {reservedStock > 0 && (
+                          <div className="flex justify-between items-center pt-1 border-t">
+                            <span className="text-xs text-muted-foreground">Reserved:</span>
+                            <span className="text-xs text-muted-foreground">
+                              {reservedStock} {unitLabel}
+                            </span>
+                          </div>
+                        )}
                       </div>
+                      
+                      {isLow && (
+                        <Link
+                          to="/procurement/purchase-orders"
+                          state={{ shortagePrefill: { lines: [{ material_id: product.id, quantity: product.reorder_level ?? 0 }] } }}
+                          className="text-xs text-blue-600 hover:underline mt-2 inline-block"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          Suggest PO
+                        </Link>
+                      )}
                     </CardContent>
                   </Card>
                 )

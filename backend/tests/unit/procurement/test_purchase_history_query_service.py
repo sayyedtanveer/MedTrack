@@ -121,7 +121,7 @@ class TestGetPurchasingSummary:
         summary = await svc.get_purchasing_summary(material_id, tenant_id)
 
         assert summary["latest_purchase_price"] == Decimal("750.0")
-        assert summary["last_purchase_date"] == receipt_date
+        assert summary["last_purchase_date"] == receipt_date.date()
         assert summary["last_supplier_name"] == "Pharma Supplies Ltd"
         assert summary["last_supplier_id"] == supplier_id
         assert summary["purchase_count"] == 5

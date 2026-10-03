@@ -61,42 +61,54 @@ class WorkOrderHandler:
     # ── Create ──────────────────────────────────────────────────────────────────
 
     async def handle_create(self, cmd: CreateWorkOrderCommand) -> uuid.UUID:
-        # 1. Load BOM with lines + operations
-        bom_stmt = (
-            select(BOMModel)
-            .options(selectinload(BOMModel.lines), selectinload(BOMModel.operations))
-            .where(BOMModel.id == cmd.bom_id, BOMModel.tenant_id == cmd.tenant_id, BOMModel.is_deleted.is_(False))
-        )
-        result = await self._session.execute(bom_stmt)
-        bom = result.scalar_one_or_none()
-        if not bom:
-            raise BOMNotFoundError(f"BOM {cmd.bom_id} not found or inactive")
+        from backend.app.infrastructure.persistence.models.work_order_model import WorkOrderLineModel
 
-        # 1.5. Validate Product is active
+        # ── Resolve product lines ────────────────────────────────────────────
+        # A command may carry either:
+        #   a) cmd.lines — multi-product explicit list
+        #   b) cmd.product_id + cmd.bom_id + cmd.planned_quantity — legacy single-product
+        # Normalise into a unified list of (product_id, bom_id, planned_quantity) tuples.
+        if cmd.lines:
+            line_specs = [
+                (ln.product_id, ln.bom_id, ln.planned_quantity) for ln in cmd.lines
+            ]
+            # Root-level product_id/bom_id/planned_quantity default to the first line
+            # for backward-compatible display in the WO header.
+            root_product_id = cmd.product_id or cmd.lines[0].product_id
+            root_bom_id = cmd.bom_id or cmd.lines[0].bom_id
+            root_planned_quantity = cmd.planned_quantity or cmd.lines[0].planned_quantity
+        else:
+            line_specs = [(cmd.product_id, cmd.bom_id, cmd.planned_quantity)]
+            root_product_id = cmd.product_id
+            root_bom_id = cmd.bom_id
+            root_planned_quantity = cmd.planned_quantity
+
+        # ── Validate all products are active ────────────────────────────────
         from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
-        variant_stmt = select(ItemVariantModel.is_active).where(
-            ItemVariantModel.id == cmd.product_id,
-            ItemVariantModel.tenant_id == cmd.tenant_id,
-            ItemVariantModel.is_deleted.is_(False)
-        )
-        variant_result = await self._session.execute(variant_stmt)
-        is_active = variant_result.scalar_one_or_none()
-        if is_active is None:
-            raise ValueError(f"Product {cmd.product_id} not found")
-        if not is_active:
-            raise ValueError("Inactive products cannot be used to create Work Orders.")
+        for product_id, _, _ in line_specs:
+            variant_stmt = select(ItemVariantModel.is_active).where(
+                ItemVariantModel.id == product_id,
+                ItemVariantModel.tenant_id == cmd.tenant_id,
+                ItemVariantModel.is_deleted.is_(False),
+            )
+            variant_result = await self._session.execute(variant_stmt)
+            is_active = variant_result.scalar_one_or_none()
+            if is_active is None:
+                raise ValueError(f"Product {product_id} not found")
+            if not is_active:
+                raise ValueError(f"Inactive product {product_id} cannot be used in a Work Order.")
 
-        # 2. Generate WO number (atomic)
+        # ── Generate WO number (atomic) ──────────────────────────────────────
         wo_number = await self._wo_number.generate(cmd.tenant_id)
 
-        # 3. Create WO model
+        # ── Create WO root record ────────────────────────────────────────────
         wo = WorkOrderModel(
             id=uuid.uuid4(),
             wo_number=wo_number,
             tenant_id=cmd.tenant_id,
-            product_id=cmd.product_id,
-            bom_id=cmd.bom_id,
-            planned_quantity=float(cmd.planned_quantity),
+            product_id=root_product_id,
+            bom_id=root_bom_id,
+            planned_quantity=float(root_planned_quantity),
             produced_quantity=0,
             scrap_quantity=0,
             status=WorkOrderStatus.PLANNED,
@@ -111,37 +123,75 @@ class WorkOrderHandler:
         self._session.add(wo)
         await self._session.flush()  # get wo.id
 
-        # 4. Snapshot BOM lines → work_order_materials
-        for line in bom.lines:
-            if line.material_id and not line.is_deleted:
-                scrap_factor = Decimal(str(getattr(line, "scrap_percentage", 0) or 0)) / Decimal("100")
-                required_qty = Decimal(str(line.quantity)) * cmd.planned_quantity * (
-                    Decimal("1") + scrap_factor
+        # ── Create WO lines + BOM snapshots per line ─────────────────────────
+        for product_id, bom_id, planned_quantity in line_specs:
+            # Load BOM for this line
+            bom_stmt = (
+                select(BOMModel)
+                .options(selectinload(BOMModel.lines), selectinload(BOMModel.operations))
+                .where(
+                    BOMModel.id == bom_id,
+                    BOMModel.tenant_id == cmd.tenant_id,
+                    BOMModel.is_deleted.is_(False),
                 )
-                mat = WorkOrderMaterialModel(
-                    work_order_id=wo.id,
-                    material_id=line.material_id,
-                    unit_id=line.unit_id,
-                    required_quantity=float(required_qty),
-                    issued_quantity=0,
-                )
-                self._session.add(mat)
+            )
+            result = await self._session.execute(bom_stmt)
+            bom = result.scalar_one_or_none()
+            if not bom:
+                raise BOMNotFoundError(f"BOM {bom_id} not found or inactive")
 
-        # 5. Snapshot BOM operations → job_cards
-        for op in sorted(bom.operations, key=lambda o: o.sequence):
-            if not op.is_deleted:
-                jc = JobCardModel(
-                    work_order_id=wo.id,
-                    operation_id=op.operation_id,
-                    sequence=op.sequence,
-                    status="PENDING",
-                )
-                self._session.add(jc)
+            # Create the WorkOrderLine row
+            wol = WorkOrderLineModel(
+                id=uuid.uuid4(),
+                work_order_id=wo.id,
+                tenant_id=cmd.tenant_id,
+                product_id=product_id,
+                bom_id=bom_id,
+                planned_quantity=float(planned_quantity),
+                produced_quantity=0,
+                scrap_quantity=0,
+                status="PLANNED",
+            )
+            self._session.add(wol)
+            await self._session.flush()  # get wol.id
+
+            # Snapshot BOM lines → work_order_materials (with line association)
+            for bom_line in bom.lines:
+                if bom_line.material_id and not bom_line.is_deleted:
+                    scrap_factor = (
+                        Decimal(str(getattr(bom_line, "scrap_percentage", 0) or 0)) / Decimal("100")
+                    )
+                    required_qty = (
+                        Decimal(str(bom_line.quantity))
+                        * Decimal(str(planned_quantity))
+                        * (Decimal("1") + scrap_factor)
+                    )
+                    mat = WorkOrderMaterialModel(
+                        work_order_id=wo.id,
+                        work_order_line_id=wol.id,
+                        material_id=bom_line.material_id,
+                        unit_id=bom_line.unit_id,
+                        required_quantity=float(required_qty),
+                        issued_quantity=0,
+                    )
+                    self._session.add(mat)
+
+            # Snapshot BOM operations → job_cards (with line association)
+            for op in sorted(bom.operations, key=lambda o: o.sequence):
+                if not op.is_deleted:
+                    jc = JobCardModel(
+                        work_order_id=wo.id,
+                        work_order_line_id=wol.id,
+                        operation_id=op.operation_id,
+                        sequence=op.sequence,
+                        status="PENDING",
+                    )
+                    self._session.add(jc)
 
         # Keep the freshly snapshotted materials visible for same-transaction release planning.
         await self._session.flush()
 
-        # 6. Auto-trigger MRP to generate procurement suggestions
+        # ── Auto-trigger MRP ─────────────────────────────────────────────────
         await self._trigger_mrp(tenant_id=cmd.tenant_id)
 
         return wo.id

@@ -168,10 +168,13 @@ async def _validate_variant_material_link(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Linked inventory material not found",
         )
-    if material.material_type != "finished":
+    # Allow finished goods AND semi-finished materials to be linked to a variant.
+    # Raw materials cannot be linked because they are not produced as a product output.
+    _LINKABLE_TYPES = {"finished", "semi_finished"}
+    if material.material_type not in _LINKABLE_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Variant inventory link must point to a finished material",
+            detail="Variant inventory link must point to a finished or semi-finished material",
         )
 
 
@@ -204,7 +207,8 @@ async def _batch_fg_material_ids(
         stmt2 = select(MaterialModel).where(
             MaterialModel.tenant_id == tenant_id,
             MaterialModel.code == r.code,
-            MaterialModel.material_type == "finished",
+            # Accept both finished goods and semi-finished materials
+            MaterialModel.material_type.in_(["finished", "semi_finished"]),
             MaterialModel.is_deleted.is_(False),
         ).limit(1)
         m = (await session.execute(stmt2)).scalar_one_or_none()
