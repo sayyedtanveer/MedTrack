@@ -161,6 +161,9 @@ class SalesOrderModel(Base):
     payment_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="PENDING"
     )
+    priority: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="NORMAL"
+    )  # LOW, NORMAL, HIGH, URGENT - inherited by auto-created work orders
 
     # Financial totals (denormalized for efficiency)
     subtotal: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)

@@ -144,6 +144,8 @@ class WorkOrderSummary(BaseModel):
     id: uuid.UUID
     wo_number: str
     product_id: Optional[uuid.UUID] = None
+    product_name: Optional[str] = None  # Resolved from item_variants
+    product_code: Optional[str] = None  # Resolved from item_variants
     bom_id: Optional[uuid.UUID] = None
     status: str
     priority: str

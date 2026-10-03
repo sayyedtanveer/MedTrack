@@ -54,6 +54,7 @@ class SalesManufacturingIntegrationService:
     ) -> Optional[UUID]:
         """
         Creates a Work Order to fulfill a Sales shortage.
+        Uses the sales order's priority for the work order.
         Assumes product_id is an item_variant with a default BOM.
         """
         try:
@@ -70,6 +71,21 @@ class SalesManufacturingIntegrationService:
             # Calculate start date as due_date - 7 days (simple heuristic for now)
             start_date = due_date - timedelta(days=7)
             actor_id = await self._resolve_actor_id(tenant_id)
+            
+            # Fetch sales order priority to inherit for work order
+            from backend.app.infrastructure.persistence.models.sales_models import SalesOrderModel
+            from sqlalchemy import select
+            
+            priority = "HIGH"  # Default fallback
+            try:
+                stmt = select(SalesOrderModel.priority).where(SalesOrderModel.id == sales_order_id)
+                result = await self.wo_handler._session.execute(stmt)
+                so_priority = result.scalar_one_or_none()
+                if so_priority:
+                    priority = so_priority
+                    logger.info(f"Inherited priority '{priority}' from Sales Order {sales_order_id}")
+            except Exception as e:
+                logger.warning(f"Could not fetch sales order priority, using default HIGH: {e}")
 
             cmd = CreateWorkOrderCommand(
                 tenant_id=tenant_id,
@@ -78,11 +94,11 @@ class SalesManufacturingIntegrationService:
                 planned_quantity=quantity,
                 start_date=start_date,
                 due_date=due_date,
-                priority="HIGH",  # Shortages are high priority
+                priority=priority,  # Inherited from sales order
                 sales_order_id=sales_order_id,
                 sales_order_line_id=sales_order_line_id,
                 created_by=actor_id,
-                notes=f"Auto-generated for Sales shortage."
+                notes=f"Auto-generated for Sales shortage (Priority: {priority})."
             )
             wo_id = await self.wo_handler.handle_create(cmd)
 

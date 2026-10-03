@@ -5,6 +5,7 @@ Run this to create the new template with Field Guide tab.
 import io
 import openpyxl
 import openpyxl.comments
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -292,7 +293,7 @@ def generate_template():
     
     # Column widths
     for col_idx, column in enumerate(FRIENDLY_COLUMNS, 1):
-        col_letter = openpyxl.utils.get_column_letter(col_idx)
+        col_letter = get_column_letter(col_idx)
         ws.column_dimensions[col_letter].width = max(len(column) + 4, 15)
     
     # Data validation
@@ -303,7 +304,7 @@ def generate_template():
     
     for col_idx, column in enumerate(FRIENDLY_COLUMNS, 1):
         if column.endswith("?"):
-            col_letter = openpyxl.utils.get_column_letter(col_idx)
+            col_letter = get_column_letter(col_idx)
             yes_no_dv.add(f"{col_letter}2:{col_letter}1048576")
     
     # Save

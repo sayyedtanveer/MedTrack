@@ -35,22 +35,25 @@
     </div>
     
     <div class="meta-section">
-        <div class="meta-label">Product:</div>
+        <div class="meta-label">Product Code:</div>
+        <div class="meta-value" style="font-weight: 600; color: #1e40af;">{{ work_order.product_code or '-' }}</div>
+        
+        <div class="meta-label">Product Name:</div>
         <div class="meta-value">{{ work_order.product }}</div>
         
         <div class="meta-label">Variant:</div>
         <div class="meta-value">{{ work_order.variant or 'Base' }}</div>
-        
-        <div class="meta-label">Quantity:</div>
-        <div class="meta-value">{{ work_order.quantity }}</div>
-        
-        <div class="meta-label">Due Date:</div>
-        <div class="meta-value">{{ work_order.due_date }}</div>
     </div>
 </div>
 
 <div class="document-meta">
     <div class="meta-section">
+        <div class="meta-label">Quantity:</div>
+        <div class="meta-value">{{ work_order.quantity }}</div>
+        
+        <div class="meta-label">Due Date:</div>
+        <div class="meta-value">{{ work_order.due_date }}</div>
+        
         <div class="meta-label">Priority:</div>
         <div class="meta-value">
             <span class="status-badge status-{{ work_order.priority|lower }}">{{ work_order.priority }}</span>
@@ -62,33 +65,6 @@
         </div>
     </div>
 </div>
-
-<div class="section-title">Materials Required</div>
-
-<table>
-    <thead>
-        <tr>
-            <th>Item Code</th>
-            <th>Material Name</th>
-            <th>Required Qty</th>
-            <th>Issued Qty</th>
-            <th>Balance</th>
-            <th>Unit</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for material in materials %}
-        <tr class="table-row">
-            <td>{{ material.item_code or '-' }}</td>
-            <td>{{ material.material_name }}</td>
-            <td>{{ material.required_qty }}</td>
-            <td>{{ material.issued_qty }}</td>
-            <td>{{ material.required_qty - material.issued_qty }}</td>
-            <td>{{ material.unit or '-' }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
 
 <div class="section-title">Operations</div>
 

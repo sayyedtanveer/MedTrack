@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import openpyxl
 import openpyxl.comments
+from openpyxl.utils import get_column_letter
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -490,17 +491,22 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
     """Return a downloadable template file with the expected column headers."""
     if format == "xlsx":
         try:
+            logging.info("🔍 Starting Excel template generation...")
             from openpyxl.worksheet.datavalidation import DataValidation
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            logging.info("✅ openpyxl imports successful")
             wb = openpyxl.Workbook()
+            logging.info(f"✅ Workbook created")
             
             # ═══════════════════════════════════════════════════════════════
             # 1. FIELD GUIDE SHEET (Primary documentation)
             # ═══════════════════════════════════════════════════════════════
+            logging.info("📄 Creating Field Guide sheet...")
             ws_guide = wb.active
             if ws_guide is None:
                 raise ValueError("Could not create active worksheet")
             ws_guide.title = "Field Guide"
+            logging.info("✅ Field Guide sheet created")
             
             # Title
             ws_guide.append(["MedTrack ERP - Raw Material Field Guide"])
@@ -695,7 +701,9 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
             # ═══════════════════════════════════════════════════════════════
             # 2. INSTRUCTIONS SHEET (Quick start)
             # ═══════════════════════════════════════════════════════════════
+            logging.info("📄 Creating Quick Start sheet...")
             ws_inst = wb.create_sheet(title="Quick Start")
+            logging.info("✅ Quick Start sheet created")
             
             # Title
             ws_inst.append(["MedTrack ERP - Quick Start Guide"])
@@ -752,7 +760,9 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
             # ═══════════════════════════════════════════════════════════════
             # 3. RAW MATERIALS SHEET (Data entry)
             # ═══════════════════════════════════════════════════════════════
+            logging.info("📄 Creating Raw Materials sheet...")
             ws = wb.create_sheet(title="Raw Materials")
+            logging.info("✅ Raw Materials sheet created")
             
             # Header styling
             ws.append(FRIENDLY_COLUMNS)
@@ -782,7 +792,7 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
             
             # Auto-fit columns
             for col_idx, column in enumerate(FRIENDLY_COLUMNS, 1):
-                col_letter = openpyxl.utils.get_column_letter(col_idx)
+                col_letter = get_column_letter(col_idx)
                 ws.column_dimensions[col_letter].width = max(len(column) + 4, 15)
                 
             # Add data validation for Yes/No columns
@@ -793,21 +803,28 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
             
             for col_idx, column in enumerate(FRIENDLY_COLUMNS, 1):
                 if column.endswith("?"):
-                    col_letter = openpyxl.utils.get_column_letter(col_idx)
+                    col_letter = get_column_letter(col_idx)
                     yes_no_dv.add(f"{col_letter}2:{col_letter}1048576")
                     
+            logging.info(f"✅ Excel template complete with {len(wb.sheetnames)} sheets: {wb.sheetnames}")
             buf = io.BytesIO()
             wb.save(buf)
             buf.seek(0)
+            logging.info(f"✅ Template saved to buffer ({buf.getbuffer().nbytes} bytes)")
             return StreamingResponse(
                 buf,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={"Content-Disposition": "attachment; filename=material-onboarding-template.xlsx"},
             )
-        except ImportError:
+        except ImportError as e:
+            logging.error(f"❌ Import error during Excel template generation: {e}")
+            pass  # fall through to csv
+        except Exception as e:
+            logging.error(f"❌ Unexpected error during Excel template generation: {type(e).__name__}: {e}", exc_info=True)
             pass  # fall through to csv
 
     # CSV
+    logging.info("📄 Falling back to CSV template generation")
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(FRIENDLY_COLUMNS)

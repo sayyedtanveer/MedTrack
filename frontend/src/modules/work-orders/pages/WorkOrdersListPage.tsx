@@ -128,6 +128,16 @@ export default function WorkOrdersListPage() {
                 cell: (wo) => <span className="font-mono font-medium text-blue-700">{wo.wo_number}</span>,
               },
               {
+                key: 'product',
+                header: 'Product',
+                cell: (wo) => (
+                  <div>
+                    <div className="font-medium text-slate-900">{wo.product_name || 'N/A'}</div>
+                    {wo.product_code && <div className="text-xs text-slate-500">{wo.product_code}</div>}
+                  </div>
+                ),
+              },
+              {
                 key: 'status',
                 header: 'Status',
                 cell: (wo) => (
@@ -167,6 +177,8 @@ export default function WorkOrdersListPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-mono text-base font-semibold text-blue-700">{wo.wo_number}</p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">{wo.product_name || 'N/A'}</p>
+                    {wo.product_code && <p className="text-xs text-slate-500">{wo.product_code}</p>}
                     <p className={`mt-1 text-xs font-medium ${PRIORITY_COLORS[wo.priority]}`}>{wo.priority} priority</p>
                   </div>
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[wo.status]}`}>

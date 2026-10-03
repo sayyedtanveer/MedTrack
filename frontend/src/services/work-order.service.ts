@@ -7,6 +7,8 @@ export interface WorkOrderSummary {
   id: string;
   wo_number: string;
   product_id: string;
+  product_name?: string;  // Product variant name
+  product_code?: string;  // Product variant code
   bom_id: string;
   status: WorkOrderStatus;
   priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';

@@ -12,8 +12,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormSkeleton } from '@/components/shared/LoadingSkeleton';
 import { ordersApi, clientsApi } from '@/services/sales.service';
-import { SalesOrder, SalesClient } from '@/types/sales.types';
+import { SalesOrder, SalesClient, OrderPriority } from '@/types/sales.types';
 import { ArrowLeft, Save } from 'lucide-react';
+
+const PRIORITIES: OrderPriority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+
+const PRIORITY_COLORS: Record<OrderPriority, string> = {
+  LOW: 'text-slate-500',
+  NORMAL: 'text-slate-700',
+  HIGH: 'text-amber-600',
+  URGENT: 'text-red-600',
+};
 
 export default function SalesOrderFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +33,7 @@ export default function SalesOrderFormPage() {
     client_id: '',
     order_date: new Date().toISOString().split('T')[0],
     delivery_date: '',
+    priority: 'NORMAL', // Default priority
     notes: '',
     lines: [],
   });
@@ -71,6 +81,7 @@ export default function SalesOrderFormPage() {
           client_id: order.client_id,
           order_date: order.order_date || '',
           delivery_date: order.delivery_date || '',
+          priority: order.priority || 'NORMAL',
           notes: order.notes || '',
         });
       }
@@ -158,6 +169,42 @@ export default function SalesOrderFormPage() {
               />
             </div>
           </div>
+
+          {/* Priority Selection */}
+          {!isEditing && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Order Priority
+                <span className="ml-2 text-xs text-gray-500 font-normal">
+                  (Auto-created work orders will inherit this priority)
+                </span>
+              </label>
+              <div className="grid gap-2 sm:grid-cols-4">
+                {PRIORITIES.map((priority) => (
+                  <button
+                    type="button"
+                    key={priority}
+                    onClick={() => setOrder({...order, priority})}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      order.priority === priority
+                        ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className={order.priority === priority ? '' : PRIORITY_COLORS[priority]}>
+                      {priority}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                <strong>URGENT:</strong> Rush orders, critical deadlines • 
+                <strong className="ml-2">HIGH:</strong> Important customers • 
+                <strong className="ml-2">NORMAL:</strong> Standard orders • 
+                <strong className="ml-2">LOW:</strong> Flexible deadlines
+              </p>
+            </div>
+          )}
 
           {/* Notes */}
           <div>
