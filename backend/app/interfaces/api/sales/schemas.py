@@ -186,6 +186,7 @@ class SalesOrderCreateRequest(BaseModel):
     client_id: UUID
     order_date: date
     delivery_date: date
+    priority: str = Field("NORMAL", pattern="^(LOW|NORMAL|HIGH|URGENT)$", description="Order priority (inherited by auto-created work orders)")
     notes: Optional[str] = None
 
     @validator("delivery_date")
@@ -207,6 +208,7 @@ class SalesOrderResponse(BaseModel):
     delivery_date: str
     status: str
     payment_status: str
+    priority: str = "NORMAL"
     subtotal: Decimal
     discount_amount: Decimal
     tax_amount: Decimal
@@ -237,6 +239,7 @@ class SalesOrderDetailResponse(BaseModel):
     delivery_date: str
     status: str
     payment_status: str
+    priority: str = "NORMAL"
     subtotal: Decimal
     discount_amount: Decimal
     tax_amount: Decimal

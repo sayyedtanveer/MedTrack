@@ -83,6 +83,11 @@ export interface CreateOrderLineRequest {
 }
 
 /**
+ * Sales Order Priority
+ */
+export type OrderPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+
+/**
  * Sales Order Status
  */
 export enum OrderStatus {
@@ -125,6 +130,7 @@ export interface SalesOrder {
   delivery_date: string;
   status: OrderStatus;
   payment_status: PaymentStatus;
+  priority?: OrderPriority; // Added: Order priority (inherited by auto-created work orders)
   subtotal: number;
   discount_amount: number;
   tax_amount: number;
@@ -148,6 +154,7 @@ export interface CreateOrderRequest {
   client_id: string;
   order_date: string;
   delivery_date: string;
+  priority?: OrderPriority; // Added: Optional priority (defaults to NORMAL on backend)
   notes?: string;
   lines?: CreateOrderLineRequest[];
 }

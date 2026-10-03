@@ -140,6 +140,9 @@ async def _build_work_order_context(
 ) -> dict:
     """Build template context for Work Order PDF.
     
+    Note: Materials are excluded as they're available in separate BOM download.
+    This PDF focuses on operations, document control, and work instructions.
+    
     Args:
         session: Async SQLAlchemy session
         tenant_id: Tenant UUID
@@ -148,12 +151,11 @@ async def _build_work_order_context(
     Returns:
         Template context dictionary
     """
-    # Fetch work order with materials and job cards
+    # Fetch work order with job cards only (no materials needed)
     from sqlalchemy.orm import selectinload
     stmt = (
         select(WorkOrderModel)
         .options(
-            selectinload(WorkOrderModel.materials).selectinload(WorkOrderMaterialModel.material),
             selectinload(WorkOrderModel.job_cards).selectinload(JobCardModel.operation)
         )
         .where(
@@ -175,23 +177,14 @@ async def _build_work_order_context(
     
     # Fetch product variant manually
     product = None
+    product_code = None
     if wo.product_id:
         product_stmt = select(ItemVariantModel).where(ItemVariantModel.id == wo.product_id)
         product_result = await session.execute(product_stmt)
         product = product_result.scalar_one_or_none()
+        if product:
+            product_code = product.code
         
-    # Build materials list
-    materials = []
-    if wo.materials:
-        for material in wo.materials:
-            materials.append({
-                "item_code": material.material.code if material.material else "",
-                "material_name": material.material.name if material.material else material.material_id,
-                "required_qty": float(material.required_quantity or 0),
-                "issued_qty": float(material.issued_quantity or 0),
-                "unit": getattr(material, "unit", None).name if getattr(material, "unit", None) else "",
-            })
-    
     # Build operations list
     operations = []
     if wo.job_cards:
@@ -203,7 +196,7 @@ async def _build_work_order_context(
                 "work_center": (jc.operation.workstation.name if getattr(jc.operation, "workstation", None) else "") if jc.operation else "",
             })
     
-    # Build template context
+    # Build template context (materials removed - see separate BOM download)
     context = {
         "tenant": {
             "name": tenant.name,
@@ -221,6 +214,7 @@ async def _build_work_order_context(
             "date": wo.created_at.strftime("%Y-%m-%d") if wo.created_at else "",
             "sales_order_number": getattr(wo, 'sales_order_id', ""), # Just fallback to ID if we don't have the SO loaded
             "client": getattr(wo, 'client_id', "N/A"),
+            "product_code": product_code or "N/A",
             "product": product.name if product else "N/A",
             "variant": product.variant_key if product else "",
             "quantity": float(wo.planned_quantity or 0),
@@ -229,7 +223,6 @@ async def _build_work_order_context(
             "status": wo.status,
             "notes": wo.notes or "",
         },
-        "materials": materials,
         "operations": operations,
         "documents": await _build_document_control_list(session, tenant_id, entity_id),
         "signatures": {
@@ -789,10 +782,14 @@ async def _build_material_issue_slip_context(
     from backend.app.infrastructure.persistence.models.material_model import MaterialModel
     
     # entity_id is the work_order_id
-    wo_stmt = select(WorkOrderModel).where(
-        WorkOrderModel.id == entity_id,
-        WorkOrderModel.tenant_id == tenant_id,
-        WorkOrderModel.is_deleted.is_(False),
+    wo_stmt = (
+        select(WorkOrderModel)
+        .options(selectinload(WorkOrderModel.product))
+        .where(
+            WorkOrderModel.id == entity_id,
+            WorkOrderModel.tenant_id == tenant_id,
+            WorkOrderModel.is_deleted.is_(False),
+        )
     )
     wo_result = await session.execute(wo_stmt)
     wo = wo_result.scalar_one_or_none()
@@ -859,10 +856,14 @@ async def _build_fg_receipt_note_context(
     from backend.app.infrastructure.persistence.models.quality_model import QualityInspectionModel
     
     # entity_id is the work_order_id
-    wo_stmt = select(WorkOrderModel).where(
-        WorkOrderModel.id == entity_id,
-        WorkOrderModel.tenant_id == tenant_id,
-        WorkOrderModel.is_deleted.is_(False),
+    wo_stmt = (
+        select(WorkOrderModel)
+        .options(selectinload(WorkOrderModel.product))
+        .where(
+            WorkOrderModel.id == entity_id,
+            WorkOrderModel.tenant_id == tenant_id,
+            WorkOrderModel.is_deleted.is_(False),
+        )
     )
     wo_result = await session.execute(wo_stmt)
     wo = wo_result.scalar_one_or_none()

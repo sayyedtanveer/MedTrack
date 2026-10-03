@@ -46,6 +46,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AssistantEngine } from '@/lib/assistant/AssistantEngine';
 import { MedTrackAssistant } from '@/components/shared/assistant/MedTrackAssistant';
 
+const PRIORITY_COLORS: Record<string, string> = {
+  LOW: 'text-slate-500',
+  NORMAL: 'text-slate-700',
+  HIGH: 'text-amber-600',
+  URGENT: 'text-red-600',
+};
+
 // Line Status Badge Colors (Req 19.3, 19.4)
 const LINE_STATUS_COLORS: Record<string, string> = {
   PENDING: 'border-gray-200 bg-gray-50 text-gray-700',
@@ -383,13 +390,23 @@ export default function SalesOrderDetailPage() {
       )}
 
       {/* Order Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Status</CardTitle>
           </CardHeader>
           <CardContent>
             <StatusBadge status={order.status} colorMap={SO_STATUS_COLOR_MAP} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Priority</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className={`text-lg font-semibold ${PRIORITY_COLORS[order.priority || 'NORMAL']}`}>
+              {order.priority || 'NORMAL'}
+            </p>
           </CardContent>
         </Card>
         <Card>

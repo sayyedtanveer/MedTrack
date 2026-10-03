@@ -19,6 +19,7 @@ from backend.app.infrastructure.persistence.database import Base
 if TYPE_CHECKING:
     from backend.app.infrastructure.persistence.models.material_model import MaterialModel
     from backend.app.infrastructure.persistence.models.operation_model import OperationModel
+    from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
 
 
 class WorkOrderPriority(str, enum.Enum):
@@ -90,6 +91,7 @@ class WorkOrderModel(Base):
     )
 
     # Relationships
+    product: Mapped["ItemVariantModel"] = relationship("ItemVariantModel", foreign_keys=[product_id])
     materials: Mapped[list["WorkOrderMaterialModel"]] = relationship(
         "WorkOrderMaterialModel", back_populates="work_order", cascade="all, delete-orphan"
     )
@@ -163,6 +165,7 @@ class WorkOrderLineModel(Base):
     )
 
     work_order: Mapped["WorkOrderModel"] = relationship("WorkOrderModel", back_populates="lines")
+    product: Mapped["ItemVariantModel"] = relationship("ItemVariantModel", foreign_keys=[product_id])
 
 
 class WorkOrderMaterialModel(Base):

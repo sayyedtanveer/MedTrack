@@ -101,12 +101,19 @@ async def list_work_orders(
     product_id: Optional[uuid.UUID] = Query(None),
 ):
     from backend.app.domain.manufacturing.entities.work_order import WorkOrderStatus
+    from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+    from sqlalchemy.orm import selectinload
 
     container = get_container(request)
     async with container.session_factory() as session:
-        stmt = select(WorkOrderModel).where(
-            WorkOrderModel.tenant_id == tenant_id,
-            WorkOrderModel.is_deleted.is_(False),
+        # Eagerly load product variant to include product details in summary
+        stmt = (
+            select(WorkOrderModel)
+            .options(selectinload(WorkOrderModel.product))
+            .where(
+                WorkOrderModel.tenant_id == tenant_id,
+                WorkOrderModel.is_deleted.is_(False),
+            )
         )
         if active:
             active_statuses = [
@@ -129,7 +136,29 @@ async def list_work_orders(
         stmt = stmt.order_by(WorkOrderModel.created_at.desc())
         result = await session.execute(stmt)
         rows = result.scalars().all()
-        return [WorkOrderSummary.model_validate(r) for r in rows]
+        
+        # Map to summary with product details
+        summaries = []
+        for wo in rows:
+            summary_dict = {
+                "id": wo.id,
+                "wo_number": wo.wo_number,
+                "product_id": wo.product_id,
+                "product_name": wo.product.name if wo.product else None,
+                "product_code": wo.product.code if wo.product else None,
+                "bom_id": wo.bom_id,
+                "status": wo.status,
+                "priority": wo.priority,
+                "planned_quantity": wo.planned_quantity,
+                "produced_quantity": wo.produced_quantity,
+                "scrap_quantity": wo.scrap_quantity,
+                "start_date": wo.start_date,
+                "due_date": wo.due_date,
+                "created_at": wo.created_at,
+            }
+            summaries.append(WorkOrderSummary.model_validate(summary_dict))
+        
+        return summaries
 
 
 @router.get(
