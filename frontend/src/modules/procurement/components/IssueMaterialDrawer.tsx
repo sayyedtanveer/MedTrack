@@ -228,7 +228,7 @@ export function IssueMaterialDrawer({
               {/* Warehouse Selector */}
               <div className="space-y-2">
                 <Label htmlFor="issue-warehouse">
-                  From Warehouse <span className="text-red-500">*</span>
+                  From Location <span className="text-red-500">*</span>
                 </Label>
                 <Select
                   value={warehouseId}
@@ -236,14 +236,17 @@ export function IssueMaterialDrawer({
                   disabled={busy}
                 >
                   <SelectTrigger id="issue-warehouse">
-                    <SelectValue placeholder="Select warehouse" />
+                    <SelectValue placeholder="Select location" />
                   </SelectTrigger>
                   <SelectContent>
-                    {warehouses.map((wh) => (
-                      <SelectItem key={wh.id} value={wh.id}>
-                        {wh.name}
-                      </SelectItem>
-                    ))}
+                    {warehouses.map((wh) => {
+                      const locType = (wh as { type?: string }).type ?? (wh as { location_type?: string }).location_type ?? 'unknown'
+                      return (
+                        <SelectItem key={wh.id} value={wh.id}>
+                          {wh.name} {locType !== 'warehouse' && locType !== 'unknown' && <span className="text-xs text-muted-foreground">({locType})</span>}
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
               </div>
@@ -320,7 +323,7 @@ export function IssueMaterialDrawer({
                 </div>
 
                 <div className="flex justify-between py-2 border-b">
-                  <span className="text-muted-foreground">Warehouse</span>
+                  <span className="text-muted-foreground">From Location</span>
                   <span className="font-medium">
                     {selectedWarehouse?.name || warehouseId}
                   </span>
