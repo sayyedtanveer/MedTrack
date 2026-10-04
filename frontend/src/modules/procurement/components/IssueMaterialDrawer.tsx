@@ -17,10 +17,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Loader2, Package, Building2, Hash } from "lucide-react"
+import { Loader2, Package, Building2, Hash, AlertCircle, CheckCircle } from "lucide-react"
 import type { SubcontractOrderLine } from "@/services/supply-chain.service"
 import type { Location, Material } from "@/types/material.types"
 import { materialService } from "@/services/material.service"
+
+// Helper to get location type
+function getLocationType(loc: Location & { type?: string; location_type?: string }): string {
+  return (loc as { type?: string }).type ?? (loc as { location_type?: string }).location_type ?? 'unknown'
+}
 
 interface IssueMaterialDrawerProps {
   open: boolean
@@ -83,12 +88,19 @@ export function IssueMaterialDrawer({
       setQuantity(String(remaining > 0 ? remaining : 1))
       setShowConfirm(false)
       setBatchId("")
-      // Pre-select first warehouse if available
-      if (warehouses.length > 0 && !warehouseId) {
+      // Auto-select the material's actual storage location
+      if (material?.location_id && warehouses.length > 0) {
+        // Find warehouse with matching location_id
+        const matchingLocation = warehouses.find((w) => w.id === material.location_id)
+        if (matchingLocation) {
+          setWarehouseId(material.location_id)
+        }
+      } else if (warehouses.length > 0 && !warehouseId) {
+        // Fallback: select first location if no matching location found
         setWarehouseId(warehouses[0].id)
       }
     }
-  }, [open, line, remaining, warehouses, warehouseId])
+  }, [open, line, material, remaining, warehouses, warehouseId])
 
   const handleConfirmClick = () => {
     setShowConfirm(true)
@@ -230,25 +242,40 @@ export function IssueMaterialDrawer({
                 <Label htmlFor="issue-warehouse">
                   From Location <span className="text-red-500">*</span>
                 </Label>
-                <Select
-                  value={warehouseId}
-                  onValueChange={setWarehouseId}
-                  disabled={busy}
-                >
-                  <SelectTrigger id="issue-warehouse">
-                    <SelectValue placeholder="Select location" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses.map((wh) => {
-                      const locType = (wh as { type?: string }).type ?? (wh as { location_type?: string }).location_type ?? 'unknown'
-                      return (
-                        <SelectItem key={wh.id} value={wh.id}>
-                          {wh.name} {locType !== 'warehouse' && locType !== 'unknown' && <span className="text-xs text-muted-foreground">({locType})</span>}
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
+                {material?.location_id && warehouseId === material.location_id ? (
+                  <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                    <span className="text-sm font-medium text-green-900">
+                      {selectedWarehouse?.name}
+                      {selectedWarehouse && getLocationType(selectedWarehouse) !== 'warehouse' && getLocationType(selectedWarehouse) !== 'unknown' && (
+                        <span className="text-xs text-green-700 ml-1">({getLocationType(selectedWarehouse)})</span>
+                      )}
+                    </span>
+                  </div>
+                ) : (
+                  <Select
+                    value={warehouseId}
+                    onValueChange={setWarehouseId}
+                    disabled={busy}
+                  >
+                    <SelectTrigger id="issue-warehouse">
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {warehouses.map((wh) => {
+                        const locType = getLocationType(wh)
+                        const isMatching = material?.location_id === wh.id
+                        return (
+                          <SelectItem key={wh.id} value={wh.id}>
+                            {isMatching && <CheckCircle className="h-3 w-3 inline mr-1.5 text-green-600" />}
+                            {wh.name} {locType !== 'warehouse' && locType !== 'unknown' && <span className="text-xs text-muted-foreground">({locType})</span>}
+                            {isMatching && <span className="text-xs text-green-600 ml-1">(material location)</span>}
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               {/* Batch/Lot Input */}
