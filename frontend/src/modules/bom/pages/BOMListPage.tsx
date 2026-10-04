@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import {
   Layers, Search, CheckCircle2, Circle, AlertCircle,
@@ -188,6 +188,7 @@ function TemplateCard({
   onClick: () => void
 }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { canEditBOM } = usePermissions()
   const [showCost, setShowCost] = useState(false)
   
@@ -248,6 +249,10 @@ function TemplateCard({
         template_id: templateId,
         lines: []
       })
+      
+      // Invalidate the query to refresh the BOM list immediately
+      queryClient.invalidateQueries({ queryKey: ["bom-versions", templateId, true] })
+      
       toast.success("BOM created successfully")
       navigate(`/bom/${res.id}`)
     } catch (err: any) {

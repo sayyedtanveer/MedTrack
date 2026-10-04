@@ -17,10 +17,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Loader2, Package, Building2, Hash } from "lucide-react"
+import { Loader2, Package, Building2, Hash, AlertCircle } from "lucide-react"
 import type { SubcontractOrderLine } from "@/services/supply-chain.service"
 import type { Location, Material } from "@/types/material.types"
 import { materialService } from "@/services/material.service"
+
+interface StockByLocation {
+  location_id: string
+  location_name: string
+  location_type: string
+  quantity: number
+  stock_status: string
+}
 
 interface IssueMaterialDrawerProps {
   open: boolean
@@ -36,10 +44,6 @@ interface IssueMaterialDrawerProps {
     batch_id: string | null
   }) => Promise<void>
   busy: boolean
-}
-
-function locKind(l: Location & { location_type?: string }) {
-  return l.location_type ?? (l as { type?: string }).type ?? ""
 }
 
 export function IssueMaterialDrawer({
@@ -58,6 +62,8 @@ export function IssueMaterialDrawer({
   const [warehouseId, setWarehouseId] = useState("")
   const [batchId, setBatchId] = useState("")
   const [showConfirm, setShowConfirm] = useState(false)
+  const [stockByLocation, setStockByLocation] = useState<Record<string, number>>({})
+  const [loadingStock, setLoadingStock] = useState(false)
 
   // Calculate remaining quantity
   const remaining = line
@@ -81,19 +87,55 @@ export function IssueMaterialDrawer({
     }
   }, [line?.material_id, open])
 
+  // Load stock by location when drawer opens
+  useEffect(() => {
+    if (line?.material_id && open) {
+      setLoadingStock(true)
+      materialService
+        .getMaterialStockByLocation(line.material_id)
+        .then((data: any) => {
+          // Build map of location_id -> quantity, filtered to warehouses only
+          const stockMap: Record<string, number> = {}
+          if (data.locations) {
+            data.locations
+              .filter((loc: StockByLocation) => 
+                ['warehouse', 'zone', 'rack', 'bin', 'production'].includes(loc.location_type)
+              )
+              .forEach((loc: StockByLocation) => {
+                stockMap[loc.location_id] = loc.quantity
+              })
+          }
+          setStockByLocation(stockMap)
+        })
+        .catch((err) => {
+          console.error('Failed to load stock by location:', err)
+          setStockByLocation({})
+        })
+        .finally(() => setLoadingStock(false))
+    } else {
+      setStockByLocation({})
+    }
+  }, [line?.material_id, open])
+
   // Reset form when dialog opens with new line
   useEffect(() => {
     if (open && line) {
       setQuantity(String(remaining > 0 ? remaining : 1))
       setShowConfirm(false)
       setBatchId("")
-      // Pre-select first warehouse if available
+      // Pre-select warehouse with highest available stock
       if (warehouses.length > 0 && !warehouseId) {
-        const wh = warehouses.find((l) => locKind(l) === "warehouse")
-        if (wh) setWarehouseId(wh.id)
+        // Find warehouse with stock
+        const warehouseWithStock = warehouses.find((wh) => (stockByLocation[wh.id] || 0) > 0)
+        if (warehouseWithStock) {
+          setWarehouseId(warehouseWithStock.id)
+        } else if (warehouses.length > 0) {
+          // Fallback: select first warehouse if none have stock (will show error)
+          setWarehouseId(warehouses[0].id)
+        }
       }
     }
-  }, [open, line, remaining, warehouses, warehouseId])
+  }, [open, line, remaining, warehouses, warehouseId, stockByLocation])
 
   const handleConfirmClick = () => {
     setShowConfirm(true)
@@ -129,7 +171,7 @@ export function IssueMaterialDrawer({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
         {!showConfirm ? (
           <>
             <DialogHeader>
@@ -142,7 +184,7 @@ export function IssueMaterialDrawer({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-4 overflow-y-auto flex-1">
               {/* Context Info */}
               <div className="rounded-lg bg-slate-50 p-3 space-y-2 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
@@ -235,22 +277,46 @@ export function IssueMaterialDrawer({
                 <Label htmlFor="issue-warehouse">
                   From Warehouse <span className="text-red-500">*</span>
                 </Label>
-                <Select
-                  value={warehouseId}
-                  onValueChange={setWarehouseId}
-                  disabled={busy}
-                >
-                  <SelectTrigger id="issue-warehouse">
-                    <SelectValue placeholder="Select warehouse" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses.map((wh) => (
-                      <SelectItem key={wh.id} value={wh.id}>
-                        {wh.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {loadingStock ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground p-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading warehouse stock...
+                  </div>
+                ) : (
+                  <Select
+                    value={warehouseId}
+                    onValueChange={setWarehouseId}
+                    disabled={busy}
+                  >
+                    <SelectTrigger id="issue-warehouse">
+                      <SelectValue placeholder="Select warehouse" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {warehouses.map((wh) => {
+                        const whStock = stockByLocation[wh.id] || 0
+                        const hasStock = whStock > 0
+                        return (
+                          <SelectItem key={wh.id} value={wh.id}>
+                            <span>
+                              {wh.name}{' '}
+                              <span className={`text-xs ${hasStock ? 'text-blue-600' : 'text-red-600'}`}>
+                                ({whStock.toFixed(2)} available)
+                              </span>
+                            </span>
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+                )}
+                {warehouseId && (stockByLocation[warehouseId] || 0) === 0 && (
+                  <div className="flex items-start gap-2 p-2 rounded bg-amber-50 border border-amber-200">
+                    <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-amber-700">
+                      ⚠️ This warehouse has no available stock. Select a different warehouse or adjust quantity.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Batch/Lot Input */}
@@ -274,7 +340,7 @@ export function IssueMaterialDrawer({
               </div>
             </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2 sm:gap-0 flex-shrink-0 border-t pt-4">
               <Button
                 type="button"
                 variant="outline"
@@ -302,7 +368,7 @@ export function IssueMaterialDrawer({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-3 py-4">
+            <div className="space-y-3 py-4 overflow-y-auto flex-1">
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between py-2 border-b">
                   <span className="text-muted-foreground">Material</span>
@@ -357,7 +423,7 @@ export function IssueMaterialDrawer({
               </div>
             </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2 sm:gap-0 flex-shrink-0 border-t pt-4">
               <Button
                 type="button"
                 variant="outline"

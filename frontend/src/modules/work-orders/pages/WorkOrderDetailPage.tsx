@@ -455,14 +455,19 @@ export default function WorkOrderDetailPage() {
     if (!id || documentLoading) return;
     setDocumentLoading(true);
     setError(null);
+    
+    toast({ title: 'Preparing PDF', description: 'Generating Work Order PDF...' });
+    
     try {
       // Generate document
       const document = await documentService.generateDocument('work_order', id);
       // Download the PDF
       await documentService.downloadDocumentByUrl(document.id, `WO-${wo?.wo_number}.pdf`);
+      toast({ title: 'Success', description: 'Work Order downloaded successfully' });
     } catch (e: any) {
       const msg = e?.response?.data?.message || 'Failed to generate PDF.';
       setError(msg);
+      toast({ title: 'Download Failed', description: msg, variant: 'destructive' });
     } finally {
       setDocumentLoading(false);
     }
@@ -473,11 +478,16 @@ export default function WorkOrderDetailPage() {
     setDocumentLoading(true);
     setWoDownloadOpen(false);
     setError(null);
+    
+    toast({ title: 'Preparing PDF', description: 'Generating Work Order + BOM PDF...' });
+    
     try {
       await documentService.downloadBomDocumentByUrl(id, `WO-${wo?.wo_number}-BOM.pdf`);
+      toast({ title: 'Success', description: 'Work Order + BOM downloaded successfully' });
     } catch (e: any) {
       const msg = e?.response?.data?.message || 'Failed to generate BOM PDF.';
       setError(msg);
+      toast({ title: 'Download Failed', description: msg, variant: 'destructive' });
     } finally {
       setDocumentLoading(false);
     }
@@ -488,14 +498,19 @@ export default function WorkOrderDetailPage() {
     setDocumentLoading(true);
     setWoDownloadOpen(false);
     setError(null);
+    
+    toast({ title: 'Preparing Package', description: 'Generating Work Order Package...' });
+    
     try {
       // Generate document base
       const document = await documentService.generateDocument('work_order', id);
       // Download the PDF package
-      await documentService.downloadDocumentPackageByUrl(document.id, `WO-Package-${wo?.wo_number}.pdf`);
+      await documentService.downloadDocumentPackageByUrl(document.id, `WO-${wo?.wo_number}-Package.zip`);
+      toast({ title: 'Success', description: 'Work Order Package downloaded successfully' });
     } catch (e: any) {
       const msg = e?.response?.data?.message || 'Failed to generate PDF Package.';
       setError(msg);
+      toast({ title: 'Download Failed', description: msg, variant: 'destructive' });
     } finally {
       setDocumentLoading(false);
     }
@@ -665,16 +680,18 @@ export default function WorkOrderDetailPage() {
                   <button
                     onClick={() => { setWoDownloadOpen(false); handleDownloadPDF(); }}
                     disabled={documentLoading}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60 flex items-center gap-2"
                   >
-                    Work Order Only
+                    {documentLoading && <span className="animate-spin">⏳</span>}
+                    <span>Work Order Only</span>
                   </button>
                   <button
                     onClick={handleDownloadBOM}
                     disabled={documentLoading}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60 flex items-center gap-2"
                   >
-                    Work Order + BOM
+                    {documentLoading && <span className="animate-spin">⏳</span>}
+                    <span>Work Order + BOM</span>
                   </button>
                 </div>
               )}
@@ -682,10 +699,11 @@ export default function WorkOrderDetailPage() {
             <button
               onClick={handleDownloadPackage}
               disabled={documentLoading}
-              className="rounded-lg px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-2"
               title="Download Work Order PDF along with attached technical documents"
             >
-              {documentLoading ? '…' : 'Download Package'}
+              {documentLoading && <span className="animate-spin">⏳</span>}
+              <span>{documentLoading ? 'Preparing...' : 'Download Package'}</span>
             </button>
       {/* Action Buttons per status config */}
             {actions
