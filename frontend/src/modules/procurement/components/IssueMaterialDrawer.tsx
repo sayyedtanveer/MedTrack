@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Loader2, Package, Building2, Hash, AlertCircle, CheckCircle } from "lucide-react"
+import { Loader2, Package, Building2, Hash, CheckCircle } from "lucide-react"
 import type { SubcontractOrderLine } from "@/services/supply-chain.service"
 import type { Location, Material } from "@/types/material.types"
 import { materialService } from "@/services/material.service"
