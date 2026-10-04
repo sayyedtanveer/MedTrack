@@ -775,7 +775,7 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
                 
             # Sample row
             ws.append([
-                "DUMMY-SAMPLE", "Sample Material (Delete Me)", "Metal", "KG", "",
+                "", "Sample Raw Material (Delete Me)", "Metals", "KG", "",
                 "", "", "", "100", "10", "500", "20", "50",
                 "No", "No", "", "No", "No",
                 "", "", "", "7", "",
@@ -828,27 +828,13 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(FRIENDLY_COLUMNS)
-    # Sample rows for different material types
+    # Sample row for raw material (only raw materials for bulk upload)
     writer.writerow([
-        "SAMPLE-RAW-001", "Sample Raw Material (Delete Me)", "Metals", "KG", "",
+        "", "Sample Raw Material (Delete Me)", "Metals", "KG", "",
         "", "", "", "100", "10", "500", "20", "50",
         "No", "No", "", "No", "No",
         "", "", "", "7", "",
         "", "No", "No", "2", "No"
-    ])
-    writer.writerow([
-        "SAMPLE-SEMI-001", "Sample Semi-Finished (Delete Me)", "Components", "PCS", "",
-        "", "", "", "50", "5", "200", "10", "25",
-        "Yes", "No", "", "Yes", "Yes",
-        "", "", "", "14", "",
-        "", "No", "No", "0", "No"
-    ])
-    writer.writerow([
-        "SAMPLE-FG-001", "Sample Finished Good (Delete Me)", "Products", "PCS", "",
-        "", "", "", "20", "2", "100", "5", "10",
-        "Yes", "No", "", "Yes", "Yes",
-        "", "", "", "21", "",
-        "", "No", "No", "0", "No"
     ])
     buf.seek(0)
     return StreamingResponse(

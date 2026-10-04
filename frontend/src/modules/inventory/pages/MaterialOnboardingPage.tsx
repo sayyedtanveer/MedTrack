@@ -204,8 +204,8 @@ export default function MaterialOnboardingPage() {
               </AlertDescription>
             </Alert>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => materialOnboardingService.downloadTemplate('csv')}><Download className="mr-2 h-4 w-4" />CSV template</Button>
               <Button variant="outline" onClick={() => materialOnboardingService.downloadTemplate('xlsx')}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel template</Button>
+              <Button variant="outline" onClick={() => materialOnboardingService.downloadTemplate('csv')}><Download className="mr-2 h-4 w-4" />CSV template</Button>
             </div>
             <Input type="file" accept=".csv,.xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             <Button disabled={!file || busy} onClick={upload}><Upload className="mr-2 h-4 w-4" />Upload and map</Button>
