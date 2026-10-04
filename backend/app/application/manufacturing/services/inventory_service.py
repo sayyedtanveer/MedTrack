@@ -1647,9 +1647,16 @@ class InventoryService:
         traceability. batch_number is stored on the issue record for display.
         """
         model = await self._lock_material(tenant_id, material_id)
-        remaining = await self._deduct_available_internal(tenant_id, material_id, quantity)
+        # Deduct from the specific warehouse location that the user selected
+        remaining = await self._deduct_from_location(
+            tenant_id=tenant_id,
+            material_id=material_id,
+            location_id=from_location_id,
+            quantity=quantity,
+            stock_status=_ST_AVAILABLE,
+        )
         if remaining > 0:
-            raise InsufficientStockError(f"Insufficient available stock for subcontract issue: {remaining} short")
+            raise InsufficientStockError(f"Insufficient available stock at selected location for subcontract issue: {remaining} short")
         await self._add_bucket_quantity(
             tenant_id=tenant_id,
             material_id=material_id,
