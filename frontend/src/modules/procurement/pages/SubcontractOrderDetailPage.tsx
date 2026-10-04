@@ -332,7 +332,9 @@ export default function SubcontractOrderDetailPage() {
     </div>
   )
 
-  const warehouses = locations.filter((l) => locKind(l) === "warehouse" && l.is_active)
+  // For subcontracting, show ALL active locations (not just warehouses)
+  // Backend will deduct from the selected location where stock actually is
+  const warehouses = locations.filter((l) => l.is_active)
   const canApprove = order.status === "draft"
   const canIssue   = order.status === "approved" || order.status === "materials_issued"
   const canReceive = order.status === "materials_issued" || order.status === "partially_received"
