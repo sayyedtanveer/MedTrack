@@ -196,9 +196,19 @@ async def update_material(
     body: UpdateMaterialRequest,
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
 ):
     container = get_container(request)
     async with container.session_factory() as session:
+        # Get current material to check if location_id is changing
+        old_material = await session.get(MaterialModel, material_id)
+        if not old_material or old_material.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="Material not found")
+        
+        old_location_id = old_material.location_id
+        new_location_id = body.location_id if "location_id" in body.model_dump(exclude_unset=True) else None
+        
+        # Update material using handler
         material_repo = MaterialRepository(session)
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
         handler = UpdateMaterialHandler(material_repo=material_repo, uow=uow)
@@ -237,6 +247,35 @@ async def update_material(
             )
         except ValueError as e:
             raise HTTPException(status_code=_material_error_status(str(e)), detail=str(e))
+        
+        # ── Option A: Auto-sync Storage Location with Stock Location ────────
+        # If user changed the Storage Location (location_id) and material has stock,
+        # transfer all stock from old location to new location
+        if (new_location_id and old_location_id and 
+            new_location_id != old_location_id and 
+            old_material.current_stock > 0):
+            
+            from backend.app.application.manufacturing.services.inventory_service import InventoryService
+            
+            # Create new session for inventory operations to ensure fresh locks
+            async with container.session_factory() as inv_session:
+                inv = InventoryService(inv_session)
+                try:
+                    await inv.transfer_stock_location(
+                        tenant_id=tenant_id,
+                        material_id=material_id,
+                        from_location_id=old_location_id,
+                        to_location_id=new_location_id,
+                        reason="Storage Location updated",
+                        created_by=user_id,
+                    )
+                    await inv_session.commit()
+                except Exception as e:
+                    await inv_session.rollback()
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to transfer stock during location change: {str(e)}"
+                    )
 
     return MaterialResponse.model_validate(result)
 

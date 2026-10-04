@@ -1882,6 +1882,92 @@ class InventoryService:
         
         return remaining
 
+    async def transfer_stock_location(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        material_id: uuid.UUID,
+        from_location_id: uuid.UUID,
+        to_location_id: uuid.UUID,
+        reason: str = "Storage location updated",
+        created_by: Optional[uuid.UUID] = None,
+    ) -> None:
+        """Transfer ALL stock from one location to another.
+        
+        Used when Storage Location (Material.location_id) is updated.
+        Moves all available stock from the old location to the new location.
+        Maintains quantity and creates an audit trail.
+        
+        Args:
+            tenant_id: Tenant identifier
+            material_id: Material to transfer
+            from_location_id: Current location
+            to_location_id: New location
+            reason: Reason for transfer (default: "Storage location updated")
+            created_by: User performing the transfer
+        """
+        model = await self._lock_material(tenant_id, material_id)
+        
+        # Find all stock buckets at from_location
+        stmt = (
+            select(StockLevelModel)
+            .where(
+                StockLevelModel.tenant_id == tenant_id,
+                StockLevelModel.material_id == material_id,
+                StockLevelModel.location_id == from_location_id,
+                StockLevelModel.is_deleted.is_(False),
+            )
+            .with_for_update(of=StockLevelModel)
+        )
+        result = await self._session.execute(stmt)
+        from_buckets = result.scalars().all()
+        
+        if not from_buckets:
+            # No stock at from_location, nothing to transfer
+            return
+        
+        # Process each stock status bucket (available, pending_inspection, quarantine)
+        for from_bucket in from_buckets:
+            if from_bucket.quantity <= 0:
+                continue
+            
+            qty = Decimal(str(from_bucket.quantity))
+            stock_status = from_bucket.stock_status
+            
+            # Deduct from old location
+            from_bucket.quantity = 0
+            from_bucket.updated_at = datetime.now(timezone.utc)
+            
+            # Add to new location
+            to_bucket = await self._lock_stock_level(
+                tenant_id=tenant_id,
+                material_id=material_id,
+                location_id=to_location_id,
+                stock_status=stock_status,
+            )
+            to_bucket.quantity = float(Decimal(str(to_bucket.quantity)) + qty)
+            to_bucket.updated_at = datetime.now(timezone.utc)
+        
+        # Recalculate material total from all buckets
+        await self._sync_material_total_from_buckets(model)
+        
+        # Log transfer transaction for audit trail
+        total_transferred = sum(
+            Decimal(str(b.quantity)) for b in from_buckets if b.quantity > 0
+        )
+        if total_transferred > 0:
+            await self._log_transaction(
+                tenant_id=tenant_id,
+                material_id=material_id,
+                transaction_type="transfer",
+                quantity=total_transferred,
+                from_location_id=from_location_id,
+                to_location_id=to_location_id,
+                remarks=reason,
+                created_by=created_by,
+                reference_type="material_storage_location_update",
+            )
+
     # ── Phase 2: Inventory Reservation System Extensions ───────────────────────
 
     async def reserve_for_work_order(
