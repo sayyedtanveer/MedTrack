@@ -46,10 +46,6 @@ interface IssueMaterialDrawerProps {
   busy: boolean
 }
 
-function locKind(l: Location & { location_type?: string }) {
-  return l.location_type ?? (l as { type?: string }).type ?? ""
-}
-
 export function IssueMaterialDrawer({
   open,
   onOpenChange,
