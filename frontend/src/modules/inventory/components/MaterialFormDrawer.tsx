@@ -483,6 +483,32 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
   })
 
   const onSubmit = (data: MaterialFormValues) => {
+    // Check if Storage Location is being changed AND material has stock
+    const hasStockAndChangingLocation = 
+      isEditing && 
+      material && 
+      (material.current_stock > 0) && 
+      data.location_id && 
+      data.location_id !== material.location_id;
+    
+    if (hasStockAndChangingLocation) {
+      // Show confirmation dialog
+      const oldLocationName = locations?.find(l => l.id === material.location_id)?.name || "old location";
+      const newLocationName = locations?.find(l => l.id === data.location_id)?.name || "new location";
+      
+      const confirmed = confirm(
+        `⚠️ Move Stock?\n\n` +
+        `This material has ${material.current_stock} units in stock.\n\n` +
+        `Changing Storage Location from "${oldLocationName}" to "${newLocationName}" ` +
+        `will move all current stock to the new location.\n\n` +
+        `Continue?`
+      );
+      
+      if (!confirmed) {
+        return; // User cancelled
+      }
+    }
+    
     saveMutation.mutate(data)
   }
 

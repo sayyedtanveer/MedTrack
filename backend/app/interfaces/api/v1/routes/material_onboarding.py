@@ -20,6 +20,8 @@ from backend.app.infrastructure.persistence.models.material_model import Materia
 from backend.app.infrastructure.persistence.models.unit_of_measure_model import UnitOfMeasureModel
 from backend.app.infrastructure.persistence.models.material_category_model import MaterialCategoryModel
 from backend.app.infrastructure.persistence.models.inventory_transaction_model import InventoryTransactionModel
+from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel
+from backend.app.infrastructure.persistence.models.location_model import LocationModel
 from backend.app.application.inventory.services.item_code_service import ItemCodeService
 from backend.app.interfaces.api.v1.dependencies.auth import (
     get_container,
@@ -1261,8 +1263,12 @@ async def execute_session(
                             # Flush to ensure material exists in DB before creating dependent transaction
                             await db.flush()
 
-                            # If opening_stock > 0, create a Stock In transaction
+                            # If opening_stock > 0, create Stock In transaction + StockLevelModel entry
                             if opening_stock_value > 0:
+                                # Get default warehouse location
+                                warehouse_location_id = await _get_default_warehouse_location(db, tenant_id)
+                                
+                                # Create the transaction record
                                 tx = InventoryTransactionModel(
                                     id=uuid.uuid4(),
                                     tenant_id=tenant_id,
@@ -1276,6 +1282,21 @@ async def execute_session(
                                     updated_at=datetime.now(timezone.utc),
                                 )
                                 db.add(tx)
+                                
+                                # Create StockLevelModel entry at warehouse location (critical for stock-by-location visibility)
+                                if warehouse_location_id:
+                                    stock_level = StockLevelModel(
+                                        id=uuid.uuid4(),
+                                        tenant_id=tenant_id,
+                                        material_id=mat.id,
+                                        location_id=warehouse_location_id,
+                                        stock_status="available",
+                                        quantity=opening_stock_value,
+                                        is_deleted=False,
+                                        created_at=datetime.now(timezone.utc),
+                                        updated_at=datetime.now(timezone.utc),
+                                    )
+                                    db.add(stock_level)
 
                             created += 1
                         else:
@@ -1450,6 +1471,26 @@ async def validation_report(
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+async def _get_default_warehouse_location(
+    db_session,
+    tenant_id: uuid.UUID,
+) -> Optional[uuid.UUID]:
+    """Get the first active warehouse location for the tenant."""
+    stmt = (
+        select(LocationModel.id)
+        .where(
+            LocationModel.tenant_id == tenant_id,
+            LocationModel.type == "warehouse",
+            LocationModel.is_deleted.is_(False),
+            LocationModel.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    result = await db_session.execute(stmt)
+    row = result.scalar_one_or_none()
+    return row
+
 
 def _get_session(session_id: str, tenant_id: uuid.UUID) -> Dict[str, Any]:
     session = _sessions.get(session_id)
