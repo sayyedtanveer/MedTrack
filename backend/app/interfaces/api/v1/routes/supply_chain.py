@@ -2254,6 +2254,7 @@ def _sco_to_dict(o: SubcontractOrderModel, issues=None, lines=None) -> dict:
                 "material_id": str(ln.material_id),
                 "required_quantity": float(ln.required_quantity),
                 "issued_quantity": float(ln.issued_quantity),
+                "consumed_quantity": float(getattr(ln, "consumed_quantity", 0) or 0),
                 "returned_quantity": float(ln.returned_quantity),
                 "status": ln.line_status,
             }
