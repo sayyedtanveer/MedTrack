@@ -1,0 +1,219 @@
+{
+  "copilot": {
+    "enable": {
+      "*.py": true,
+      "*.tsx": true,
+      "*.ts": true,
+      "*.jsx": true,
+      "*.js": true,
+      "*.md": true
+    },
+    "fileOrganization": {
+      "enabled": true,
+      "rules": [
+        {
+          "pattern": "backend/app/**/*.py",
+          "rule": "BACKEND_PYTHON",
+          "description": "Backend Python files must respect DDD layers: domain, application, infrastructure, interfaces",
+          "requiredPath": "backend/app/{layer}/{module}/{filename}.py",
+          "validLayers": ["domain", "application", "infrastructure", "interfaces"],
+          "examples": [
+            "backend/app/domain/inventory/entities.py",
+            "backend/app/application/inventory/commands/create_material.py",
+            "backend/app/infrastructure/persistence/repositories/material_repository.py",
+            "backend/app/interfaces/api/v1/routes/material_routes.py"
+          ]
+        },
+        {
+          "pattern": "frontend/src/**/*.tsx",
+          "rule": "FRONTEND_REACT",
+          "description": "Frontend React components must use module structure",
+          "requiredPath": "frontend/src/modules/{module}/{type}/{filename}.tsx",
+          "validTypes": ["pages", "components", "hooks"],
+          "examples": [
+            "frontend/src/modules/inventory/pages/MaterialPage.tsx",
+            "frontend/src/modules/inventory/components/MaterialForm.tsx",
+            "frontend/src/modules/inventory/hooks/useMaterials.ts"
+          ],
+          "deprecated": [
+            "frontend/src/components/",
+            "frontend/src/hooks/",
+            "frontend/src/services/",
+            "frontend/src/types/"
+          ]
+        },
+        {
+          "pattern": "tests/**/*.py",
+          "rule": "TESTS",
+          "description": "Test files must be in tests folder, never in root or mixed with source",
+          "requiredPath": "tests/{type}/test_{feature}.py",
+          "validTypes": ["unit", "integration", "e2e"],
+          "examples": [
+            "tests/unit/test_material_validation.py",
+            "tests/integration/test_material_integration.py",
+            "tests/e2e/test_workflow.py"
+          ],
+          "prohibited": [
+            "root/test_*.py",
+            "backend/app/**/test_*.py",
+            "frontend/src/**/test_*.py"
+          ]
+        },
+        {
+          "pattern": "alembic/versions/**/*.py",
+          "rule": "MIGRATIONS",
+          "description": "Database migrations must use timestamp and description format",
+          "requiredPath": "alembic/versions/{timestamp}_{description}.py",
+          "examples": [
+            "alembic/versions/20261109_create_materials_table.py",
+            "alembic/versions/20261109_add_priority_to_sales_orders.py"
+          ],
+          "note": "Use: alembic revision --autogenerate -m 'description'"
+        },
+        {
+          "pattern": "scripts/**/*.py",
+          "rule": "SCRIPTS",
+          "description": "Script files must be organized by category",
+          "requiredPath": "scripts/{category}/{script_name}.py",
+          "validCategories": ["database", "debug", "archived-migrations"],
+          "examples": [
+            "scripts/database/seed_data.py",
+            "scripts/debug/inspect_data.py",
+            "scripts/archived-migrations/old_migration.py"
+          ]
+        }
+      ]
+    },
+    "namingConventions": {
+      "python": {
+        "style": "snake_case",
+        "examples": [
+          "create_material.py",
+          "material_repository.py",
+          "test_material_validation.py"
+        ],
+        "incorrect": [
+          "CreateMaterial.py",
+          "MaterialRepository.py",
+          "TestMaterialValidation.py"
+        ]
+      },
+      "typescript": {
+        "components": {
+          "style": "PascalCase",
+          "examples": [
+            "MaterialForm.tsx",
+            "MaterialList.tsx"
+          ],
+          "incorrect": [
+            "material-form.tsx",
+            "materialForm.tsx"
+          ]
+        },
+        "other": {
+          "style": "camelCase",
+          "examples": [
+            "useMaterials.ts",
+            "materialApi.ts"
+          ],
+          "incorrect": [
+            "UseMaterials.ts",
+            "MaterialApi.ts"
+          ]
+        }
+      }
+    },
+    "imports": {
+      "correctPatterns": [
+        {
+          "backend": "from backend.app.domain.inventory.entities import Material"
+        },
+        {
+          "frontend": "import { Material } from '@/modules/inventory/types/Material'"
+        },
+        {
+          "shared": "import { Button } from '@/modules/shared/components/Button'"
+        }
+      ],
+      "deprecatedPatterns": [
+        {
+          "pattern": "@/components/",
+          "use": "@/modules/shared/components/ or @/modules/{module}/components/"
+        },
+        {
+          "pattern": "@/hooks/",
+          "use": "@/modules/shared/hooks/ or @/modules/{module}/hooks/"
+        },
+        {
+          "pattern": "@/services/",
+          "use": "@/modules/{module}/services/"
+        },
+        {
+          "pattern": "@/types/",
+          "use": "@/modules/{module}/types/ or @/modules/shared/types/"
+        }
+      ]
+    },
+    "redFlags": [
+      {
+        "pattern": "^// File: [a-zA-Z_]+\\.py$",
+        "issue": "File path incomplete - missing full folder structure",
+        "example": "// File: entities.py",
+        "fix": "// File: backend/app/domain/inventory/entities.py"
+      },
+      {
+        "pattern": "test_.*\\.py in root",
+        "issue": "Test file in repository root",
+        "example": "root/test_material.py",
+        "fix": "tests/unit/test_material.py"
+      },
+      {
+        "pattern": "import.*from '@/components'",
+        "issue": "Using deprecated import path",
+        "example": "import { Button } from '@/components/Button'",
+        "fix": "import { Button } from '@/modules/shared/components/Button'"
+      },
+      {
+        "pattern": "backend/app/[a-zA-Z_]+\\.py",
+        "issue": "Backend file not in correct layer",
+        "example": "backend/app/material.py",
+        "fix": "backend/app/domain/inventory/entities.py"
+      }
+    ],
+    "verificationChecklist": [
+      "File path is fully specified with full folder structure",
+      "Path matches one of 5 correct locations (backend, frontend, tests, migrations, scripts)",
+      "Naming follows conventions (snake_case Python, PascalCase React)",
+      "Imports use correct module paths (not deprecated)",
+      "Tests are in tests/ folder (never root)",
+      "Backend code respects DDD layers",
+      "Frontend uses modules/{module}/ structure",
+      "No files suggested for repository root (except config)"
+    ],
+    "references": {
+      "fullGuide": "docs/ai-guidelines/AI-COPILOT-CURSOR-GUIDELINES.md",
+      "standards": ".kiro/steering/file-organization-standards.md",
+      "backendPatterns": ".kiro/steering/backend-ddd-patterns.md",
+      "frontendPatterns": ".kiro/steering/frontend-react-patterns.md",
+      "criticalRules": "AGENTS.md"
+    }
+  },
+  "copilotChat": {
+    "enabled": true,
+    "contextAwareness": true,
+    "autoIncludeReferences": [
+      ".kiro/steering/file-organization-standards.md",
+      "AGENTS.md"
+    ]
+  },
+  "extensions": {
+    "github.copilot": {
+      "version": "1.200.0+",
+      "settings": {
+        "advanced.language.python": true,
+        "advanced.language.typescript": true,
+        "advanced.language.tsx": true
+      }
+    }
+  }
+}

@@ -41,5 +41,9 @@ phase8_rfq_supplier_features.sql
 !CLAUDE.md
 !docs/**/*.md
 !.kiro/steering/**/*.md
+!.copilot/**/*.md
+!.cursor/**/*.md
+!.claude/**/*.md
+!.vscode/**/*.json
 !backend/app/docs/WORKFLOW_OWNERSHIP_MATRIX.md
 frontend/PWA_*.md
