@@ -1,0 +1,346 @@
+---
+description: "Inventory, BOM, work orders, production and subcontracting business rules"
+alwaysApply: false
+globs:
+  - "backend/app/domain/**/*.py"
+  - "backend/app/application/**/*.py"
+---
+
+# Business Rules: Manufacturing & Inventory
+
+**Reference:** [`AGENTS.md`](../../AGENTS.md) Section 13 | [`MANUFACTURING_BUSINESS_RULES.md`](../../docs/ai-guidelines/MANUFACTURING_BUSINESS_RULES.md)
+
+---
+
+## BOM Rules (Versioning)
+
+**BOMs are versioned. New version = change to active BOM.**
+
+### Rule 1: One Active Version Per Product
+
+```python
+# ✅ CORRECT: New version when activating
+class BOM:
+    async def activate_as_new_version(self, lines: List[BOMLineInput]) -> None:
+        """Create new version if lines changed, activate it."""
+        if self.is_active and self.lines != lines:
+            # Create new version
+            new_bom = BOM(
+                template_id=self.template_id,
+                version=self.version + 1,
+                lines=lines,
+                is_active=True
+            )
+            self.is_active = False  # Deactivate old version
+            self.events.append(BOMDeactivatedEvent(self.id))
+            self.events.append(BOMActivatedEvent(new_bom.id))
+
+# ❌ WRONG: Modifying active BOM
+def activate_bom(bom_id, lines):
+    bom = repo.get(bom_id)
+    bom.lines = lines  # ❌ Directly modifying active version
+    bom.is_active = True
+```
+
+### Rule 2: No Duplicate Components
+
+```python
+# ✅ CORRECT: Prevent duplicates
+class BOM:
+    def add_line(self, line: BOMLineInput) -> None:
+        if any(l.material_id == line.material_id for l in self.lines):
+            raise DuplicateComponentError(line.material_id)
+        self.lines.append(BOMLine(material_id=line.material_id, ...))
+
+# ❌ WRONG: Allow duplicates
+def add_line(self, line):
+    self.lines.append(line)  # ❌ No validation
+```
+
+---
+
+## Work Order Status Machine (Linear)
+
+**WO status: DRAFT → RELEASED → STARTED → COMPLETED → CLOSED**
+
+No backtracking, no skipping.
+
+```python
+# ✅ CORRECT: Validate state transition
+class WorkOrder:
+    _VALID_TRANSITIONS = {
+        WorkOrderStatus.DRAFT: [WorkOrderStatus.RELEASED, WorkOrderStatus.CANCELLED],
+        WorkOrderStatus.RELEASED: [WorkOrderStatus.STARTED, WorkOrderStatus.CANCELLED],
+        WorkOrderStatus.STARTED: [WorkOrderStatus.COMPLETED, WorkOrderStatus.CANCELLED],
+        WorkOrderStatus.COMPLETED: [WorkOrderStatus.CLOSED],
+        WorkOrderStatus.CLOSED: [],  # Final state
+    }
+    
+    def set_status(self, new_status: WorkOrderStatus) -> None:
+        if new_status not in self._VALID_TRANSITIONS.get(self.status, []):
+            raise InvalidStateTransitionError(
+                f"Cannot transition from {self.status} to {new_status}"
+            )
+        self.status = new_status
+        self.events.append(WorkOrderStatusChangedEvent(self.id, new_status))
+
+# ❌ WRONG: Allow any transition
+def set_status(self, status):
+    self.status = status  # ❌ No validation
+```
+
+---
+
+## Inventory Reservation Rules
+
+### Rule 1: Reserve on WO Release
+
+```python
+# ✅ CORRECT: Reserve materials when WO released
+class WorkOrder:
+    async def release(self) -> None:
+        """Release WO and reserve materials."""
+        if self.status != WorkOrderStatus.DRAFT:
+            raise InvalidStateTransitionError()
+        
+        # Validate stock available
+        for line in self.lines:
+            available = await self.inventory.get_available_stock(line.material_id)
+            if available < line.required_quantity:
+                raise InsufficientStockError(line.material_id, line.required_quantity)
+        
+        # Reserve materials
+        for line in self.lines:
+            await self.inventory.reserve(
+                material_id=line.material_id,
+                quantity=line.required_quantity,
+                reference_type="work_order",
+                reference_id=self.id
+            )
+        
+        self.status = WorkOrderStatus.RELEASED
+        self.events.append(WorkOrderReleasedEvent(self.id))
+```
+
+### Rule 2: Consume on WO Completion
+
+```python
+# ✅ CORRECT: Consume (decrease inventory) on completion
+class WorkOrder:
+    async def complete(self) -> None:
+        """Complete WO and consume materials."""
+        if self.status != WorkOrderStatus.STARTED:
+            raise InvalidStateTransitionError()
+        
+        # Consume materials (remove from inventory)
+        for line in self.lines:
+            await self.inventory.consume(
+                material_id=line.material_id,
+                quantity=line.actual_consumed,
+                reference_type="work_order",
+                reference_id=self.id
+            )
+            
+            # Handle scrap
+            if line.actual_scrap > 0:
+                await self.inventory.scrap(
+                    material_id=line.material_id,
+                    quantity=line.actual_scrap
+                )
+        
+        self.status = WorkOrderStatus.COMPLETED
+        self.events.append(WorkOrderCompletedEvent(self.id))
+```
+
+---
+
+## GRN Rules (Procurement)
+
+**GRN quantity ≤ PO quantity.**
+
+```python
+# ✅ CORRECT: Validate GRN qty
+class GoodReceiptNote:
+    async def create_grn(self, po_id: UUID, line_id: UUID, qty: Decimal) -> UUID:
+        po = await self.po_repo.get_by_id(po_id)
+        po_line = next((l for l in po.lines if l.id == line_id), None)
+        
+        if not po_line:
+            raise POLineNotFoundError(line_id)
+        
+        # Total received so far + new qty
+        total_received = po_line.grn_qty_received + qty
+        
+        if total_received > po_line.qty:
+            raise ExcessiveGRNError(
+                f"GRN qty {qty} would exceed PO qty {po_line.qty}"
+            )
+        
+        grn = GoodReceiptNote(po_id=po_id, line_id=line_id, qty=qty)
+        grn_id = await self.grn_repo.save(grn)
+        
+        # Add to inventory
+        await self.inventory.receive(
+            material_id=po_line.material_id,
+            quantity=qty,
+            reference_type="grn",
+            reference_id=grn_id
+        )
+        
+        return grn_id
+```
+
+---
+
+## Subcontracting Rules
+
+**Issued materials ≠ Consumed materials (track separately).**
+
+```python
+# ✅ CORRECT: Track issued, consumed, returned separately
+class SubcontractOrder:
+    issued_qty: Decimal  # Sent to subcontractor
+    consumed_qty: Decimal  # Used by subcontractor
+    returned_qty: Decimal  # Returned by subcontractor
+    
+    async def issue_materials(self, qty: Decimal) -> None:
+        """Issue materials to subcontractor."""
+        await self.inventory.consume(material_id=self.material_id, qty=qty)
+        self.issued_qty += qty
+        self.events.append(MaterialIssuedEvent(self.id, qty))
+    
+    async def receive_output(self, qty: Decimal) -> None:
+        """Receive finished goods from subcontractor."""
+        await self.inventory.receive(
+            material_id=self.output_material_id,
+            qty=qty
+        )
+        self.consumed_qty += qty
+        self.events.append(OutputReceivedEvent(self.id, qty))
+    
+    async def return_materials(self, qty: Decimal) -> None:
+        """Subcontractor returns unused materials."""
+        await self.inventory.receive(
+            material_id=self.material_id,
+            qty=qty
+        )
+        self.returned_qty += qty
+        self.events.append(MaterialReturnedEvent(self.id, qty))
+```
+
+---
+
+## Low-Stock Alerts
+
+**Alert when stock < reorder_point.**
+
+```python
+# ✅ CORRECT: Trigger alert on low stock
+class Material:
+    async def receive(self, qty: Decimal) -> None:
+        """Receive material and check stock level."""
+        self.quantity += qty
+        
+        # Check if now above reorder point (alert cleared)
+        if self.quantity > self.reorder_point:
+            self.events.append(LowStockAlertClearedEvent(self.id))
+    
+    async def consume(self, qty: Decimal) -> None:
+        """Consume material and check if low."""
+        self.quantity -= qty
+        
+        # Check if now below reorder point (alert triggered)
+        if self.quantity < self.reorder_point:
+            self.events.append(LowStockAlertTriggeredEvent(
+                material_id=self.id,
+                current_qty=self.quantity,
+                reorder_point=self.reorder_point
+            ))
+```
+
+---
+
+## Quality Control Rules
+
+**Inspections required for incoming materials.**
+
+```python
+# ✅ CORRECT: QC workflow
+class QCInspection:
+    status: QCStatus  # PENDING, IN_PROGRESS, PASSED, FAILED
+    
+    async def start_inspection(self) -> None:
+        if self.status != QCStatus.PENDING:
+            raise InvalidStateTransitionError()
+        self.status = QCStatus.IN_PROGRESS
+    
+    async def pass_inspection(self) -> None:
+        if self.status != QCStatus.IN_PROGRESS:
+            raise InvalidStateTransitionError()
+        self.status = QCStatus.PASSED
+        # Release materials for use
+        await self.inventory.release_quarantine(self.material_id)
+    
+    async def fail_inspection(self) -> None:
+        if self.status != QCStatus.IN_PROGRESS:
+            raise InvalidStateTransitionError()
+        self.status = QCStatus.FAILED
+        # Materials remain quarantined
+        self.events.append(QCFailedEvent(self.id))
+```
+
+---
+
+## Sales Order Approval
+
+**Orders require approval before manufacturing.**
+
+```python
+# ✅ CORRECT: Approval workflow
+class SalesOrder:
+    status: SalesOrderStatus  # DRAFT, APPROVED, MANUFACTURING, DELIVERED
+    
+    async def approve(self) -> None:
+        if self.status != SalesOrderStatus.DRAFT:
+            raise InvalidStateTransitionError()
+        self.status = SalesOrderStatus.APPROVED
+        self.events.append(SalesOrderApprovedEvent(self.id))
+    
+    async def start_manufacturing(self) -> None:
+        if self.status != SalesOrderStatus.APPROVED:
+            raise InvalidStateTransitionError()
+        # Create work orders...
+        self.status = SalesOrderStatus.MANUFACTURING
+```
+
+---
+
+## Soft Deletes (Mandatory)
+
+**Never hard delete. Mark as deleted.**
+
+```python
+# ✅ CORRECT: Soft delete
+class Material:
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    
+    async def delete(self) -> None:
+        self.is_deleted = True
+        self.deleted_at = datetime.utcnow()
+        await repo.save(self)
+
+# ❌ WRONG: Hard delete
+async def delete(material_id):
+    await db.execute(f"DELETE FROM materials WHERE id = {material_id}")
+```
+
+---
+
+## Reference
+
+See [`MANUFACTURING_BUSINESS_RULES.md`](../../docs/ai-guidelines/MANUFACTURING_BUSINESS_RULES.md) for verified workflows and `AGENTS.md` Section 13 for complete business rules.
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026

@@ -186,6 +186,7 @@ export default function SubcontractOrderDetailPage() {
       const [, locs] = await Promise.all([load(), materialService.getLocations()])
       const locsTyped = locs as (Location & { location_type?: string })[]
       setLocations(locsTyped)
+      // For receive: auto-select the first warehouse location (output goes to warehouse)
       const wh = locsTyped.find((l) => locKind(l) === "warehouse")
       if (wh) { setRecvWh(wh.id); setIssueFrom(wh.id); setRetLoc(wh.id) }
     }
@@ -442,8 +443,9 @@ export default function SubcontractOrderDetailPage() {
                   <TableHead>Material</TableHead>
                   <TableHead className="text-right">Required</TableHead>
                   <TableHead className="text-right">Issued</TableHead>
+                  <TableHead className="text-right">Consumed</TableHead>
                   <TableHead className="text-right">Returned</TableHead>
-                  <TableHead className="text-right">Remaining</TableHead>
+                  <TableHead className="text-right">At Subcontractor</TableHead>
                   <TableHead className="text-right">Available Stock</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
@@ -465,13 +467,10 @@ export default function SubcontractOrderDetailPage() {
                       </TableCell>
                       <TableCell className="text-right">{ln.required_quantity}</TableCell>
                       <TableCell className="text-right">{ln.issued_quantity}</TableCell>
+                      <TableCell className="text-right">{(ln as any).consumed_quantity || 0}</TableCell>
                       <TableCell className="text-right">{ln.returned_quantity}</TableCell>
                       <TableCell className="text-right font-medium">
-                        {remaining > 0 ? (
-                          <span className="text-blue-600">{remaining}</span>
-                        ) : (
-                          <span className="text-muted-foreground">{remaining}</span>
-                        )}
+                        {Math.max(0, ln.issued_quantity - ((ln as any).consumed_quantity || 0) - (ln.returned_quantity || 0))}
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {loadingStock ? (
@@ -548,12 +547,16 @@ export default function SubcontractOrderDetailPage() {
                       <div className="font-medium">{ln.issued_quantity}</div>
                     </div>
                     <div>
+                      <div className="text-muted-foreground">Consumed</div>
+                      <div className="font-medium">{(ln as any).consumed_quantity || 0}</div>
+                    </div>
+                    <div>
                       <div className="text-muted-foreground">Returned</div>
                       <div className="font-medium">{ln.returned_quantity}</div>
                     </div>
                     <div>
                       <div className="text-muted-foreground">Remaining</div>
-                      <div className="font-medium text-blue-600">{remaining}</div>
+                      <div className="font-medium text-blue-600">{Math.max(0, ln.issued_quantity - ((ln as any).consumed_quantity || 0) - (ln.returned_quantity || 0))}</div>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-xs pt-2 border-t">
@@ -733,12 +736,23 @@ export default function SubcontractOrderDetailPage() {
             </div>
             <div className="space-y-1">
               <Label>To warehouse</Label>
-              <Select value={recvWh} onValueChange={setRecvWh} disabled={!allowOps}>
-                <SelectTrigger disabled={!allowOps}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {warehouses.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              {recvWh ? (
+                <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                  <span className="text-sm font-medium text-green-900">
+                    {locations.find((l) => l.id === recvWh)?.name || recvWh}
+                  </span>
+                </div>
+              ) : (
+                <Select value={recvWh} onValueChange={setRecvWh} disabled={!allowOps}>
+                  <SelectTrigger disabled={!allowOps}><SelectValue placeholder="Select warehouse" /></SelectTrigger>
+                  <SelectContent>
+                    {locations.filter((l) => locKind(l) === "warehouse").map((l) => (
+                      <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1 sm:col-span-2">
               <Label>Output batch number <span className="text-muted-foreground text-xs">(auto-generated if blank)</span></Label>

@@ -36,6 +36,7 @@ seed_data.py
 phase8_rfq_supplier_features.sql
 *.md
 !README.md
+!SETUP.md
 !docs/**/*.md
 !backend/app/docs/WORKFLOW_OWNERSHIP_MATRIX.md
 frontend/PWA_*.md

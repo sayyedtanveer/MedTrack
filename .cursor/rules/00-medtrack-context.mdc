@@ -1,0 +1,218 @@
+---
+description: "MedTrack product identity, tech stack, and foundational context"
+alwaysApply: true
+globs:
+  - "**/*"
+---
+
+# MedTrack — Manufacturing ERP Context
+
+**Project:** MedTrack Manufacturing ERP  
+**Type:** Multi-tenant SaaS  
+**Status:** Phase 0-4 (Active Development)  
+**Canonical Reference:** [`AGENTS.md`](../../AGENTS.md)
+
+---
+
+## What is MedTrack?
+
+MedTrack is a production-grade Manufacturing ERP system for mid-to-large manufacturing companies. It manages the complete product lifecycle:
+
+- **Sales & Orders** — Customer orders, approval workflows, pricing, client portal
+- **Inventory** — Multi-warehouse stock, batch/serial tracking, reservations, low-stock alerts
+- **Manufacturing** — Work orders, BOMs, shop floor execution, production metrics
+- **Procurement** — Purchase orders, GRNs, supplier management, subcontracting
+- **Quality** — Inspections, non-conformance reports, QC approval workflows
+- **Finance** — Invoicing, AR/AP tracking, standard costing
+- **Reporting** — Real-time dashboards, analytics, MRP suggestions
+
+---
+
+## Verified Technology Stack
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| **Backend** | FastAPI | 0.111.0 |
+| **Async ORM** | SQLAlchemy | 2.0.30 |
+| **DB Driver** | asyncpg | 0.29.0 |
+| **Database** | PostgreSQL | 15+ |
+| **Validation** | Pydantic | v2.7.1 |
+| **Logging** | structlog | 24.4.0 |
+| **Auth** | python-jose + bcrypt | Latest |
+| **Frontend** | React | 18.3.1 |
+| **Language** | TypeScript | Strict mode |
+| **Build Tool** | Vite | 5.4.2 |
+| **CSS** | Tailwind CSS | 4.0+ |
+| **Testing (Backend)** | pytest | 8.2.0 |
+| **Testing (Frontend)** | Vitest | Latest |
+| **Migrations** | Alembic | 1.13.1 |
+
+---
+
+## Core Architecture Principles
+
+### 1. Multi-Tenancy (Non-Negotiable)
+- **Isolation:** Complete data separation per customer
+- **Source of Truth:** JWT `tid` claim (tenant ID)
+- **Query Filter:** Every query: `WHERE tenant_id = ...`
+- **Guarantee:** No cross-tenant data leakage possible
+
+### 2. Domain-Driven Design (Mandatory)
+```
+backend/app/
+├── domain/              # Entities, value objects, events, exceptions
+├── application/         # CQRS handlers, commands, queries
+├── infrastructure/      # Repositories, DB, logging, security
+└── interfaces/          # FastAPI routes, schemas, middleware
+```
+
+### 3. CQRS Pattern (Mandatory)
+- **Commands:** Write operations → return ID (or status)
+- **Queries:** Read operations → return DTO
+- **Separation:** No mixing read/write logic
+
+### 4. Event-Driven Architecture
+Domain events trigger async updates:
+- Work order completion → inventory consumption
+- Low stock alert → manager notification
+- Order approved → manufacturing workflow starts
+
+### 5. Soft Deletes (Mandatory)
+- No hard deletes (preserves audit trail)
+- All queries: `WHERE is_deleted = false`
+- Historical data preserved per tenant
+
+---
+
+## 8 Bounded Contexts
+
+| Context | Responsibility | Key Entities |
+|---------|-----------------|--------------|
+| **BOM** | Product configuration | Template, BOM, BOMLine |
+| **Manufacturing** | Production execution | WorkOrder, Operation, Job |
+| **Inventory** | Stock management | Material, Warehouse, Reservation |
+| **Sales** | Customer orders | SalesOrder, Pricing |
+| **Procurement** | Supplier management | PO, GRN, Subcontract |
+| **Quality** | QC workflows | Inspection, NonConformance |
+| **Finance** | Invoicing & ledger | Invoice, Payment, JournalEntry |
+| **Tenant** | Auth & isolation | User, Role, Permission, Tenant |
+
+Each context is **independent** (no direct coupling). Cross-context communication via **domain events**.
+
+---
+
+## 13 User Roles
+
+| Role | Modules | Portal |
+|------|---------|--------|
+| ADMIN | All | Admin console |
+| TENANT_ADMIN | All (within tenant) | Tenant config |
+| MANAGER | Most R/W | Ops dashboard |
+| OPERATOR | Mfg, Inventory | Shop floor |
+| STOREKEEPER | Inventory | Warehouse |
+| PLANNER | Mfg, Procurement | Planning |
+| QC | Quality, Inventory R | QC console |
+| SALES | Sales, Inventory R | Sales dashboard |
+| WORKER | Mfg, Inventory | Shop floor |
+| CLIENT | Sales R | Client portal |
+| SUPPLIER | Procurement R/W | Supplier portal |
+| VIEWER | All R | Analytics |
+
+---
+
+## Key Manufacturing Rules (Non-Negotiable)
+
+| Rule | Enforcement |
+|------|-------------|
+| **BOMs versioned** | New version = change to active BOM |
+| **WO status linear** | DRAFT → RELEASED → STARTED → COMPLETED → CLOSED |
+| **Materials reserved on WO release** | Reserved qty unavailable for others |
+| **Materials consumed on WO completion** | Inventory updated |
+| **Soft deletes only** | No hard deletes |
+| **Audit trail always** | user_id, timestamp, tenant_id logged |
+
+---
+
+## Directory Structure
+
+### Backend
+```
+backend/app/
+├── main.py                    # FastAPI app
+├── config.py                  # Settings from env
+├── domain/bom/                # BOM context
+├── application/bom/           # BOM handlers
+├── infrastructure/            # DB, logging, DI
+├── interfaces/api/v1/         # Routes, schemas
+└── tests/                     # Unit & E2E tests
+```
+
+### Frontend
+```
+frontend/src/
+├── modules/auth/              # Auth module
+├── modules/sales/             # Sales module
+├── modules/inventory/         # Inventory module
+├── components/                # Shared components
+├── services/                  # API clients
+├── hooks/                     # Custom hooks
+└── types/                     # TS interfaces
+```
+
+### Database
+```
+alembic/versions/              # 50+ migrations
+db_scripts/                    # SQL utilities
+```
+
+---
+
+## Mandatory Constraints
+
+✅ **Multi-tenant filtering** on every query  
+✅ **Soft delete check** on every SELECT  
+✅ **Type hints** on all Python functions  
+✅ **TypeScript strict mode** for all TS code  
+✅ **Async/await** for all I/O operations  
+✅ **DDD layer boundaries** respected  
+✅ **CQRS separation** (commands ≠ queries)  
+✅ **Error handling** (no silent failures)  
+✅ **Structured logging** with context  
+✅ **RBAC enforced** on endpoints  
+✅ **Audit trail** on all mutations  
+✅ **Tests ≥75% coverage** for new code  
+
+---
+
+## Critical Prohibitions (22 Total)
+
+❌ Query without `tenant_id` filter  
+❌ Skip soft delete check (`is_deleted = false`)  
+❌ Hardcode secrets or configuration  
+❌ Use blocking I/O in async context  
+❌ Put business logic in route handlers  
+❌ Rewrite existing modules  
+❌ Bypass authentication/authorization  
+❌ Silent exception handling (bare `except:`)  
+❌ Force-push to main/develop branches  
+❌ Leave debug print statements in code  
+... [12 more in AGENTS.md section 22]
+
+**See AGENTS.md for complete list.**
+
+---
+
+## When Unsure
+
+1. **Architecture:** See `.cursor/rules/01-architecture.mdc`
+2. **Backend code:** See `.cursor/rules/02-backend.mdc`
+3. **Frontend code:** See `.cursor/rules/03-frontend.mdc`
+4. **Database:** See `.cursor/rules/04-database.mdc`
+5. **Business rules:** See `.cursor/rules/05-business-rules.mdc`
+6. **Security:** See `.cursor/rules/06-security.mdc`
+7. **Workflow:** See `.cursor/rules/07-testing-and-workflow.mdc`
+8. **Full details:** See `AGENTS.md` (canonical authority)
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026
