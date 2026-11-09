@@ -11,7 +11,8 @@ fileMatchPattern:
 # Backend DDD & CQRS Patterns
 
 **Canonical Reference:** [`AGENTS.md`](../../AGENTS.md) Sections 5, 9, 14  
-**Detailed Guide:** [`BACKEND_STANDARDS.md`](../../docs/ai-guidelines/BACKEND_STANDARDS.md)
+**Detailed Guide:** [`BACKEND_STANDARDS.md`](../../docs/ai-guidelines/BACKEND_STANDARDS.md)  
+**File Organization:** See [`file-organization-standards.md`](./file-organization-standards.md) Section 1 for folder structure
 
 ---
 

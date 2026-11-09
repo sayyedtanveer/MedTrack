@@ -25,6 +25,7 @@ fileMatchPattern:
 - [`tech.md`](./tech.md) — Backend stack, async I/O
 - [`backend-ddd-patterns.md`](./backend-ddd-patterns.md) — DDD layers, error handling
 - [`product.md`](./product.md) — Multi-tenancy, soft deletes, business rules
+- [`file-organization-standards.md`](./file-organization-standards.md) — File placement rules
 
 ---
 
