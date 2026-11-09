@@ -1,0 +1,355 @@
+---
+description: "React, TypeScript, Vite, modules, components and API integration"
+alwaysApply: false
+globs:
+  - "frontend/src/**/*.tsx"
+  - "frontend/src/**/*.ts"
+---
+
+# Frontend: React, TypeScript, Vite
+
+**Reference:** [`AGENTS.md`](../../AGENTS.md) Section 8 | [`FRONTEND_STANDARDS.md`](../../docs/ai-guidelines/FRONTEND_STANDARDS.md)
+
+---
+
+## TypeScript Strict Mode (Mandatory)
+
+**All TypeScript code must be fully typed. No `any` types.**
+
+```typescript
+// ✅ CORRECT: Fully typed
+interface MaterialListProps {
+  materials: Material[];
+  loading: boolean;
+  onSelect: (id: string) => void;
+}
+
+export const MaterialList: React.FC<MaterialListProps> = ({
+  materials,
+  loading,
+  onSelect
+}) => {
+  if (loading) return <LoadingSpinner />;
+  return <div>{/* JSX */}</div>;
+};
+
+// ❌ WRONG: No types or 'any'
+export const MaterialList = ({ materials, loading, onSelect }: any) => {
+  // Type safety defeated
+};
+
+// ❌ WRONG: Untyped props
+export const MaterialList = (props) => {
+  // No TypeScript help
+};
+```
+
+---
+
+## React Components (Functional Only)
+
+**Use functional components with hooks. Never class components.**
+
+```typescript
+// ✅ CORRECT: Functional with hooks
+export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ onSubmit }) => {
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<Error | null>(null);
+  
+  const handleSubmit = async (data: SalesOrderInput) => {
+    setLoading(true);
+    try {
+      await api.orders.create(data);
+      onSubmit?.();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Unknown error"));
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  return <form onSubmit={handleSubmit}>{/* JSX */}</form>;
+};
+
+// ❌ WRONG: Class component
+class SalesOrderForm extends React.Component {
+  render() {
+    return <form>{/* JSX */}</form>;
+  }
+}
+```
+
+---
+
+## Custom Hooks (Logic Extraction)
+
+**Extract logic into reusable, typed hooks.**
+
+```typescript
+// ✅ CORRECT: Custom hook with types
+interface UseMaterialsReturn {
+  materials: Material[];
+  loading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+}
+
+export const useMaterials = (): UseMaterialsReturn => {
+  const [materials, setMaterials] = React.useState<Material[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<Error | null>(null);
+  
+  const fetch = async () => {
+    try {
+      const data = await api.materials.list();
+      setMaterials(data);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Unknown error"));
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  React.useEffect(() => {
+    fetch();
+  }, []);
+  
+  return { materials, loading, error, refetch: fetch };
+};
+
+// ❌ WRONG: Untyped hook
+export const useMaterials = () => {
+  const [materials, setMaterials] = React.useState([]);
+  // No type info for return value
+};
+```
+
+---
+
+## API Integration (Type-Safe Services)
+
+**Type-safe API clients with full request/response types.**
+
+```typescript
+// ✅ CORRECT: Fully typed API service
+interface Material {
+  id: string;
+  code: string;
+  name: string;
+  quantity: number;
+}
+
+interface CreateMaterialInput {
+  code: string;
+  name: string;
+  unit_id: string;
+}
+
+export const materialApi = {
+  async list(): Promise<Material[]> {
+    const response = await api.get<Material[]>("/materials");
+    return response.data;
+  },
+  
+  async get(id: string): Promise<Material> {
+    const response = await api.get<Material>(`/materials/${id}`);
+    return response.data;
+  },
+  
+  async create(input: CreateMaterialInput): Promise<Material> {
+    const response = await api.post<Material>("/materials", input);
+    return response.data;
+  }
+};
+
+// ❌ WRONG: Loose API integration
+export const listMaterials = () => {
+  return api.get("/materials");  // No type safety
+};
+
+export const createMaterial = (data) => {
+  return api.post("/materials", data);  // Any type
+};
+```
+
+---
+
+## Component Structure (Modules)
+
+**Each module is self-contained.**
+
+```
+modules/inventory/
+├── pages/
+│   ├── MaterialListPage.tsx       # Page component
+│   └── MaterialDetailPage.tsx
+├── components/
+│   ├── MaterialTable.tsx          # Domain components
+│   ├── MaterialForm.tsx
+│   └── __tests__/
+│       ├── MaterialTable.test.tsx
+│       └── MaterialForm.test.tsx
+├── hooks/
+│   ├── useMaterials.ts            # Custom hooks
+│   ├── useMaterialForm.ts
+│   └── __tests__/
+│       └── useMaterials.test.ts
+├── services/
+│   └── materialApi.ts             # API client
+└── types/
+    └── material.types.ts          # Interfaces
+```
+
+---
+
+## Error Handling & Loading States
+
+**Always handle loading, error, and empty states.**
+
+```typescript
+// ✅ CORRECT: Complete state handling
+export const MaterialList: React.FC = () => {
+  const { materials, loading, error } = useMaterials();
+  
+  if (loading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage error={error} />;
+  if (!materials.length) return <EmptyState message="No materials found" />;
+  
+  return (
+    <table>
+      {materials.map(m => (
+        <tr key={m.id}>
+          <td>{m.code}</td>
+        </tr>
+      ))}
+    </table>
+  );
+};
+
+// ❌ WRONG: No error/empty state
+export const MaterialList: React.FC = () => {
+  const { materials } = useMaterials();
+  return (
+    <table>
+      {materials.map(m => (
+        <tr key={m.id}><td>{m.code}</td></tr>
+      ))}
+    </table>
+  );
+};
+```
+
+---
+
+## Accessibility Requirements
+
+**Components must be accessible:**
+
+```typescript
+// ✅ CORRECT: Accessible component
+export const MaterialTable: React.FC<MaterialTableProps> = ({ materials }) => {
+  return (
+    <table role="table" aria-label="Materials">
+      <tbody>
+        {materials.map(m => (
+          <tr 
+            key={m.id} 
+            role="button" 
+            tabIndex={0}
+            onKeyPress={(e) => e.key === "Enter" && handleSelect(m.id)}
+            onClick={() => handleSelect(m.id)}
+          >
+            <td>{m.code}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+};
+
+// ❌ WRONG: Not accessible
+export const MaterialTable = ({ materials }) => {
+  return (
+    <div>
+      {materials.map(m => (
+        <div onClick={() => handleSelect(m.id)}>
+          {m.code}
+        </div>
+      ))}
+    </div>
+  );
+};
+```
+
+---
+
+## Testing (Vitest + React Testing Library)
+
+```typescript
+// ✅ CORRECT: Component test
+import { render, screen } from "@testing-library/react";
+import { MaterialList } from "./MaterialList";
+
+describe("MaterialList", () => {
+  it("displays loading spinner while loading", () => {
+    const { getByRole } = render(
+      <MaterialList materials={[]} loading={true} error={null} />
+    );
+    expect(getByRole("status")).toBeInTheDocument();
+  });
+  
+  it("displays materials when loaded", () => {
+    const materials = [{ id: "1", code: "MAT-001", name: "Steel" }];
+    const { getByText } = render(
+      <MaterialList materials={materials} loading={false} error={null} />
+    );
+    expect(getByText("MAT-001")).toBeInTheDocument();
+  });
+});
+```
+
+---
+
+## Build Configuration (Vite)
+
+**Vite config in `frontend/vite.config.ts`**
+
+```typescript
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,
+    proxy: {
+      "/api": {
+        target: "http://localhost:8001",
+        changeOrigin: true
+      }
+    }
+  }
+});
+```
+
+---
+
+## Environment Variables
+
+**Use `.env` files. Never hardcode config.**
+
+```
+VITE_API_BASE_URL=http://localhost:8001/api
+VITE_APP_NAME=MedTrack
+```
+
+```typescript
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+```
+
+---
+
+## Reference
+
+See [`FRONTEND_STANDARDS.md`](../../docs/ai-guidelines/FRONTEND_STANDARDS.md) for detailed patterns and `AGENTS.md` Section 8 for complete frontend standards.
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026

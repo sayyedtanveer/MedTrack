@@ -1,0 +1,350 @@
+---
+description: "Repository inspection, implementation workflow, testing and Definition of Done"
+alwaysApply: true
+globs:
+  - "**/*"
+---
+
+# Testing & Workflow: Inspection, Implementation, Quality Gate
+
+**Reference:** [`AGENTS.md`](../../AGENTS.md) Section 18-20 | [`IMPLEMENTATION_WORKFLOW.md`](../../docs/ai-guidelines/IMPLEMENTATION_WORKFLOW.md) | [`DEFINITION_OF_DONE.md`](../../docs/ai-guidelines/DEFINITION_OF_DONE.md)
+
+---
+
+## Pre-Implementation: Repository Inspection
+
+**Before writing code, inspect existing patterns in the same module.**
+
+### Inspection Checklist
+
+```
+Before modifying backend/app/domain/inventory/:
+  [ ] Check existing entity patterns (domain/inventory/entities/)
+  [ ] Check existing repository interfaces (domain/inventory/interfaces/)
+  [ ] Check existing handlers (application/inventory/handlers/)
+  [ ] Check existing tests (tests/unit/domain/inventory/)
+  [ ] Match existing naming conventions
+  [ ] Match existing error handling patterns
+
+Before modifying frontend/src/modules/sales/:
+  [ ] Check existing component patterns (modules/sales/components/)
+  [ ] Check existing hooks (modules/sales/hooks/)
+  [ ] Check existing API service (modules/sales/services/)
+  [ ] Check existing tests (modules/sales/__tests__/)
+  [ ] Match component typing patterns
+  [ ] Match state management patterns
+```
+
+### Anti-Pattern: Don't Assume Feature Missing
+
+```python
+# ❌ WRONG: Assuming material list doesn't exist
+# Implement: list_materials()
+# But it already exists in application/inventory/handlers/
+
+# ✅ CORRECT: Check first
+# grep -r "list_materials" backend/app/
+# Find existing implementation
+# Extend it instead of rewriting
+```
+
+---
+
+## 12-Step Implementation Workflow
+
+### Step 1: Understand Requirement
+
+**Read the full requirement. Document acceptance criteria.**
+
+```
+Example requirement:
+"Add low-stock alert thresholds to materials"
+
+Acceptance criteria:
+1. Users can set reorder_point per material
+2. Alert triggers when stock < reorder_point
+3. Alert visible in inventory dashboard
+4. RBAC: Only ADMIN, MANAGER can set threshold
+5. Audit log all threshold changes
+```
+
+### Step 2: Inspect Existing Code
+
+**Check if feature exists. Find similar patterns.**
+
+```bash
+# Check if material model has reorder_point
+grep -r "reorder_point" backend/app/
+
+# Check existing alert patterns
+grep -r "Alert" backend/app/domain/
+
+# Check existing thresholds/config patterns
+grep -r "threshold" backend/app/
+```
+
+### Step 3-7: Plan Implementation
+
+See `.cursor/rules/01-architecture.mdc` for layer structure.
+
+### Step 8: Implement
+
+Write code following patterns from existing modules.
+
+### Step 9: Test
+
+Run full test suite:
+
+```bash
+# Backend
+pytest tests/ --cov=backend/app --cov-report=term-missing
+
+# Frontend (from frontend/)
+npm run test
+
+# Type checking
+pyright backend/app
+npm run type-check
+
+# Linting
+ruff check backend/app
+npm run lint
+```
+
+### Step 10: Verify Coverage
+
+**Minimum 75% coverage for new code.**
+
+```bash
+pytest tests/ --cov=backend/app --cov-report=html
+# Open htmlcov/index.html
+```
+
+---
+
+## 13-Point Definition of Done
+
+**All items must be checked before claiming task complete.**
+
+### 1. Requirement Met
+- [ ] All acceptance criteria satisfied
+- [ ] No criteria removed or partially satisfied
+- [ ] Solution works end-to-end
+- [ ] Edge cases handled
+
+### 2. Architecture Validated
+- [ ] DDD layers respected (domain → application → infrastructure → interfaces)
+- [ ] CQRS pattern used (if applicable)
+- [ ] No cross-layer coupling
+- [ ] No circular dependencies
+
+### 3. Business Rules Enforced
+- [ ] Manufacturing rules checked (BOMs, WOs, inventory, etc.)
+- [ ] Soft deletes respected
+- [ ] State machines validated
+- [ ] Domain exceptions raised for rule violations
+
+### 4. Multi-Tenant Isolation
+- [ ] Every query has `WHERE tenant_id = ...`
+- [ ] Tenant from JWT, not request
+- [ ] Test proves Tenant A cannot see Tenant B data
+- [ ] Logs include tenant_id
+
+### 5. Authorization Enforced
+- [ ] RBAC check on endpoint (or middleware)
+- [ ] 403 Forbidden on permission denied
+- [ ] Permission denial logged
+- [ ] Test: denied and allowed scenarios
+
+### 6. Database Migrations
+- [ ] Alembic migration created (if schema changed)
+- [ ] Migration tested: `alembic upgrade head` works
+- [ ] Downgrade tested: `alembic downgrade -1` works
+- [ ] Indexes present on tenant_id, status, FKs
+
+### 7. Tests Passing (≥75% Coverage)
+- [ ] Unit tests written (domain logic)
+- [ ] Integration tests written (repositories)
+- [ ] E2E tests written (new endpoints)
+- [ ] All tests passing: `pytest tests/`
+- [ ] Frontend tests: `npm run test --run`
+- [ ] Coverage ≥75% for new code
+
+### 8. Frontend Components Typed
+- [ ] No `any` types
+- [ ] Props interface defined
+- [ ] Return type explicit
+- [ ] Error handling present
+- [ ] Loading state handled
+- [ ] Empty state handled
+- [ ] Accessible (ARIA labels, keyboard nav)
+
+### 9. Backend Code Quality
+- [ ] Type hints on all functions
+- [ ] Async/await for all I/O
+- [ ] Structured logging with context
+- [ ] Error handling explicit
+- [ ] No hardcoded values/secrets
+- [ ] No debug print statements
+
+### 10. No Unrelated Changes
+- [ ] Git diff contains only feature files
+- [ ] No whitespace-only changes
+- [ ] No unrelated refactoring
+- [ ] No renaming unrelated code
+
+### 11. Clean Commits
+- [ ] Branch: `feature/TASK-ID` or `bugfix/ISSUE-ID`
+- [ ] Commits: Atomic (one logical change each)
+- [ ] Messages: Clear, include issue reference
+- [ ] No force-push to main/develop
+
+### 12. Limitations Documented
+- [ ] Known issues noted (if any)
+- [ ] Tech debt tracked (with TASK-ID)
+- [ ] Temporary workarounds commented
+- [ ] Future optimizations marked
+
+### 13. Security Verified
+- [ ] No secrets in logs
+- [ ] No PII in logs
+- [ ] Input validated (Pydantic)
+- [ ] SQL injection prevented (parameterized queries)
+- [ ] Passwords hashed (bcrypt 12+)
+- [ ] CORS configured (not `*`)
+- [ ] Rate limiting applied (if auth endpoint)
+
+---
+
+## Definition of Done Checklist (Copy-Paste)
+
+```markdown
+## Definition of Done
+
+- [ ] Requirement met (all acceptance criteria)
+- [ ] Architecture validated (DDD layers)
+- [ ] Business rules enforced (manufacturing workflows)
+- [ ] Multi-tenant isolation preserved (tenant_id filter, JWT only)
+- [ ] Authorization enforced (RBAC check, 403 on deny)
+- [ ] Database migrations (Alembic, tested)
+- [ ] Tests passing (≥75% coverage)
+- [ ] Frontend components (fully typed, error-handled)
+- [ ] Backend code quality (types, async, logging)
+- [ ] No unrelated changes (focused diff)
+- [ ] Clean commits (branch, atomic, clear messages)
+- [ ] Limitations documented (tech debt tracked)
+- [ ] Security verified (no secrets, CORS, rate limiting)
+
+**Before merging: All 13 items must be checked.**
+```
+
+---
+
+## Test Patterns
+
+### Unit Test (Pure Logic)
+
+```python
+@pytest.mark.unit
+def test_bom_prevents_duplicate_components():
+    bom = BOM(id=uuid.uuid4(), lines=[])
+    line = BOMLine(material_id=uuid.uuid4(), quantity=Decimal("10"))
+    
+    bom.add_line(line)  # First add succeeds
+    
+    with pytest.raises(DuplicateComponentError):
+        bom.add_line(line)  # Duplicate raises error
+```
+
+### Integration Test (With Database)
+
+```python
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_material_tenant_isolation(db_session):
+    tenant1_id = uuid.uuid4()
+    tenant2_id = uuid.uuid4()
+    
+    repo = MaterialRepository(db_session)
+    
+    # Tenant1 creates material
+    mat1 = await repo.create(tenant1_id, Material(code="MAT-001", ...))
+    
+    # Tenant2 cannot see it
+    result = await repo.get_by_id(tenant2_id, mat1.id)
+    assert result is None
+```
+
+### E2E Test (Full API)
+
+```python
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_create_material_via_api(client: AsyncClient, auth_headers):
+    response = await client.post(
+        "/api/v1/materials",
+        json={"code": "MAT-001", "name": "Steel", "unit_id": str(uuid.uuid4())},
+        headers=auth_headers
+    )
+    assert response.status_code == 201
+    assert response.json()["code"] == "MAT-001"
+```
+
+---
+
+## Implementation Report Template
+
+**After task complete, provide this report:**
+
+```markdown
+## Implementation Report: TASK-ID - Feature Name
+
+### Changes Made
+- File 1: Description
+- File 2: Description
+
+### Business Logic Verified
+- ✓ Rule 1 — verified via test
+- ✓ Rule 2 — verified via test
+
+### Tests
+- ✓ Unit: XX passing
+- ✓ Integration: XX passing
+- ✓ E2E: XX passing
+- ✓ Coverage: XX% (target 75%)
+
+### Multi-Tenant Isolation
+- ✓ Test proves Tenant A cannot see Tenant B data
+
+### Definition of Done
+- ✓ All 13 items checked
+
+### Sign-Off
+✅ Ready for: Code Review → Testing → Production
+```
+
+---
+
+## Quick Decision Tree
+
+| Scenario | Action |
+|----------|--------|
+| Modifying backend entity | Check `.cursor/rules/02-backend.mdc` + domain patterns |
+| Adding React component | Check `.cursor/rules/03-frontend.mdc` + module patterns |
+| Database schema change | Check `.cursor/rules/04-database.mdc` + Alembic patterns |
+| Business rule change | Check `.cursor/rules/05-business-rules.mdc` + existing workflows |
+| Security question | Check `.cursor/rules/06-security.mdc` + RBAC matrix |
+| Implementation stuck | Run through 12-step workflow |
+| Task complete? | Verify all 13 Definition of Done items |
+
+---
+
+## Reference
+
+- **Full workflow:** [`IMPLEMENTATION_WORKFLOW.md`](../../docs/ai-guidelines/IMPLEMENTATION_WORKFLOW.md)
+- **Quality gate:** [`DEFINITION_OF_DONE.md`](../../docs/ai-guidelines/DEFINITION_OF_DONE.md)
+- **Complete standards:** `AGENTS.md` Section 18-20
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026

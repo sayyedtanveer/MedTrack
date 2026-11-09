@@ -1,0 +1,329 @@
+---
+description: "FastAPI, SQLAlchemy, Pydantic, services and repositories"
+alwaysApply: false
+globs:
+  - "backend/**/*.py"
+  - "backend/app/**/*.py"
+---
+
+# Backend: FastAPI, SQLAlchemy, Pydantic
+
+**Reference:** [`AGENTS.md`](../../AGENTS.md) Section 9 | [`BACKEND_STANDARDS.md`](../../docs/ai-guidelines/BACKEND_STANDARDS.md)
+
+---
+
+## Async-First Principle
+
+**All I/O operations must be async.**
+
+```python
+# ✅ CORRECT: Async all the way
+async def fetch_materials(tenant_id: UUID) -> List[Material]:
+    materials = await self.repo.list_by_tenant(tenant_id)  # await
+    return materials
+
+# ❌ WRONG: Blocking I/O
+def fetch_materials(tenant_id):
+    materials = self.repo.list_by_tenant(tenant_id)  # No await
+    return materials
+```
+
+**Rule:** If a function calls I/O (database, HTTP, files), it must be `async def` with `await` on all I/O calls.
+
+---
+
+## Type Hints (Mandatory)
+
+**Every function must have full type hints: parameters + return type.**
+
+```python
+# ✅ CORRECT: Full types
+async def create_material(
+    self,
+    tenant_id: UUID,
+    code: str,
+    name: str,
+    unit_id: UUID
+) -> UUID:
+    material = Material(code=code, name=name, unit_id=unit_id)
+    material_id = await self.repo.save(material)
+    return material_id
+
+# ❌ WRONG: Missing types
+def create_material(self, tenant_id, code, name, unit_id):
+    material = Material(code=code, name=name)
+    return material.id
+```
+
+---
+
+## FastAPI Routes
+
+**Routes are thin translation layers. Business logic belongs in handlers, not routes.**
+
+```python
+# ✅ CORRECT: Route delegates to handler
+@router.post("/materials")
+async def create_material(
+    req: CreateMaterialRequest,
+    handler: MaterialHandlers = Depends()
+) -> CreateMaterialResponse:
+    cmd = CreateMaterialCommand(
+        code=req.code,
+        name=req.name,
+        unit_id=req.unit_id
+    )
+    material_id = await handler.handle_create_material(cmd)
+    return CreateMaterialResponse(id=str(material_id))
+
+# ❌ WRONG: Business logic in route
+@router.post("/materials")
+async def create_material(req: CreateMaterialRequest) -> dict:
+    # ❌ Business logic here
+    if not req.code:
+        raise ValueError()
+    material = Material(code=req.code, name=req.name)
+    await db.save(material)
+    return {"id": str(material.id)}
+```
+
+---
+
+## Pydantic Schemas (Request/Response)
+
+**Use Pydantic v2 for validation. Strict mode.**
+
+```python
+# ✅ CORRECT: Strict validation
+class CreateMaterialRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=50, pattern=r"^[A-Z0-9-]+$")
+    name: str = Field(..., min_length=1, max_length=255)
+    unit_id: str = Field(...)  # Will be UUID in real code
+
+class MaterialResponse(BaseModel):
+    id: str
+    code: str
+    name: str
+    created_at: datetime
+
+# ❌ WRONG: Loose validation
+class CreateMaterialRequest(BaseModel):
+    code: str
+    name: str
+    unit_id: str
+```
+
+---
+
+## Repositories (Multi-Tenant Queries)
+
+**Repositories implement domain interfaces. All queries filter by tenant_id.**
+
+```python
+# ✅ CORRECT: Tenant-scoped queries
+class MaterialRepository(IMaterialRepository):
+    async def list_by_tenant(self, tenant_id: UUID) -> List[Material]:
+        stmt = select(MaterialModel).where(
+            MaterialModel.tenant_id == tenant_id,      # ← MANDATORY
+            MaterialModel.is_deleted == False          # ← MANDATORY
+        ).order_by(MaterialModel.created_at.desc())
+        
+        results = await self.session.execute(stmt)
+        return [Material.from_model(m) for m in results.scalars()]
+
+    async def get_by_id(
+        self,
+        tenant_id: UUID,
+        material_id: UUID
+    ) -> Material | None:
+        stmt = select(MaterialModel).where(
+            MaterialModel.tenant_id == tenant_id,
+            MaterialModel.id == material_id,
+            MaterialModel.is_deleted == False
+        )
+        result = await self.session.execute(stmt)
+        model = result.scalars().first()
+        return Material.from_model(model) if model else None
+
+# ❌ WRONG: Missing tenant filter
+async def list_by_tenant(self, tenant_id) -> List[Material]:
+    stmt = select(MaterialModel).where(MaterialModel.status == "ACTIVE")
+    # Could return other tenants' materials
+```
+
+---
+
+## Command Handlers (Write Operations)
+
+```python
+@dataclass
+class CreateMaterialCommand:
+    code: str
+    name: str
+    unit_id: UUID
+
+async def handle_create_material(self, cmd: CreateMaterialCommand) -> UUID:
+    tenant_id = get_tenant_id()  # From JWT context
+    
+    # 1. Validate input
+    existing = await self.repo.get_by_code(tenant_id, cmd.code)
+    if existing:
+        raise DuplicateMaterialCodeError(cmd.code)
+    
+    # 2. Create entity (domain logic)
+    material = Material(id=uuid.uuid4(), code=cmd.code, name=cmd.name)
+    
+    # 3. Persist
+    material_id = await self.repo.save(material)
+    
+    # 4. Publish events (for downstream subscribers)
+    await self.event_dispatcher.publish([
+        MaterialCreatedEvent(material_id=material_id)
+    ])
+    
+    # 5. Log
+    logger.info(
+        "Material created",
+        extra={
+            "material_id": str(material_id),
+            "tenant_id": str(tenant_id),
+            "code": cmd.code
+        }
+    )
+    
+    return material_id
+```
+
+---
+
+## Query Handlers (Read Operations)
+
+```python
+@dataclass
+class GetMaterialQuery:
+    material_id: UUID
+
+async def handle_get_material(self, query: GetMaterialQuery) -> MaterialResponse:
+    tenant_id = get_tenant_id()  # From JWT context
+    
+    material = await self.repo.get_by_id(tenant_id, query.material_id)
+    if not material:
+        raise MaterialNotFoundError(query.material_id)
+    
+    return MaterialResponse.from_entity(material)
+```
+
+**Rule:** Queries return DTOs, not entities. No side effects.
+
+---
+
+## Structured Logging
+
+**Use structlog. Include context. Never log secrets.**
+
+```python
+# ✅ CORRECT: Structured logging with context
+logger.info(
+    "Inventory reserved",
+    extra={
+        "tenant_id": str(tenant_id),
+        "user_id": str(user_id),
+        "material_id": str(material_id),
+        "quantity": quantity,
+        "correlation_id": correlation_id
+    }
+)
+
+# ❌ WRONG: Print statements or unstructured logging
+print(f"Material {code} created")  # No context
+logger.info(f"Password: {password}")  # Secret in log
+```
+
+---
+
+## Error Handling
+
+**Domain exceptions → HTTP responses. No silent failures.**
+
+```python
+# ✅ CORRECT: Explicit error handling
+async def handle_reserve_inventory(self, cmd: ReserveInventoryCommand) -> UUID:
+    try:
+        material = await self.repo.get_by_id(cmd.material_id)
+        if not material:
+            raise MaterialNotFoundError(cmd.material_id)
+        
+        material.reserve(cmd.quantity)  # May raise InsufficientStockError
+        
+        await self.repo.save(material)
+        return material.id
+    except DomainException as e:
+        logger.warning("Reservation failed", extra={"error": str(e)})
+        raise  # Re-raise to be handled by exception middleware
+
+# ❌ WRONG: Silent failure
+try:
+    material.reserve(quantity)
+except:
+    pass  # Silent — nobody knows what went wrong
+```
+
+---
+
+## Dependency Injection
+
+```python
+# ✅ CORRECT: Constructor injection
+class MaterialHandlers:
+    def __init__(
+        self,
+        repo: IMaterialRepository,
+        uow: IUnitOfWork,
+        event_dispatcher: IEventDispatcher
+    ):
+        self.repo = repo
+        self.uow = uow
+        self.event_dispatcher = event_dispatcher
+
+# In route: Depends() automatically wires from container
+handlers: MaterialHandlers = Depends()
+
+# ❌ WRONG: Global singletons
+_repo = MaterialRepository()  # Hard to test, multi-tenant unsafe
+```
+
+---
+
+## Testing Requirements
+
+- **Unit tests:** Pure domain logic (no I/O)
+- **Integration tests:** With database
+- **E2E tests:** Full API flow
+- **Coverage target:** ≥75% for new code
+
+```python
+@pytest.mark.asyncio
+async def test_material_isolation_between_tenants():
+    tenant1_id = uuid.uuid4()
+    tenant2_id = uuid.uuid4()
+    
+    # Tenant1 creates material
+    mat1_id = await handler.handle_create_material(
+        CreateMaterialCommand(code="MAT-001", name="Steel", ...),
+        tenant_id=tenant1_id
+    )
+    
+    # Tenant2 cannot see it
+    result = await repo.get_by_id(tenant2_id, mat1_id)
+    assert result is None  # Isolation verified
+```
+
+---
+
+## Reference
+
+See [`BACKEND_STANDARDS.md`](../../docs/ai-guidelines/BACKEND_STANDARDS.md) for detailed patterns and `AGENTS.md` Section 9 for complete backend standards.
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026

@@ -1,0 +1,335 @@
+---
+description: "Backend and frontend architecture, layer boundaries, module responsibilities"
+alwaysApply: false
+globs:
+  - "backend/**/*.py"
+  - "frontend/src/**/*.tsx"
+  - "frontend/src/**/*.ts"
+---
+
+# Architecture: DDD + CQRS + React
+
+**Reference:** [`AGENTS.md`](../../AGENTS.md) Section 5-6 | [`SYSTEM_ARCHITECTURE.md`](../../docs/ai-guidelines/SYSTEM_ARCHITECTURE.md)
+
+---
+
+## Backend Architecture (DDD + CQRS)
+
+### 4 Layers (Mandatory Separation)
+
+```
+Interfaces/     ← FastAPI routes, Pydantic schemas, middleware
+  ↓
+Application/    ← CQRS handlers (commands/queries), use cases
+  ↓
+Domain/         ← Entities, value objects, events, exceptions
+  ↓
+Infrastructure/ ← Repositories, DB, logging, security, DI
+```
+
+**Rule:** Code in each layer touches only layers below. Routes never access repositories directly; they use handlers.
+
+### Layer 1: Domain (Business Logic)
+
+**Files:** `backend/app/domain/*/`
+
+**Contains:**
+- **Entities** — Aggregate roots with identity (BOM, WorkOrder, Material)
+- **Value Objects** — Immutable values (Money, Component)
+- **Domain Events** — State changes (BOMAct ivatedEvent, MaterialConsumedEvent)
+- **Exceptions** — Business rule violations (DuplicateComponentError, InsufficientStockError)
+- **Interfaces** — Abstract repository contracts
+
+**Rule:** Pure business logic, no database access, no HTTP concerns.
+
+```python
+# ✅ CORRECT: Business rule in entity
+class WorkOrder:
+    def complete(self) -> None:
+        """Release materials consumed from BOM."""
+        if self.status != WorkOrderStatus.STARTED:
+            raise InvalidStateTransitionError()
+        self.status = WorkOrderStatus.COMPLETED
+        self.events.append(WorkOrderCompletedEvent(self.id))
+
+# ❌ WRONG: Business logic in application
+def complete_work_order(wo_id):
+    wo = repo.get(wo_id)
+    wo.status = "COMPLETED"  # Direct state change
+```
+
+### Layer 2: Application (Use Cases)
+
+**Files:** `backend/app/application/*/handlers/`
+
+**Contains:**
+- **Command Handlers** — Write operations (CreateBOM, ReleaseWorkOrder)
+- **Query Handlers** — Read operations (GetBOM, ListWorkOrders)
+- **DTOs** — Data transfer objects for API responses
+- **Services** — Business orchestration (inventory service, notification service)
+
+**Rule:** Coordinates between domain and infrastructure. No direct database queries.
+
+```python
+# ✅ CORRECT: Handler orchestrates
+async def handle_complete_work_order(cmd: CompleteWorkOrderCommand) -> CompleteWorkOrderResponse:
+    wo = await repo.get_by_id(cmd.work_order_id)  # Infrastructure
+    wo.complete()  # Domain (may raise exception)
+    await repo.save(wo)  # Infrastructure
+    await event_dispatcher.publish(wo.events)  # Infrastructure
+    return CompleteWorkOrderResponse(id=wo.id)
+```
+
+### Layer 3: Infrastructure (Persistence)
+
+**Files:** `backend/app/infrastructure/`
+
+**Contains:**
+- **Repositories** — Implement domain repository interfaces
+- **ORM Models** — SQLAlchemy models
+- **Unit of Work** — Transaction coordination
+- **DI Container** — Dependency injection setup
+- **Logging** — Structured logging configuration
+- **Security** — JWT validation, password hashing
+
+**Rule:** Data access layer. No business logic here.
+
+```python
+# ✅ CORRECT: Repository implements interface
+class BOMRepository(IBOMRepository):
+    async def get_by_id(self, tenant_id: UUID, bom_id: UUID) -> BOM | None:
+        stmt = select(BOMModel).where(
+            BOMModel.tenant_id == tenant_id,
+            BOMModel.id == bom_id,
+            BOMModel.is_deleted == False
+        )
+        result = await session.execute(stmt)
+        model = result.scalars().first()
+        return BOM.from_model(model) if model else None
+```
+
+### Layer 4: Interfaces (HTTP Layer)
+
+**Files:** `backend/app/interfaces/api/v1/routes/`
+
+**Contains:**
+- **Routes** — FastAPI endpoint handlers (thin translation layer)
+- **Schemas** — Pydantic request/response models
+- **Middleware** — Request/response processing
+
+**Rule:** Routes call handlers, not repositories. Middleware extracts tenant context.
+
+```python
+# ✅ CORRECT: Route calls handler
+@router.get("/boms/{id}")
+async def get_bom(id: UUID, handler = Depends()) -> BOMResponse:
+    query = GetBOMQuery(bom_id=id)
+    return await handler.handle_get_bom(query)
+
+# ❌ WRONG: Route queries repository directly
+@router.get("/boms/{id}")
+async def get_bom(id: UUID, repo = Depends()) -> dict:
+    bom = await repo.get_by_id(id)  # Bypasses handler
+    return bom.to_dict()
+```
+
+---
+
+## Frontend Architecture (React + TypeScript)
+
+### Module-Based Structure
+
+```
+modules/
+├── auth/
+│   ├── pages/              # Page components
+│   ├── components/         # Domain components
+│   ├── hooks/              # Custom hooks
+│   ├── services/           # API clients
+│   └── types/              # Interfaces
+├── sales/
+│   ├── pages/
+│   ├── components/
+│   ├── hooks/
+│   ├── services/
+│   └── types/
+...
+```
+
+**Rule:** Each module is self-contained. Share via hooks, not direct imports.
+
+### Component Organization
+
+**Files:** `frontend/src/modules/*/components/`
+
+**Patterns:**
+- **Functional components only** (no class components)
+- **Fully typed props** (no `any`)
+- **Custom hooks** for logic extraction
+- **Error boundaries** for risky components
+
+```typescript
+// ✅ CORRECT: Fully typed, error-handled
+interface SalesOrderTableProps {
+  orders: SalesOrder[];
+  onSelect: (id: string) => void;
+  loading?: boolean;
+}
+
+export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
+  orders,
+  onSelect,
+  loading = false
+}) => {
+  if (loading) return <LoadingSpinner />;
+  if (!orders.length) return <EmptyState />;
+  
+  return (
+    <table>
+      {orders.map(o => (
+        <tr key={o.id} onClick={() => onSelect(o.id)}>
+          <td>{o.number}</td>
+        </tr>
+      ))}
+    </table>
+  );
+};
+```
+
+### State Management
+
+**Pattern:** useState for local, useReducer for complex, Context for global
+
+```typescript
+// ✅ Custom hook for reusable logic
+export const useSalesOrders = () => {
+  const [orders, setOrders] = React.useState<SalesOrder[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  
+  React.useEffect(() => {
+    const fetch = async () => {
+      try {
+        const data = await api.orders.list();
+        setOrders(data);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, []);
+  
+  return { orders, loading };
+};
+```
+
+---
+
+## Bounded Contexts (Microservice-Like)
+
+Each business domain is semi-independent:
+
+| Context | Backend | Frontend | Key Rules |
+|---------|---------|----------|-----------|
+| **BOM** | domain/bom/ | modules/bom/ | Versioned, no duplicates |
+| **Manufacturing** | domain/manufacturing/ | modules/manufacturing/ | Status machine |
+| **Inventory** | domain/inventory/ | modules/inventory/ | Reservations, soft deletes |
+| **Sales** | domain/sales/ | modules/sales/ | Approval workflow |
+| **Procurement** | domain/procurement/ | modules/procurement/ | GRN ≤ PO qty |
+| **Quality** | domain/quality/ | modules/quality/ | Inspections required |
+| **Finance** | domain/finance/ | modules/finance/ | AR/AP tracking |
+| **Tenant** | domain/tenant/ | modules/auth/ | Multi-tenancy |
+
+**Cross-Context Communication:** Domain events only. Never direct coupling.
+
+---
+
+## Dependency Injection
+
+**Pattern:** Constructor injection, container-managed
+
+```python
+# ✅ CORRECT: DI container manages dependencies
+class BOMHandlers:
+    def __init__(
+        self,
+        repo: IBOMRepository,
+        event_dispatcher: IEventDispatcher,
+        uow: IUnitOfWork
+    ):
+        self.repo = repo
+        self.event_dispatcher = event_dispatcher
+        self.uow = uow
+
+# In route:
+bom_handlers: BOMHandlers = Depends()
+
+# ❌ WRONG: Global singletons
+_repo = BOMRepository()  # Hard to test, multi-tenant unsafe
+```
+
+---
+
+## CQRS Pattern (Mandatory)
+
+### Commands (Write Operations)
+
+```python
+@dataclass
+class CreateBOMCommand:
+    template_id: UUID
+    lines: List[BOMLineInput]
+
+async def handle_create_bom(self, cmd: CreateBOMCommand) -> UUID:
+    # 1. Validate
+    # 2. Create entity
+    # 3. Persist
+    # 4. Publish events
+    return bom_id  # Return ID, not entity
+```
+
+### Queries (Read Operations)
+
+```python
+@dataclass
+class ListBOMsQuery:
+    pass
+
+async def handle_list_boms(self, query: ListBOMsQuery) -> List[BOMResponse]:
+    boms = await repo.list_by_tenant(get_tenant_id())
+    return [BOMResponse.from_entity(b) for b in boms]  # Return DTOs
+```
+
+**Rule:** Never mix. Commands for writes, queries for reads.
+
+---
+
+## Event-Driven Communication
+
+Domain events decouple contexts:
+
+```
+WorkOrder.complete()
+  ↓
+Raises WorkOrderCompletedEvent
+  ↓
+Event dispatcher publishes
+  ↓
+Subscribers listen:
+  - Inventory service (consume materials)
+  - Metrics service (update KPIs)
+  - Notification service (alert users)
+  - WebSocket handler (real-time UI update)
+```
+
+---
+
+## Reference
+
+For detailed patterns, see:
+- **Backend:** `.cursor/rules/02-backend.mdc`
+- **Frontend:** `.cursor/rules/03-frontend.mdc`
+- **Full details:** `AGENTS.md` sections 5-6 or [`SYSTEM_ARCHITECTURE.md`](../../docs/ai-guidelines/SYSTEM_ARCHITECTURE.md)
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026

@@ -1,0 +1,325 @@
+---
+description: "PostgreSQL, SQLAlchemy, Alembic and migrations"
+alwaysApply: false
+globs:
+  - "backend/app/infrastructure/persistence/**/*.py"
+  - "alembic/**/*.py"
+  - "db_scripts/**/*.sql"
+---
+
+# Database: PostgreSQL, SQLAlchemy, Alembic
+
+**Reference:** [`AGENTS.md`](../../AGENTS.md) Section 10 | [`DATABASE_STANDARDS.md`](../../docs/ai-guidelines/DATABASE_STANDARDS.md)
+
+---
+
+## Schema Requirements (Every Table)
+
+**Every table must include these columns and indexes:**
+
+```sql
+CREATE TABLE materials (
+    -- Primary key (distributed system support)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- Multi-tenancy (mandatory)
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+    
+    -- Soft deletes (mandatory)
+    is_deleted BOOLEAN NOT NULL DEFAULT false,
+    deleted_at TIMESTAMP NULL,
+    
+    -- Audit trail (mandatory)
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by UUID NOT NULL REFERENCES users(id),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by UUID NOT NULL REFERENCES users(id),
+    
+    -- Business columns
+    code VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    
+    -- Constraints
+    CONSTRAINT fk_materials_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    CONSTRAINT fk_created_by FOREIGN KEY (created_by) REFERENCES users(id),
+    CONSTRAINT fk_updated_by FOREIGN KEY (updated_by) REFERENCES users(id),
+    
+    -- Mandatory indexes
+    INDEX idx_materials_tenant_deleted ON (tenant_id, is_deleted),
+    INDEX idx_materials_created_at ON (created_at DESC)
+);
+```
+
+---
+
+## SQLAlchemy ORM Models
+
+**Models map to database schema.**
+
+```python
+# ✅ CORRECT: Complete model with soft deletes
+from sqlalchemy.orm import Mapped, mapped_column
+from datetime import datetime
+from uuid import UUID
+
+class MaterialModel(Base):
+    __tablename__ = "materials"
+    
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_by: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    
+    __table_args__ = (
+        Index("idx_materials_tenant_deleted", "tenant_id", "is_deleted"),
+        Index("idx_materials_created_at", "created_at"),
+    )
+```
+
+---
+
+## Multi-Tenant Queries (Mandatory Filter)
+
+**Every SELECT query must filter by tenant_id AND is_deleted.**
+
+```python
+# ✅ CORRECT: Tenant filter + soft delete check
+async def list_by_tenant(self, tenant_id: UUID) -> List[Material]:
+    stmt = select(MaterialModel).where(
+        MaterialModel.tenant_id == tenant_id,      # ← MANDATORY
+        MaterialModel.is_deleted == False          # ← MANDATORY
+    ).order_by(MaterialModel.created_at.desc())
+    
+    results = await session.execute(stmt)
+    return [Material.from_model(m) for m in results.scalars()]
+
+async def get_by_id(self, tenant_id: UUID, material_id: UUID) -> Material | None:
+    stmt = select(MaterialModel).where(
+        MaterialModel.tenant_id == tenant_id,      # ← MANDATORY
+        MaterialModel.id == material_id,
+        MaterialModel.is_deleted == False          # ← MANDATORY
+    )
+    result = await session.execute(stmt)
+    model = result.scalars().first()
+    return Material.from_model(model) if model else None
+
+# ❌ WRONG: Missing tenant or soft delete filter
+async def list_all(self) -> List[Material]:
+    stmt = select(MaterialModel)  # ← Gets all tenants + deleted!
+    results = await session.execute(stmt)
+    return results
+
+async def get_by_code(self, code: str) -> Material | None:
+    stmt = select(MaterialModel).where(MaterialModel.code == code)
+    # ← Missing tenant filter (cross-tenant leak)
+```
+
+---
+
+## Soft Delete Pattern
+
+**Never hard delete. Mark as deleted instead.**
+
+```python
+# ✅ CORRECT: Soft delete
+async def delete(self, tenant_id: UUID, material_id: UUID) -> None:
+    stmt = select(MaterialModel).where(
+        MaterialModel.tenant_id == tenant_id,
+        MaterialModel.id == material_id,
+        MaterialModel.is_deleted == False
+    )
+    result = await session.execute(stmt)
+    material = result.scalars().first()
+    
+    if material:
+        material.is_deleted = True
+        material.deleted_at = datetime.utcnow()
+        await session.commit()
+
+# ❌ WRONG: Hard delete
+async def delete(self, material_id: UUID) -> None:
+    stmt = delete(MaterialModel).where(MaterialModel.id == material_id)
+    await session.execute(stmt)  # ← Destroys data, no audit trail
+```
+
+---
+
+## Alembic Migrations
+
+**Schema changes use Alembic. Never modify database directly.**
+
+### Create Migration
+
+```bash
+# Modify model in code, then:
+alembic revision --autogenerate -m "add_priority_to_sales_orders"
+
+# Generates: alembic/versions/20261109_add_priority_to_sales_orders.py
+```
+
+### Migration File Template
+
+```python
+# alembic/versions/20261109_add_priority_to_sales_orders.py
+from alembic import op
+from sqlalchemy import Column, Integer, Index, ForeignKey
+
+def upgrade():
+    op.add_column("sales_orders", Column("priority", Integer, default=0))
+    op.create_index(
+        "idx_sales_orders_priority",
+        "sales_orders",
+        ["priority"]
+    )
+
+def downgrade():
+    op.drop_index("idx_sales_orders_priority", "sales_orders")
+    op.drop_column("sales_orders", "priority")
+```
+
+### Migration Workflow
+
+```bash
+# Check current state
+alembic current
+
+# Apply migrations
+alembic upgrade head
+
+# Revert one migration
+alembic downgrade -1
+
+# Handle merge conflicts (if multiple heads)
+alembic heads                    # Show all heads
+alembic merge heads -m "merge description"
+alembic upgrade head
+```
+
+---
+
+## Indexes (Performance)
+
+**Index strategically:**
+
+```python
+# ✅ Indexes needed for:
+
+# 1. Tenant + soft delete filter (common query)
+Index("idx_materials_tenant_deleted", "tenant_id", "is_deleted")
+
+# 2. Status/state filtering
+Index("idx_work_orders_status", "status")
+
+# 3. Foreign key columns
+Index("idx_work_orders_bom_id", "bom_id")
+
+# 4. Timestamps (range queries)
+Index("idx_sales_orders_created_at", "created_at" DESC)
+
+# ❌ Unnecessary indexes:
+Index("idx_materials_name")  # Low selectivity, rarely queried
+Index("idx_work_orders_description")  # Text column (too large)
+```
+
+---
+
+## Connection Pooling
+
+**SQLAlchemy async with asyncpg connection pool.**
+
+```python
+# backend/app/infrastructure/persistence/session.py
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+# ✅ CORRECT: Async engine with pooling
+engine = create_async_engine(
+    "postgresql+asyncpg://user:pass@localhost/medtrack",
+    echo=False,
+    pool_size=20,  # Connection pool size
+    max_overflow=10,  # Overflow connections
+    pool_recycle=3600,  # Recycle connections every hour
+    pool_pre_ping=True,  # Test connections before use
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
+)
+```
+
+---
+
+## Unit of Work Pattern (Transactions)
+
+**Coordinate multiple operations in one transaction.**
+
+```python
+# ✅ CORRECT: Unit of Work for atomic operations
+class UnitOfWork:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+    
+    async def begin(self):
+        await self.session.begin()
+    
+    async def commit(self):
+        await self.session.commit()
+    
+    async def rollback(self):
+        await self.session.rollback()
+
+# Usage in handler
+async def handle_complete_work_order(cmd: CompleteWorkOrderCommand):
+    async with uow.session.begin():
+        # All operations here are atomic
+        wo = await wo_repo.get_by_id(cmd.work_order_id)
+        wo.complete()  # Domain logic
+        
+        # Consume inventory (separate entity)
+        for line in wo.lines:
+            material = await mat_repo.get_by_id(line.material_id)
+            material.consume(line.quantity)
+            await mat_repo.save(material)
+        
+        # Both operations commit together or rollback together
+        await uow.commit()
+```
+
+---
+
+## Queries & Filtering
+
+**Use SQLAlchemy ORM (parameterized queries).**
+
+```python
+# ✅ CORRECT: Parameterized queries (safe)
+stmt = select(MaterialModel).where(
+    MaterialModel.tenant_id == tenant_id,
+    MaterialModel.code == code
+)
+result = await session.execute(stmt)
+
+# ❌ WRONG: String concatenation (SQL injection risk)
+query = f"SELECT * FROM materials WHERE code = '{code}'"
+# Vulnerable to injection
+```
+
+---
+
+## Reference
+
+See [`DATABASE_STANDARDS.md`](../../docs/ai-guidelines/DATABASE_STANDARDS.md) for detailed patterns and `AGENTS.md` Section 10 for complete database standards.
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026

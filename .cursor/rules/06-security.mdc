@@ -1,0 +1,398 @@
+---
+description: "Authentication, authorization, RBAC and tenant isolation"
+alwaysApply: true
+globs:
+  - "backend/app/infrastructure/security/**/*.py"
+  - "backend/app/interfaces/api/**/*.py"
+  - "backend/app/domain/tenant/**/*.py"
+---
+
+# Security: Authentication, RBAC, Tenant Isolation
+
+**Reference:** [`AGENTS.md`](../../AGENTS.md) Section 11-12 | [`SECURITY_AND_MULTITENANCY.md`](../../docs/ai-guidelines/SECURITY_AND_MULTITENANCY.md)
+
+---
+
+## Multi-Tenancy Isolation (Non-Negotiable)
+
+### Rule 1: Tenant from JWT Only
+
+**Tenant ID must come from JWT `tid` claim, never from request parameters.**
+
+```python
+# ✅ CORRECT: Tenant from JWT context
+from backend.app.infrastructure.context import get_tenant_id
+
+async def list_materials(handler: MaterialHandlers = Depends()):
+    tenant_id = get_tenant_id()  # ← From JWT, not request
+    query = ListMaterialsQuery()
+    return await handler.handle_list_materials(query)
+
+# ❌ WRONG: Tenant from request parameter
+async def list_materials(tenant_id: UUID):
+    # ❌ User could pass any tenant_id
+    query = ListMaterialsQuery(tenant_id=tenant_id)
+    return await handler.handle_list_materials(query)
+```
+
+### Rule 2: Every Query Filters by tenant_id
+
+```python
+# ✅ CORRECT: All queries scoped by tenant
+stmt = select(MaterialModel).where(
+    MaterialModel.tenant_id == get_tenant_id(),  # ← MANDATORY
+    MaterialModel.is_deleted == False
+)
+
+# ❌ WRONG: Missing tenant filter
+stmt = select(MaterialModel).where(MaterialModel.code == code)
+# Could expose other tenants' data
+```
+
+### Rule 3: Isolation Test Required
+
+```python
+@pytest.mark.asyncio
+async def test_material_isolation_between_tenants():
+    tenant1_id = uuid.uuid4()
+    tenant2_id = uuid.uuid4()
+    
+    # Tenant1 creates material
+    mat1_id = await handler.handle_create_material(
+        CreateMaterialCommand(code="MAT-001", ...),
+        tenant_id=tenant1_id
+    )
+    
+    # Set context to Tenant2
+    ContextVars.tenant_id.set(tenant2_id)
+    
+    # Tenant2 cannot see it
+    result = await repo.get_by_id(tenant2_id, mat1_id)
+    assert result is None  # ← Isolation verified
+```
+
+---
+
+## Authentication (JWT)
+
+### JWT Token Structure
+
+```python
+{
+    "sub": "user_id_uuid",
+    "tid": "tenant_id_uuid",  # ← Tenant ID
+    "role": "MANAGER",         # ← User role
+    "exp": 1234567890,
+    "iat": 1234567890
+}
+```
+
+### Token Creation
+
+```python
+# ✅ CORRECT: JWT with expiration
+from datetime import datetime, timedelta
+from jose import jwt
+
+def create_token(user_id: UUID, tenant_id: UUID, role: str) -> str:
+    payload = {
+        "sub": str(user_id),
+        "tid": str(tenant_id),
+        "role": role,
+        "exp": datetime.utcnow() + timedelta(hours=24),  # ← Expiration
+        "iat": datetime.utcnow()
+    }
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+    return token
+
+# ❌ WRONG: No expiration
+def create_token(user_id, tenant_id, role):
+    payload = {
+        "sub": str(user_id),
+        "tid": str(tenant_id),
+        "role": role
+        # ❌ Missing expiration
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+```
+
+### Token Validation
+
+```python
+# ✅ CORRECT: Validate token
+def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        tenant_id = payload.get("tid")
+        
+        if not user_id or not tenant_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        return User(id=UUID(user_id), tenant_id=UUID(tenant_id))
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+```
+
+---
+
+## Authorization (RBAC)
+
+### Role-Based Permissions
+
+```python
+# ✅ CORRECT: RBAC matrix
+PERMISSIONS = {
+    # (module, action) → allowed roles
+    ("material", "create"): ["ADMIN", "MANAGER", "STOREKEEPER"],
+    ("material", "delete"): ["ADMIN", "MANAGER"],
+    ("work_order", "release"): ["ADMIN", "MANAGER", "PLANNER"],
+    ("work_order", "complete"): ["OPERATOR", "WORKER"],
+    ("sales_order", "approve"): ["ADMIN", "MANAGER"],
+}
+
+async def check_permission(
+    user_role: str,
+    module: str,
+    action: str
+) -> bool:
+    allowed_roles = PERMISSIONS.get((module, action), [])
+    return user_role in allowed_roles
+```
+
+### Permission Enforcement (Route)
+
+```python
+# ✅ CORRECT: RBAC dependency
+async def require_permission(module: str, action: str):
+    async def permission_check(user = Depends(get_current_user)):
+        has_permission = await permission_service.check(
+            user_role=user.role,
+            module=module,
+            action=action
+        )
+        if not has_permission:
+            logger.warning(
+                "Access denied",
+                extra={"user_id": str(user.id), "module": module, "action": action}
+            )
+            raise HTTPException(status_code=403, detail="Access denied")
+        return user
+    return permission_check
+
+@router.post("/materials")
+async def create_material(
+    req: CreateMaterialRequest,
+    user = Depends(require_permission("material", "create")),
+    handler = Depends()
+):
+    return await handler.handle_create_material(req)
+
+# ❌ WRONG: No RBAC
+@router.post("/materials")
+async def create_material(req, user = Depends()):
+    # ❌ Any authenticated user can create
+    return await handler.handle_create_material(req)
+```
+
+---
+
+## Password Security
+
+### Hashing (Bcrypt)
+
+```python
+# ✅ CORRECT: Bcrypt with 12+ salt rounds
+import bcrypt
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed)
+
+# ❌ WRONG: Plaintext or weak hashing
+user.password = password  # ❌ Plaintext
+user.password = hashlib.md5(password).hexdigest()  # ❌ Weak
+
+# ❌ WRONG: Low salt rounds
+bcrypt.gensalt(rounds=4)  # ❌ Too weak
+```
+
+### Password Requirements
+
+```python
+# ✅ Minimum 12 characters
+if len(password) < 12:
+    raise PasswordTooShortError()
+
+# ✅ Complexity requirements (optional but recommended)
+if not any(c.isupper() for c in password):
+    raise PasswordMissingUpperError()
+if not any(c.isdigit() for c in password):
+    raise PasswordMissingDigitError()
+```
+
+---
+
+## Audit Logging (All Mutations)
+
+**Every write operation must be logged.**
+
+```python
+# ✅ CORRECT: Audit logging on mutation
+async def handle_create_material(self, cmd: CreateMaterialCommand) -> UUID:
+    tenant_id = get_tenant_id()
+    user_id = get_current_user().id
+    
+    # Create entity
+    material = Material(code=cmd.code, name=cmd.name)
+    material_id = await self.repo.save(material)
+    
+    # Log mutation (tenant_id, user_id, action)
+    logger.info(
+        "Material created",
+        extra={
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "material_id": str(material_id),
+            "code": cmd.code,
+            "action": "create"
+        }
+    )
+    
+    return material_id
+
+# ❌ WRONG: No audit logging
+async def handle_create_material(cmd):
+    material = Material(code=cmd.code)
+    await repo.save(material)
+    return material.id  # ❌ No logging
+```
+
+---
+
+## Secrets Management
+
+### Never Hardcode
+
+```python
+# ✅ CORRECT: From environment
+import os
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY not set in environment")
+
+# ❌ WRONG: Hardcoded secrets
+SECRET_KEY = "my-secret-key-12345"  # ❌ In source code
+DB_PASSWORD = "postgres123"  # ❌ Exposed
+```
+
+### Never Log Secrets
+
+```python
+# ✅ CORRECT: Avoid logging sensitive data
+logger.info("User login", extra={"user_id": str(user_id)})
+# ❌ Don't log password
+
+# ✅ CORRECT: Mask sensitive data
+masked_email = f"{email[:2]}***{email[-2:]}"
+logger.info("Email verified", extra={"email": masked_email})
+
+# ❌ WRONG: Log passwords or tokens
+logger.info(f"Token: {token}")  # ❌ Secret in log
+logger.error(f"Login failed for {email}: {password}")  # ❌ Plaintext
+```
+
+---
+
+## CORS Configuration
+
+**Never allow all origins (`*`).**
+
+```python
+# ✅ CORRECT: Specific allowed origins
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",        # Local dev
+        "https://app.medtrack.com",     # Production
+        "https://staging.medtrack.com"  # Staging
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"]
+)
+
+# ❌ WRONG: Allow all origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"]  # ❌ Security risk
+)
+```
+
+---
+
+## Rate Limiting
+
+**Prevent brute-force attacks.**
+
+```python
+# ✅ CORRECT: Rate limiting on sensitive endpoints
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
+
+@limiter.limit("5/minute")  # 5 attempts per minute
+@router.post("/auth/login")
+async def login(credentials: LoginRequest):
+    pass
+
+@limiter.limit("10/minute")  # 10 attempts per minute
+@router.post("/auth/2fa/verify")
+async def verify_2fa(code: str):
+    pass
+
+# ❌ WRONG: No rate limiting
+@router.post("/auth/login")
+async def login(credentials):
+    pass  # ❌ Unlimited attempts (brute-force risk)
+```
+
+---
+
+## TLS/HTTPS
+
+**Always use HTTPS in production.**
+
+```python
+# ✅ CORRECT: HTTPS enforced
+# In Nginx reverse proxy or cloud provider settings
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_ciphers HIGH:!aNULL:!MD5;
+
+# ✅ CORRECT: HSTS header (force HTTPS)
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+```
+
+---
+
+## Reference
+
+See [`SECURITY_AND_MULTITENANCY.md`](../../docs/ai-guidelines/SECURITY_AND_MULTITENANCY.md) for verified controls and `AGENTS.md` Sections 11-12 for complete security standards.
+
+---
+
+**Status:** Production Ready | Updated November 9, 2026
