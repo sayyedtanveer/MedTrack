@@ -641,3 +641,179 @@ git commit -m "chore: Move file to correct location
 - Verify test files are in `tests/` folder
 - Block merge if structure is violated
 
+
+
+---
+
+## 11. Migration Plan: Deprecated Frontend Folders
+
+### 11.1 Current State (Legacy Structure)
+
+**Deprecated folders still in repository:**
+```
+frontend/src/
+├── components/          ⚠️ DEPRECATED (71 files)
+├── hooks/               ⚠️ DEPRECATED (12 files)
+├── services/            ⚠️ DEPRECATED (29 files)
+└── types/               ⚠️ DEPRECATED (8 files)
+```
+
+**These folders contain shared/generic components that should be migrated to:**
+```
+frontend/src/modules/shared/
+├── components/          ✅ NEW (generic UI components)
+├── hooks/               ✅ NEW (global hooks)
+└── types/               ✅ NEW (shared types)
+
+frontend/src/modules/{module}/
+├── services/            ✅ NEW (module-specific API clients)
+└── types/               ✅ NEW (module-specific types)
+```
+
+### 11.2 Migration Strategy
+
+**Phase 1: Identify Shared vs. Module-Specific**
+- Generic UI components (Button, Modal, Table) → `modules/shared/components/`
+- Global hooks (useAuth, useTenant) → `modules/shared/hooks/`
+- Global types (common interfaces) → `modules/shared/types/`
+- Module-specific services → `modules/{module}/services/`
+- Module-specific types → `modules/{module}/types/`
+
+**Phase 2: Gradual Migration**
+```bash
+# Do NOT migrate all at once - causes merge conflicts
+# Migrate incrementally as files are edited
+
+# When editing a file in deprecated location:
+1. Move file to new location
+2. Update all imports across codebase
+3. Commit separately
+4. Delete deprecated file only when empty
+```
+
+**Phase 3: Cleanup**
+- Delete deprecated folders ONLY after all files migrated
+- Update import statements in entire codebase
+- Verify no broken imports remain
+
+### 11.3 Current Usage Rules
+
+**Until migration is complete:**
+
+✅ **New files:**
+- MUST be created in `modules/{module}/` structure
+- MUST NOT be created in deprecated folders
+
+⚠️ **Existing files:**
+- May remain in deprecated folders temporarily
+- MUST be migrated when edited
+- MUST use new location for all NEW imports
+
+❌ **Prohibited:**
+- Creating new files in `components/`, `hooks/`, `services/`, `types/` root folders
+- Adding new imports from deprecated locations
+
+### 11.4 Example: Migrate a Component
+
+**Before (❌ Deprecated):**
+```typescript
+// frontend/src/components/Button.tsx
+export const Button: React.FC<ButtonProps> = ({ ... }) => { ... }
+
+// Imported from:
+// import { Button } from '@/components/Button'
+```
+
+**After (✅ New Location):**
+```typescript
+// frontend/src/modules/shared/components/Button.tsx
+export const Button: React.FC<ButtonProps> = ({ ... }) => { ... }
+
+// Imported from:
+// import { Button } from '@/modules/shared/components/Button'
+```
+
+**Migration Steps:**
+```bash
+# 1. Move file
+git mv frontend/src/components/Button.tsx frontend/src/modules/shared/components/Button.tsx
+
+# 2. Find all imports (search in IDE for "@/components/Button")
+grep -r "@/components/Button" frontend/src/
+
+# 3. Update imports in all files
+# In each file:
+# FROM: import { Button } from '@/components/Button'
+# TO:   import { Button } from '@/modules/shared/components/Button'
+
+# 4. Commit
+git commit -m "refactor: Migrate Button component to modules/shared/components
+
+- Moved from frontend/src/components/ to frontend/src/modules/shared/components/
+- Updated all import statements across codebase
+- Follows new file-organization-standards.md"
+```
+
+### 11.5 Import Path Updates
+
+**Update imports systematically:**
+
+```typescript
+// ❌ OLD (Deprecated)
+import { Button } from '@/components/Button'
+import { useAuth } from '@/hooks/useAuth'
+import { api } from '@/services/api'
+import { Material } from '@/types/Material'
+
+// ✅ NEW (Correct)
+import { Button } from '@/modules/shared/components/Button'
+import { useAuth } from '@/modules/shared/hooks/useAuth'
+import { materialApi } from '@/modules/inventory/services/materialApi'
+import { Material } from '@/modules/inventory/types/Material'
+```
+
+### 11.6 Timeline and Responsibility
+
+| Phase | Timeline | Owner | Action |
+|-------|----------|-------|--------|
+| Phase 1 | Ongoing | All developers | Migrate files when editing |
+| Phase 2 | Next 2-3 sprints | Frontend lead | Coordinate bulk migrations |
+| Phase 3 | After Phase 2 | Frontend lead | Delete empty deprecated folders |
+
+**No hard deadline - migrate gradually to avoid merge conflicts.**
+
+### 11.7 Checking Deprecated Folder Usage
+
+**Script to find remaining deprecated imports:**
+```bash
+# Find all imports from deprecated locations
+grep -r "from '@/components" frontend/src/ | grep -v "modules/shared"
+grep -r "from '@/hooks" frontend/src/ | grep -v "modules/shared"
+grep -r "from '@/services" frontend/src/ | grep -v "modules"
+grep -r "from '@/types" frontend/src/ | grep -v "modules"
+
+# Once these commands return nothing, deprecated folders are ready for deletion
+```
+
+---
+
+## 12. File Organization Enforcement Timeline
+
+### Immediate (Starting Now)
+- ✅ All NEW files must follow correct structure
+- ✅ All NEW imports must use correct paths
+- ❌ Deprecated folders marked as deprecated (not deleted)
+- ✅ Code review blocks misplaced files
+
+### Short Term (Next 1-2 sprints)
+- ✅ Migrate files when editing
+- ✅ Update imports gradually
+- ✅ Monitor deprecated folder usage
+
+### Medium Term (Next 3-6 sprints)
+- ✅ Coordinate bulk migrations if needed
+- ✅ Delete deprecated folders once empty
+- ✅ Celebrate cleaner codebase!
+
+---
+
