@@ -38,5 +38,6 @@ phase8_rfq_supplier_features.sql
 !README.md
 !SETUP.md
 !docs/**/*.md
+!.kiro/steering/**/*.md
 !backend/app/docs/WORKFLOW_OWNERSHIP_MATRIX.md
 frontend/PWA_*.md
