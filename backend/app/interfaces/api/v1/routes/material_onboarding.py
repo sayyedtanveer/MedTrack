@@ -103,6 +103,66 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower().replace(" ", "_"), b.lower().replace(" ", "_")).ratio()
 
 
+def _find_data_worksheet(wb: openpyxl.Workbook) -> openpyxl.worksheet.worksheet.Worksheet:
+    """
+    Find the correct worksheet containing raw material data.
+    
+    Priority:
+    1. Worksheet named "Raw Materials" (case-insensitive)
+    2. First worksheet with valid material headers (at least 3 matching columns)
+    3. Raise error if none found
+    
+    Args:
+        wb: Loaded Excel workbook
+        
+    Returns:
+        Worksheet containing material data
+        
+    Raises:
+        ValueError: If no valid data worksheet found
+    """
+    # Priority 1: Look for "Raw Materials" worksheet (case-insensitive)
+    for sheet_name in wb.sheetnames:
+        if sheet_name.lower() == "raw materials":
+            return wb[sheet_name]
+    
+    # Priority 2: Find first worksheet with valid material headers
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        if ws.max_row == 0:
+            continue
+        
+        # Get first row
+        try:
+            first_row_data = list(ws.iter_rows(max_row=1, values_only=True))
+            if not first_row_data or not first_row_data[0]:
+                continue
+            
+            first_row = first_row_data[0]
+            headers = [str(c).strip() if c else "" for c in first_row]
+            
+            # Count matches against known columns
+            matches = sum(
+                1 for h in headers 
+                if h and (h in FRIENDLY_TO_TECHNICAL or h in RAW_MATERIAL_COLUMNS)
+            )
+            
+            # If at least 3 columns match, consider this a data worksheet
+            if matches >= 3:
+                return ws
+        except Exception:
+            # Skip worksheets that can't be read
+            continue
+    
+    # No valid worksheet found
+    raise ValueError(
+        f"No valid data worksheet found. "
+        f"Expected worksheet named 'Raw Materials' with material headers "
+        f"(Item Code, Material Name, Category, Base Unit, etc.). "
+        f"Found worksheets: {', '.join(wb.sheetnames)}"
+    )
+
+
 def _suggest_mapping(headers: List[str]) -> Dict[str, str]:
     """Auto-suggest column-to-field mappings based on name similarity."""
     mapping: Dict[str, str] = {}
@@ -130,7 +190,16 @@ def _suggest_mapping(headers: List[str]) -> Dict[str, str]:
 
 
 def _parse_file(file_bytes: bytes, file_name: str) -> tuple[List[str], List[Dict[str, str]]]:
-    """Return (headers, rows) from an xlsx or csv file."""
+    """Return (headers, rows) from an xlsx or csv file.
+    
+    For Excel files:
+    - Automatically detects the data worksheet (prioritizes "Raw Materials")
+    - Extracts headers from first row of data worksheet
+    - Skips empty rows
+    
+    For CSV files:
+    - Uses standard CSV parsing
+    """
     name_lower = (file_name or "").lower()
     if name_lower.endswith(".csv"):
         text = file_bytes.decode("utf-8-sig", errors="replace")
@@ -141,9 +210,13 @@ def _parse_file(file_bytes: bytes, file_name: str) -> tuple[List[str], List[Dict
     else:
         try:
             wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
-            ws = wb.active
+            
+            # Use smart worksheet selector to find the data worksheet
+            ws = _find_data_worksheet(wb)
+            
             if ws is None:
-                raise ValueError("No active worksheet found in workbook")
+                raise ValueError("No data worksheet found in workbook")
+            
             headers: List[str] = []
             rows: List[Dict[str, str]] = []
             for i, row in enumerate(ws.iter_rows(values_only=True)):

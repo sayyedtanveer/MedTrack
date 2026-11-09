@@ -1317,3 +1317,240 @@ When implementing import/export features:
 
 **Status:** Production Ready | Last Updated: November 9, 2026  
 **Canonical Authority:** This steering file reflects verified patterns from MedTrack's existing Material Onboarding implementation and applies to all future data import/export features.
+
+
+---
+
+## 10. Test File Organization
+
+### 10.1 Repository Test Structure
+
+**Directory Layout:**
+```
+tests/
+├── conftest.py              # Shared fixtures, mocks
+├── __init__.py
+├── unit/                    # Unit tests (pure logic)
+│   ├── test_worksheet_fix.py
+│   ├── test_material_onboarding_integration.py
+│   ├── test_sample_upload.py
+│   └── create_sample_upload_file.py  # Helper scripts
+├── e2e/                     # End-to-end tests
+│   ├── phase_2a_fg_available/
+│   └── test_fg_reservation.py
+└── debug/                   # Debug utilities
+```
+
+### 10.2 Test File Placement Rules
+
+**Location Rules:**
+- ✅ **Unit tests** → `tests/unit/test_*.py`
+- ✅ **Integration tests** → `tests/unit/test_*.py` (with `@pytest.mark.integration`)
+- ✅ **E2E tests** → `tests/e2e/test_*.py`
+- ✅ **Helper scripts** → `tests/unit/` (for setup, fixtures, sample data)
+- ❌ **Never** in repository root
+- ❌ **Never** mixed with source code (`backend/`, `frontend/`)
+
+**File Naming:**
+```python
+# ✅ Correct
+test_worksheet_fix.py           # What is being tested
+test_material_onboarding_integration.py
+test_sample_upload.py
+
+# ❌ Wrong
+worksheet_test.py              # Wrong order
+material_test_onboarding.py
+sample_upload_test.py
+```
+
+### 10.3 Pytest Markers for Test Organization
+
+```python
+# tests/conftest.py
+import pytest
+
+# Mark tests for filtering
+pytest.mark.unit        # Pure logic, no I/O
+pytest.mark.integration # With database/services
+pytest.mark.e2e         # Full workflow
+pytest.mark.slow        # Long-running tests
+pytest.mark.security    # Auth/RBAC tests
+```
+
+**Running Tests by Type:**
+```bash
+# Unit tests only
+pytest tests/unit -m unit
+
+# Integration tests only
+pytest tests/unit -m integration
+
+# E2E tests only
+pytest tests/e2e
+
+# All except slow tests
+pytest -m "not slow"
+
+# Security tests
+pytest -m security
+```
+
+### 10.4 Test Discovery and Execution
+
+**Pytest Configuration (pytest.ini):**
+```ini
+[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+markers =
+    unit: Pure logic tests (no I/O)
+    integration: Database/service tests
+    e2e: End-to-end workflow tests
+    slow: Long-running tests
+    security: Auth/RBAC tests
+```
+
+**Running All Tests:**
+```bash
+pytest tests/ --cov=backend/app --cov-report=term-missing
+```
+
+### 10.5 Example: Bulk Import Test Organization
+
+**File Structure:**
+```
+tests/unit/
+├── test_worksheet_fix.py
+│   ├── test_worksheet_selection_prioritizes_raw_materials()
+│   ├── test_error_when_no_valid_worksheet()
+│   └── test_informational_worksheets_excluded()
+│
+├── test_material_onboarding_integration.py
+│   ├── test_bulk_import_preserves_tenant_isolation()
+│   ├── test_duplicate_handling_strategies()
+│   └── test_rbac_permission_checked_on_import()
+│
+└── test_sample_upload.py
+    ├── test_column_mapping_handles_reordering()
+    ├── test_validation_errors_on_invalid_rows()
+    └── test_error_report_download()
+```
+
+**Example Test File:**
+```python
+# tests/unit/test_worksheet_fix.py
+import pytest
+import io
+import openpyxl
+from backend.app.interfaces.api.v1.routes.material_onboarding import _find_data_worksheet
+
+@pytest.mark.unit
+def test_worksheet_selection_prioritizes_raw_materials():
+    """Test that _find_data_worksheet finds 'Raw Materials' sheet."""
+    # Create mock workbook with multiple sheets
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # Remove default
+    
+    ws_guide = wb.create_sheet("Field Guide", 0)
+    ws_data = wb.create_sheet("Raw Materials", 1)
+    
+    # Should select "Raw Materials", not "Field Guide"
+    result = _find_data_worksheet(wb)
+    assert result.title == "Raw Materials"
+
+@pytest.mark.unit
+def test_error_when_no_valid_worksheet():
+    """Test clear error when no data worksheet found."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    
+    ws_guide = wb.create_sheet("Instructions", 0)
+    ws_help = wb.create_sheet("Help", 1)
+    
+    with pytest.raises(ValueError, match="No valid data worksheet found"):
+        _find_data_worksheet(wb)
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bulk_import_preserves_tenant_isolation(db_session, tenant_factory):
+    """Test tenant data isolation in bulk import."""
+    tenant1 = await tenant_factory.create()
+    tenant2 = await tenant_factory.create()
+    
+    # Import for tenant1
+    session_id = await create_upload_session(file_bytes, tenant_id=tenant1.id)
+    await execute_import(session_id, tenant_id=tenant1.id)
+    
+    # Import for tenant2
+    session_id = await create_upload_session(file_bytes, tenant_id=tenant2.id)
+    await execute_import(session_id, tenant_id=tenant2.id)
+    
+    # Verify isolation
+    materials_t1 = await repo.list_by_tenant(tenant1.id)
+    materials_t2 = await repo.list_by_tenant(tenant2.id)
+    
+    assert len(materials_t1) == 3
+    assert len(materials_t2) == 3
+    assert all(m.tenant_id == tenant1.id for m in materials_t1)
+    assert all(m.tenant_id == tenant2.id for m in materials_t2)
+```
+
+### 10.6 Cleanup: Remove Test Artifacts from Root
+
+**Before Committing:**
+```bash
+# Remove test files from root
+rm test_*.py
+rm create_sample_upload_file.py
+rm check_*.py
+rm inspect_*.py
+
+# Verify they're in tests/unit/
+ls tests/unit/test_*.py
+```
+
+**Git Workflow:**
+```bash
+# Stage test files in new location
+git add tests/unit/test_*.py
+
+# Remove from root tracking
+git rm -f test_*.py create_sample_upload_file.py
+
+# Commit
+git commit -m "chore: Move test files to tests/unit directory"
+```
+
+---
+
+## Summary: Import/Export Development Checklist
+
+**Before Starting:**
+- [ ] Read this entire steering file (Sections 1-9)
+- [ ] Check test organization (Section 10)
+- [ ] Verify AGENTS.md multi-tenancy and DDD requirements
+
+**During Implementation:**
+- [ ] File handling: xlsx/csv only, validate format
+- [ ] Worksheet selection: Explicit detection, not `wb.active`
+- [ ] Column mapping: Header-based, fuzzy-matched, case-insensitive
+- [ ] Validation: Required fields, types, references, business rules
+- [ ] Error reporting: Row-level, actionable messages
+- [ ] Batch processing: Transaction-safe, prevent duplicates
+- [ ] Audit logging: All imports logged with details
+
+**Testing:**
+- [ ] Unit tests in `tests/unit/`
+- [ ] Integration tests with `@pytest.mark.integration`
+- [ ] E2E tests in `tests/e2e/`
+- [ ] Min 75% code coverage
+
+**Before Merging:**
+- [ ] All tests passing
+- [ ] Test files in proper directory
+- [ ] No debug files in root
+- [ ] Audit logs verified
+- [ ] Tenant isolation tested
