@@ -199,7 +199,7 @@ async def update_material(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    from backend.app.infrastructure.logging import get_logger
+    from backend.app.infrastructure.logging.logger import get_logger
     from backend.app.application.manufacturing.services.inventory_service import InventoryService
     
     logger = get_logger(__name__)
