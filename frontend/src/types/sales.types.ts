@@ -169,12 +169,18 @@ export interface UpdateOrderRequest {
  */
 export interface PriceListLine {
   id: string;
-  price_list_id: string;
+  price_list_id?: string;
   product_id: string;
   product_type: 'variant' | 'finished_product';
   unit_price: number;
-  effective_from: string;
+  effective_from?: string;
   effective_to?: string;
+  product_code?: string | null;
+  product_name?: string | null;
+  uom_code?: string | null;
+  uom_name?: string | null;
+  is_orphaned?: boolean;
+  is_inactive?: boolean;
 }
 
 export interface PriceList {

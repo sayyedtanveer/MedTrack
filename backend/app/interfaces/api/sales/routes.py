@@ -13,6 +13,14 @@ from sqlalchemy import func, or_, select
 from backend.app.domain.sales.repositories.client_repository import ClientRepository
 from backend.app.domain.sales.repositories.sales_order_repository import SalesOrderRepository
 from backend.app.domain.sales.repositories.price_list_repository import PriceListRepository
+from backend.app.domain.sales.exceptions import (
+    AmbiguousLineDeletionError,
+    DuplicatePriceListLineError,
+    InvalidProductTypeError,
+    PriceListNotFoundError,
+    ProductInactiveError,
+    ProductNotFoundError,
+)
 from backend.app.infrastructure.persistence.models.sales_models import ClientModel
 from backend.app.infrastructure.persistence.models.user_model import UserModel
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
@@ -637,10 +645,10 @@ async def list_clients(
             total = len(items)  # Would typically come from repository count method
             return ClientListResponse(items=items, total=total, limit=limit, offset=offset)
         except Exception as e:
-            import traceback
-            with open("C:/Users/sayye/source/repos/MedTrack/backend/debug_trace.txt", "w") as f:
-                f.write(traceback.format_exc())
-            logger.exception(f"Error listing clients: {str(e)}")
+            logger.exception(
+                f"Error listing clients: {str(e)}",
+                extra={"tenant_id": str(tenant_id)},
+            )
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="List retrieval failed")
 
 
@@ -1686,7 +1694,13 @@ async def add_price_list_line(
             )
             price_list = await price_list_repo.get_by_id(price_list_id, tenant_id)
             return price_list.to_dict() if price_list else None
-        except ValueError as e:
+        except ProductNotFoundError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        except PriceListNotFoundError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        except DuplicatePriceListLineError as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        except (ProductInactiveError, InvalidProductTypeError, ValueError) as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
             logger.exception(f"Error adding price list line: {str(e)}")
@@ -1719,6 +1733,8 @@ async def update_price_list_line(
             )
             price_list = await price_list_repo.get_by_id(price_list_id, tenant_id)
             return price_list.to_dict() if price_list else None
+        except (ProductNotFoundError, PriceListNotFoundError) as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
@@ -1731,6 +1747,7 @@ async def remove_price_list_line(
     price_list_id: UUID,
     product_id: UUID,
     request: Request,
+    product_type: Optional[str] = Query(None, description="Optional product type: 'variant' or 'finished_product'"),
     tenant_id: UUID = Depends(get_current_tenant_id),
     user_id: UUID = Depends(get_current_user_id),
 ):
@@ -1746,11 +1763,13 @@ async def remove_price_list_line(
                     tenant_id=tenant_id,
                     price_list_id=price_list_id,
                     product_id=product_id,
-                    product_type="PRODUCT",
+                    product_type=product_type,
                 )
             )
-        except ValueError as e:
+        except (PriceListNotFoundError, ProductNotFoundError) as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        except (AmbiguousLineDeletionError, ValueError) as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
             logger.exception(f"Error removing price list line: {str(e)}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Line removal failed")

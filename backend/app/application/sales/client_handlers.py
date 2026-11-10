@@ -3,6 +3,7 @@
 from uuid import uuid4
 
 from backend.app.domain.sales.entities import Client, PriceList, PriceListLine
+from backend.app.domain.sales.exceptions import PriceListNotFoundError
 from backend.app.domain.sales.repositories import ClientRepository, PriceListRepository
 from backend.app.application.sales.commands import (
     CreateClientCommand,
@@ -178,13 +179,20 @@ class AddPriceListLineCommandHandler:
 
     async def handle(self, command: AddPriceListLineCommand) -> None:
         """Add a pricing line to a price list."""
-        price_list = await self.price_list_repo.get_by_id(
+        price_list = await self.price_list_repo.get_by_id_for_update(
             id=command.price_list_id,
             tenant_id=command.tenant_id,
         )
         if not price_list:
-            raise ValueError(f"Price list {command.price_list_id} not found")
-        
+            raise PriceListNotFoundError(command.price_list_id)
+
+        # Validate product existence, active status, and tenant isolation
+        await self.price_list_repo.validate_product_for_pricing(
+            tenant_id=command.tenant_id,
+            product_id=command.product_id,
+            product_type=command.product_type,
+        )
+
         line = PriceListLine(
             id=uuid4(),
             price_list_id=price_list.id,
@@ -192,9 +200,9 @@ class AddPriceListLineCommandHandler:
             product_type=command.product_type,
             unit_price=command.unit_price,
         )
-        
+
         price_list.add_line(line)
-        
+
         await self.price_list_repo.save(price_list)
         await self.uow.work()
 
@@ -214,14 +222,14 @@ class UpdatePriceListLineCommandHandler:
             tenant_id=command.tenant_id,
         )
         if not price_list:
-            raise ValueError(f"Price list {command.price_list_id} not found")
-        
+            raise PriceListNotFoundError(command.price_list_id)
+
         price_list.update_line_price(
             product_id=command.product_id,
             product_type=command.product_type,
             new_price=command.new_price,
         )
-        
+
         await self.price_list_repo.save(price_list)
         await self.uow.work()
 
@@ -239,15 +247,16 @@ class RemovePriceListLineCommandHandler:
         price_list = await self.price_list_repo.get_by_id(
             id=command.price_list_id,
             tenant_id=command.tenant_id,
+            enrich=False,
         )
         if not price_list:
-            raise ValueError(f"Price list {command.price_list_id} not found")
-        
+            raise PriceListNotFoundError(command.price_list_id)
+
         price_list.remove_line(
             product_id=command.product_id,
             product_type=command.product_type,
         )
-        
+
         await self.price_list_repo.save(price_list)
         await self.uow.work()
 

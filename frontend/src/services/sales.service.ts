@@ -84,7 +84,16 @@ const normalizeOrder = (order: any): SalesOrder => ({
 const normalizePriceList = (priceList: any): PriceList => ({
   ...priceList,
   lines: Array.isArray(priceList.lines)
-    ? priceList.lines.map((line: any) => ({ ...line, unit_price: toNumber(line.unit_price) }))
+    ? priceList.lines.map((line: any) => ({
+        ...line,
+        unit_price: toNumber(line.unit_price),
+        product_code: line.product_code ?? null,
+        product_name: line.product_name ?? null,
+        uom_code: line.uom_code ?? null,
+        uom_name: line.uom_name ?? null,
+        is_orphaned: Boolean(line.is_orphaned),
+        is_inactive: Boolean(line.is_inactive),
+      }))
     : [],
 });
 
@@ -413,8 +422,13 @@ export const priceListsApi = {
   /**
    * Remove line from price list
    */
-  removeLine: async (priceListId: string, lineId: string): Promise<PriceList> => {
-    return unwrap(apiClient.delete(`${BASE_URL}/price-lists/${priceListId}/lines/${lineId}`));
+  removeLine: async (
+    priceListId: string,
+    productId: string,
+    productType?: string
+  ): Promise<void> => {
+    const query = productType ? `?product_type=${encodeURIComponent(productType)}` : '';
+    return unwrap(apiClient.delete(`${BASE_URL}/price-lists/${priceListId}/lines/${productId}${query}`));
   },
 };
 

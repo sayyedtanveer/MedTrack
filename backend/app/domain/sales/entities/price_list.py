@@ -4,6 +4,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from backend.app.domain.sales.exceptions import (
+    AmbiguousLineDeletionError,
+    DuplicatePriceListLineError,
+    ProductNotFoundError,
+)
 from backend.app.domain.shared.base_entity import AggregateRoot
 
 
@@ -19,6 +24,12 @@ class PriceListLine:
         unit_price: Decimal,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
+        product_code: str | None = None,
+        product_name: str | None = None,
+        uom_code: str | None = None,
+        uom_name: str | None = None,
+        is_orphaned: bool = False,
+        is_inactive: bool = False,
     ):
         """Initialize Price List Line."""
         self.id = id
@@ -28,6 +39,12 @@ class PriceListLine:
         self.unit_price = Decimal(str(unit_price))
         self.created_at = created_at
         self.updated_at = updated_at
+        self.product_code = product_code
+        self.product_name = product_name
+        self.uom_code = uom_code
+        self.uom_name = uom_name
+        self.is_orphaned = is_orphaned
+        self.is_inactive = is_inactive
         
         self._validate()
 
@@ -42,9 +59,16 @@ class PriceListLine:
         """Convert to dictionary."""
         return {
             "id": str(self.id),
+            "price_list_id": str(self.price_list_id) if self.price_list_id else None,
             "product_id": str(self.product_id),
             "product_type": self.product_type,
             "unit_price": str(self.unit_price),
+            "product_code": getattr(self, "product_code", None),
+            "product_name": getattr(self, "product_name", None),
+            "uom_code": getattr(self, "uom_code", None),
+            "uom_name": getattr(self, "uom_name", None),
+            "is_orphaned": getattr(self, "is_orphaned", False),
+            "is_inactive": getattr(self, "is_inactive", False),
         }
 
 
@@ -137,10 +161,7 @@ class PriceList(AggregateRoot):
         for existing in self.lines:
             if (existing.product_id == line.product_id and
                 existing.product_type == line.product_type):
-                raise ValueError(
-                    f"Product {line.product_id} ({line.product_type}) "
-                    "already has a price in this list"
-                )
+                raise DuplicatePriceListLineError(line.product_id, line.product_type)
         
         self.lines.append(line)
         self._touch()
@@ -171,27 +192,34 @@ class PriceList(AggregateRoot):
             f"Product {product_id} ({product_type}) not found in this price list"
         )
 
-    def remove_line(self, product_id: UUID, product_type: str) -> None:
+    def remove_line(self, product_id: UUID, product_type: str | None = None) -> None:
         """
         Remove a pricing line from this list.
         
         Args:
             product_id: Product ID
-            product_type: Product type
+            product_type: Optional product type. If provided and not "PRODUCT", matches exactly.
+                          If omitted or "PRODUCT", matches by product_id only if unambiguous.
             
         Raises:
-            ValueError: If product not found
+            ProductNotFoundError: If product not found
+            AmbiguousLineDeletionError: If multiple lines match and product_type was not specified
         """
-        original_count = len(self.lines)
-        self.lines = [
-            line for line in self.lines
-            if not (line.product_id == product_id and line.product_type == product_type)
-        ]
-        
-        if len(self.lines) == original_count:
-            raise ValueError(
-                f"Product {product_id} ({product_type}) not found in this price list"
-            )
+        if product_type and product_type != "PRODUCT":
+            original_count = len(self.lines)
+            self.lines = [
+                line for line in self.lines
+                if not (line.product_id == product_id and line.product_type == product_type)
+            ]
+            if len(self.lines) == original_count:
+                raise ProductNotFoundError(product_id)
+        else:
+            matching = [line for line in self.lines if line.product_id == product_id]
+            if len(matching) == 0:
+                raise ProductNotFoundError(product_id)
+            if len(matching) > 1:
+                raise AmbiguousLineDeletionError(product_id)
+            self.lines = [line for line in self.lines if line.product_id != product_id]
         
         self._touch()
 

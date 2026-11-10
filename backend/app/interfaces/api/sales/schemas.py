@@ -102,9 +102,17 @@ class PriceListUpdateRequest(BaseModel):
 
 class PriceListLineResponse(BaseModel):
     """Response for price list line."""
+    id: Optional[UUID] = None
+    price_list_id: Optional[UUID] = None
     product_id: UUID
     product_type: str
     unit_price: Decimal
+    product_code: Optional[str] = None
+    product_name: Optional[str] = None
+    uom_code: Optional[str] = None
+    uom_name: Optional[str] = None
+    is_orphaned: bool = False
+    is_inactive: bool = False
 
     class Config:
         from_attributes = True

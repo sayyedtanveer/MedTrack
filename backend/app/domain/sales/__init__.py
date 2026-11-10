@@ -35,6 +35,15 @@ from backend.app.domain.sales.repositories import (
     PriceListRepository,
 )
 
+from backend.app.domain.sales.exceptions import (
+    PriceListNotFoundError,
+    ProductNotFoundError,
+    ProductInactiveError,
+    InvalidProductTypeError,
+    DuplicatePriceListLineError,
+    AmbiguousLineDeletionError,
+)
+
 __all__ = [
     # Entities
     "Client",
@@ -42,6 +51,13 @@ __all__ = [
     "SalesOrderLine",
     "PriceList",
     "PriceListLine",
+    # Exceptions
+    "PriceListNotFoundError",
+    "ProductNotFoundError",
+    "ProductInactiveError",
+    "InvalidProductTypeError",
+    "DuplicatePriceListLineError",
+    "AmbiguousLineDeletionError",
     # Value Objects
     "OrderNumber",
     "OrderStatus",

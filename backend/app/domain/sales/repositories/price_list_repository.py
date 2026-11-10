@@ -7,10 +7,18 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from backend.app.domain.sales.entities.price_list import PriceList, PriceListLine
+from backend.app.domain.sales.exceptions import (
+    InvalidProductTypeError,
+    ProductInactiveError,
+    ProductNotFoundError,
+)
+from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.models.sales_models import (
     PriceListLineModel,
     PriceListModel,
 )
+from backend.app.infrastructure.persistence.models.unit_of_measure_model import UnitOfMeasureModel
 from backend.app.infrastructure.persistence.repositories.base_repository import BaseRepository
 
 
@@ -86,6 +94,7 @@ class PriceListRepository(BaseRepository):
         self,
         id: UUID,
         tenant_id: UUID,
+        enrich: bool = True,
     ) -> PriceList | None:
         """Get a price list aggregate with pricing lines loaded."""
         stmt = (
@@ -99,7 +108,241 @@ class PriceListRepository(BaseRepository):
         )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
+        if not model:
+            return None
+        entity = self._to_entity(model)
+        if entity and enrich:
+            await self._enrich_lines_with_product_metadata(entity.lines, tenant_id)
+        return entity
+
+    async def get_by_id_for_update(
+        self,
+        id: UUID,
+        tenant_id: UUID,
+    ) -> PriceList | None:
+        """Get a price list aggregate with row-level lock (FOR UPDATE) for concurrent line mutations."""
+        stmt = (
+            select(self._model_class())
+            .options(selectinload(PriceListModel.lines))
+            .where(
+                self._model_class().id == id,
+                self._model_class().tenant_id == tenant_id,
+                self._model_class().is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
         return self._to_entity(model) if model else None
+
+    async def validate_product_for_pricing(
+        self,
+        tenant_id: UUID,
+        product_id: UUID,
+        product_type: str,
+    ) -> None:
+        """Validate product exists, is active, belongs to tenant, and matches product_type.
+
+        Strictly prevents leaking cross-tenant records by returning generic ProductNotFoundError.
+        """
+        if product_type == "variant":
+            stmt = select(ItemVariantModel).where(
+                ItemVariantModel.id == product_id,
+                ItemVariantModel.tenant_id == tenant_id,
+                ItemVariantModel.is_deleted.is_(False),
+            )
+            result = await self._session.execute(stmt)
+            variant = result.scalar_one_or_none()
+            if not variant:
+                raise ProductNotFoundError(product_id)
+            if not variant.is_active:
+                raise ProductInactiveError(variant.code)
+            return
+
+        elif product_type == "finished_product":
+            stmt = select(MaterialModel).where(
+                MaterialModel.id == product_id,
+                MaterialModel.tenant_id == tenant_id,
+                MaterialModel.is_deleted.is_(False),
+            )
+            result = await self._session.execute(stmt)
+            material = result.scalar_one_or_none()
+            if not material:
+                raise ProductNotFoundError(product_id)
+            if material.material_type != "finished":
+                raise InvalidProductTypeError(material.code, material.material_type)
+            if not material.is_active:
+                raise ProductInactiveError(material.code)
+            return
+
+        raise ValueError(f"Invalid product type '{product_type}'. Must be 'variant' or 'finished_product'.")
+
+    async def _enrich_lines_with_product_metadata(
+        self,
+        lines: list[PriceListLine],
+        tenant_id: UUID,
+    ) -> None:
+        """Batch-enrich price list lines with SKU, name, and UOM.
+
+        Handles active, inactive, soft-deleted, and orphaned lines.
+        
+        Enrichment Strategy:
+        1. Initial batch queries: variant_ids → variants, material_ids → materials
+        2. Fallback cross-type queries: Handle cases where product_type was misclassified
+           in legacy data by re-querying unmatched IDs as the alternate type.
+        3. UOM resolution: Batch query all referenced UOM records.
+        4. Metadata population: Assign enriched fields (code, name, UOM, is_orphaned, is_inactive).
+        
+        All queries include tenant_id filter to maintain strict multi-tenant isolation.
+        """
+        if not lines:
+            return
+
+        from backend.app.infrastructure.logging import get_logger
+        logger = get_logger(__name__)
+
+        variant_ids: set[UUID] = set()
+        material_ids: set[UUID] = set()
+
+        for line in lines:
+            ptype = str(getattr(line, "product_type", "")).lower()
+            if ptype == "variant":
+                variant_ids.add(line.product_id)
+            elif ptype == "finished_product":
+                material_ids.add(line.product_id)
+            else:
+                variant_ids.add(line.product_id)
+
+        variant_map: dict[UUID, ItemVariantModel] = {}
+        material_map: dict[UUID, MaterialModel] = {}
+        uom_ids: set[UUID] = set()
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Batch 1: Query variants by their declared product_type
+        # ─────────────────────────────────────────────────────────────────────
+        if variant_ids:
+            stmt = select(ItemVariantModel).where(
+                ItemVariantModel.id.in_(variant_ids),
+                ItemVariantModel.tenant_id == tenant_id,
+            )
+            res = await self._session.execute(stmt)
+            for v in res.scalars().all():
+                variant_map[v.id] = v
+                if v.base_unit_id:
+                    uom_ids.add(v.base_unit_id)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Batch 2: Query materials by their declared product_type
+        # ─────────────────────────────────────────────────────────────────────
+        if material_ids:
+            stmt = select(MaterialModel).where(
+                MaterialModel.id.in_(material_ids),
+                MaterialModel.tenant_id == tenant_id,
+            )
+            res = await self._session.execute(stmt)
+            for m in res.scalars().all():
+                material_map[m.id] = m
+                if m.base_unit_id:
+                    uom_ids.add(m.base_unit_id)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Batch 3 & 4: Fallback cross-type queries for misclassified products
+        # ─────────────────────────────────────────────────────────────────────
+        # This handles legacy data where product_type in a PriceListLine may not
+        # accurately reflect the actual entity type. For example, a line recorded
+        # as product_type='variant' might actually point to a finished_product.
+        # We attempt recovery by re-querying unmatched IDs in the opposite type.
+        
+        missing_v = variant_ids - set(variant_map.keys())
+        if missing_v:
+            logger.warning(
+                "Enrichment fallback: Re-querying as materials (product_type mismatch)",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "misclassified_variant_ids": [str(uid) for uid in missing_v],
+                    "count": len(missing_v),
+                },
+            )
+            stmt = select(MaterialModel).where(
+                MaterialModel.id.in_(missing_v),
+                MaterialModel.tenant_id == tenant_id,
+            )
+            res = await self._session.execute(stmt)
+            for m in res.scalars().all():
+                material_map[m.id] = m
+                if m.base_unit_id:
+                    uom_ids.add(m.base_unit_id)
+
+        missing_m = material_ids - set(material_map.keys())
+        if missing_m:
+            logger.warning(
+                "Enrichment fallback: Re-querying as variants (product_type mismatch)",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "misclassified_material_ids": [str(uid) for uid in missing_m],
+                    "count": len(missing_m),
+                },
+            )
+            stmt = select(ItemVariantModel).where(
+                ItemVariantModel.id.in_(missing_m),
+                ItemVariantModel.tenant_id == tenant_id,
+            )
+            res = await self._session.execute(stmt)
+            for v in res.scalars().all():
+                variant_map[v.id] = v
+                if v.base_unit_id:
+                    uom_ids.add(v.base_unit_id)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Batch 5: Query UOMs for all referenced base_unit_id
+        # ─────────────────────────────────────────────────────────────────────
+        uom_map: dict[UUID, UnitOfMeasureModel] = {}
+        if uom_ids:
+            stmt = select(UnitOfMeasureModel).where(
+                UnitOfMeasureModel.id.in_(uom_ids),
+                UnitOfMeasureModel.tenant_id == tenant_id,
+            )
+            res = await self._session.execute(stmt)
+            for u in res.scalars().all():
+                uom_map[u.id] = u
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Batch 6: Populate line metadata
+        # ─────────────────────────────────────────────────────────────────────
+        for line in lines:
+            ptype = str(getattr(line, "product_type", "")).lower()
+            product = None
+            if ptype == "variant":
+                product = variant_map.get(line.product_id) or material_map.get(line.product_id)
+            else:
+                product = material_map.get(line.product_id) or variant_map.get(line.product_id)
+
+            if product is not None:
+                line.product_code = product.code
+                line.product_name = product.name
+                line.is_inactive = not getattr(product, "is_active", True)
+                line.is_orphaned = getattr(product, "is_deleted", False)
+                uom_id = getattr(product, "base_unit_id", None)
+                uom = uom_map.get(uom_id) if uom_id else None
+                line.uom_code = uom.code if uom else None
+                line.uom_name = uom.name if uom else None
+            else:
+                # Product not found in either variant or material tables
+                # Mark as orphaned to signal data quality issue in UI
+                line.product_code = None
+                line.product_name = "Unknown Product"
+                line.uom_code = None
+                line.uom_name = None
+                line.is_orphaned = True
+                line.is_inactive = False
+                logger.warning(
+                    "Enrichment failed: Product not found in any source",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "product_id": str(line.product_id),
+                        "product_type": ptype,
+                    },
+                )
 
     async def find_default(
         self,
