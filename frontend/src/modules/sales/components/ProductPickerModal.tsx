@@ -11,13 +11,13 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/modules/shared/components/ui/dialog';
-import { Input } from '@/modules/shared/components/ui/input';
-import { Button } from '@/modules/shared/components/ui/button';
-import { Badge } from '@/modules/shared/components/ui/badge';
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Search, Loader2, Check, Package, Layers } from 'lucide-react';
-import { productService } from '@/modules/inventory/services/productService';
-import { materialService } from '@/modules/inventory/services/materialService';
+import { productService } from '@/services/product.service';
+import { materialService } from '@/services/material.service';
 
 export interface PickerItem {
   id: string;
