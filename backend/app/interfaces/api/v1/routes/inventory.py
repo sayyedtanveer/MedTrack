@@ -30,7 +30,7 @@ from backend.app.application.inventory.queries.inventory_queries import (
 )
 from backend.app.domain.inventory.entities.inventory_transaction import TransactionType
 from backend.app.domain.manufacturing.exceptions import InsufficientStockError
-from backend.app.infrastructure.persistence.models.material_models import MaterialModel
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.repositories.material_repository import MaterialRepository
 from backend.app.infrastructure.persistence.repositories.transaction_repository import TransactionRepository
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
