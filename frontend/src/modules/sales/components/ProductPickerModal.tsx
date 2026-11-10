@@ -1,10 +1,11 @@
 /**
  * ProductPickerModal Component
  * Searchable product and variant picker for Sales Price Lists.
+ * Mobile-responsive, fully accessible, user-friendly interface.
  * Supports active item_variants and finished materials with explicit reference price display.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -15,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, Loader2, Check, Package, Layers } from 'lucide-react';
+import { Search, Loader2, Check, Package, Layers, X, AlertCircle } from 'lucide-react';
 import { productService } from '@/services/product.service';
 import { materialService } from '@/services/material.service';
 
@@ -59,6 +60,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
   const [selectedItem, setSelectedItem] = useState<PickerItem | null>(null);
   const [unitPriceInput, setUnitPriceInput] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   // Debounce search input by 300ms
   useEffect(() => {
@@ -76,6 +78,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
       setSelectedItem(null);
       setUnitPriceInput('');
       setValidationError(null);
+      setApiError(null);
     }
   }, [open]);
 
@@ -85,6 +88,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
 
     let isMounted = true;
     setIsSearching(true);
+    setApiError(null);
 
     const fetchData = async () => {
       try {
@@ -119,13 +123,15 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                 : null,
           }));
           setVariants(mappedVariants);
+        } else if (variantRes.status === 'rejected') {
+          console.error('Failed to fetch variants:', variantRes.reason);
+          setApiError('Failed to load product variants');
+          setVariants([]);
         } else {
           setVariants([]);
         }
 
         // Process Finished Materials
-        // Note: Finished materials do not possess a selling_price in MaterialModel;
-        // catalog_reference_price is strictly null (never substitute current_cost).
         if (materialRes.status === 'fulfilled' && materialRes.value?.items) {
           const mappedMaterials: PickerItem[] = materialRes.value.items.map((m) => ({
             id: m.id,
@@ -136,11 +142,17 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
             catalog_reference_price: null,
           }));
           setFinishedGoods(mappedMaterials);
+        } else if (materialRes.status === 'rejected') {
+          console.error('Failed to fetch materials:', materialRes.reason);
+          setApiError('Failed to load finished goods');
+          setFinishedGoods([]);
         } else {
           setFinishedGoods([]);
         }
       } catch (err) {
         if (isMounted) {
+          console.error('Unexpected error during product fetch:', err);
+          setApiError('An unexpected error occurred. Please try again.');
           setVariants([]);
           setFinishedGoods([]);
         }
@@ -165,7 +177,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
     return [...variants, ...finishedGoods];
   }, [activeTab, variants, finishedGoods]);
 
-  const handleSelectItem = (item: PickerItem) => {
+  const handleSelectItem = useCallback((item: PickerItem) => {
     setSelectedItem(item);
     setValidationError(null);
     if (item.catalog_reference_price !== null && item.catalog_reference_price !== undefined) {
@@ -173,7 +185,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
     } else {
       setUnitPriceInput('');
     }
-  };
+  }, []);
 
   const handleSave = async () => {
     if (!selectedItem) {
@@ -183,7 +195,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
 
     const price = parseFloat(unitPriceInput);
     if (isNaN(price) || price < 0) {
-      setValidationError('Price List Unit Price must be 0 or greater.');
+      setValidationError('Price must be a valid number ≥ 0.');
       return;
     }
 
@@ -201,75 +213,85 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-6">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-bold">Add Product to Price List</DialogTitle>
+      <DialogContent className="w-full max-w-2xl max-h-[95vh] flex flex-col p-3 sm:p-6 rounded-lg">
+        {/* Header */}
+        <DialogHeader className="flex flex-row items-center justify-between mb-2">
+          <DialogTitle className="text-lg sm:text-xl font-bold">Add Product to Price List</DialogTitle>
+          <button
+            onClick={() => onOpenChange(false)}
+            className="text-gray-500 hover:text-gray-700 p-1"
+            aria-label="Close modal"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </DialogHeader>
 
-        {/* Search Bar */}
-        <div className="space-y-3 pt-2">
-          <label className="text-sm font-semibold text-gray-700 block">
-            Search product / SKU
-          </label>
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Search by product name or SKU..."
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              autoFocus
-            />
+        {/* Search Bar and Filters */}
+        <div className="space-y-3 mb-4">
+          {/* Search Input */}
+          <div>
+            <label className="text-xs sm:text-sm font-semibold text-gray-700 block mb-2">
+              Search product / SKU
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Enter product name or SKU..."
+                className="pl-9 text-sm sm:text-base w-full"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                autoFocus
+                disabled={isSearching}
+              />
+            </div>
           </div>
 
+          {/* API Error Alert */}
+          {apiError && (
+            <div className="flex gap-2 items-start p-2 sm:p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs sm:text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <span>{apiError}</span>
+            </div>
+          )}
+
           {/* Filter Tabs */}
-          <div className="flex gap-2 pt-1 border-b pb-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab('all')}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-                activeTab === 'all'
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              All Products ({variants.length + finishedGoods.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('variant')}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-                activeTab === 'variant'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              Variants ({variants.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('finished_product')}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-                activeTab === 'finished_product'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              Finished Goods ({finishedGoods.length})
-            </button>
+          <div className="flex gap-2 overflow-x-auto pb-2 border-b">
+            {[
+              { id: 'all', label: 'All Products', count: variants.length + finishedGoods.length },
+              { id: 'variant', label: 'Variants', count: variants.length },
+              { id: 'finished_product', label: 'Finished Goods', count: finishedGoods.length },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as FilterTab)}
+                className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-full whitespace-nowrap transition-colors ${
+                  activeTab === tab.id
+                    ? tab.id === 'variant'
+                      ? 'bg-blue-600 text-white'
+                      : tab.id === 'finished_product'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {tab.label} ({tab.count})
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Product Results List */}
-        <div className="flex-1 overflow-y-auto max-h-56 min-h-36 border rounded-md my-2 divide-y divide-gray-100 bg-gray-50/50">
+        {/* Product Results List - Scrollable */}
+        <div className="flex-1 overflow-y-auto min-h-40 border rounded-md divide-y divide-gray-100 bg-gray-50/50 mb-4">
           {isSearching ? (
-            <div className="flex items-center justify-center py-10 text-gray-500">
+            <div className="flex items-center justify-center py-12 text-gray-500">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              <span className="text-sm">Searching active catalog products...</span>
+              <span className="text-xs sm:text-sm">Searching active products...</span>
             </div>
           ) : displayedItems.length === 0 ? (
-            <div className="text-center py-10 text-gray-500 text-sm">
-              No active products found matching "{debouncedSearch}".
+            <div className="text-center py-12 text-gray-500 text-xs sm:text-sm px-4">
+              <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>No active products found</p>
+              {debouncedSearch && <p className="text-xs mt-1">matching "{debouncedSearch}"</p>}
             </div>
           ) : (
             displayedItems.map((item) => {
@@ -278,14 +300,16 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                 <div
                   key={`${item.product_type}-${item.id}`}
                   onClick={() => handleSelectItem(item)}
-                  className={`p-3 cursor-pointer flex items-center justify-between transition-colors ${
+                  className={`p-3 sm:p-4 cursor-pointer flex items-start sm:items-center justify-between gap-3 transition-colors ${
                     isSelected
                       ? 'bg-blue-50 border-l-4 border-l-blue-600'
                       : 'hover:bg-gray-100'
                   }`}
+                  role="button"
+                  tabIndex={0}
                 >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Badge
                         variant="outline"
                         className={`text-xs ${
@@ -300,24 +324,24 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                           </span>
                         ) : (
                           <span className="flex items-center gap-1">
-                            <Package className="h-3 w-3" /> Finished Good
+                            <Package className="h-3 w-3" /> Finished
                           </span>
                         )}
                       </Badge>
-                      <span className="font-mono text-xs font-semibold text-gray-800">
+                      <span className="font-mono text-xs sm:text-sm font-semibold text-gray-800 truncate">
                         {item.code}
                       </span>
                       {item.uom_code && (
-                        <span className="text-xs text-gray-500 font-medium bg-gray-200/60 px-1.5 py-0.5 rounded">
+                        <span className="text-xs text-gray-500 font-medium bg-gray-200/60 px-1.5 py-0.5 rounded whitespace-nowrap">
                           {item.uom_code}
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-900 font-medium">{item.name}</p>
-                    <p className="text-xs text-gray-500">
-                      Catalog Reference:{' '}
+                    <p className="text-sm sm:text-base text-gray-900 font-medium truncate">{item.name}</p>
+                    <p className="text-xs text-gray-600">
+                      Ref. Price:{' '}
                       {item.catalog_reference_price !== null && item.catalog_reference_price !== undefined ? (
-                        <span className="font-medium text-gray-700">
+                        <span className="font-semibold text-gray-900">
                           ₹{item.catalog_reference_price.toFixed(2)}
                         </span>
                       ) : (
@@ -327,7 +351,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                   </div>
 
                   {isSelected && (
-                    <div className="h-6 w-6 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
+                    <div className="h-6 w-6 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0">
                       <Check className="h-4 w-4" />
                     </div>
                   )}
@@ -337,85 +361,95 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
           )}
         </div>
 
-        {/* Selected Product Card & Price Input */}
+        {/* Selected Product Details & Price Input */}
         {selectedItem && (
-          <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-4 space-y-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wider text-blue-700">
+          <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-3 sm:p-4 space-y-3 mb-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-semibold uppercase tracking-wider text-blue-700 block">
                   Selected Product
                 </span>
-                <p className="text-sm font-bold text-gray-900 mt-0.5">
+                <p className="text-sm sm:text-base font-bold text-gray-900 mt-0.5 truncate">
                   {selectedItem.code} · {selectedItem.name}
-                  {selectedItem.uom_code ? ` · ${selectedItem.uom_code}` : ''}
                 </p>
+                {selectedItem.uom_code && (
+                  <p className="text-xs text-gray-600 mt-0.5">UOM: {selectedItem.uom_code}</p>
+                )}
               </div>
               <Badge
-                className={`text-xs ${
+                className={`text-xs flex-shrink-0 ${
                   selectedItem.product_type === 'variant'
                     ? 'bg-blue-100 text-blue-800'
                     : 'bg-emerald-100 text-emerald-800'
                 }`}
               >
-                {selectedItem.product_type === 'variant' ? 'Variant' : 'Finished Good'}
+                {selectedItem.product_type === 'variant' ? 'Variant' : 'Finished'}
               </Badge>
             </div>
 
-            {/* Catalog Selling Price Reference */}
-            <div className="text-xs text-gray-600 flex items-center gap-1.5 bg-white/70 px-2.5 py-1.5 rounded border border-blue-100">
-              <span className="font-medium text-gray-700">Catalog Selling Price (reference):</span>
+            {/* Catalog Reference Price */}
+            <div className="text-xs bg-white/70 px-2.5 py-2 rounded border border-blue-100">
+              <span className="font-medium text-gray-700">Catalog Price (reference):</span>
               {selectedItem.catalog_reference_price !== null &&
               selectedItem.catalog_reference_price !== undefined ? (
-                <span className="font-semibold text-gray-900">
+                <span className="ml-1 font-semibold text-gray-900">
                   ₹{selectedItem.catalog_reference_price.toFixed(2)}
                 </span>
               ) : (
-                <span className="italic text-gray-400">Not set</span>
+                <span className="ml-1 italic text-gray-400">Not set</span>
               )}
             </div>
 
-            {/* Price List Unit Price Input */}
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-gray-800 block">
-                Price List Unit Price *
+            {/* Price Input */}
+            <div className="space-y-1.5">
+              <label className="text-xs sm:text-sm font-semibold text-gray-800 block">
+                Price List Unit Price <span className="text-red-600">*</span>
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-2 text-sm text-gray-500 font-medium">
-                  ₹
-                </span>
+                <span className="absolute left-3 top-2.5 text-sm text-gray-500 font-medium">₹</span>
                 <Input
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   step="0.01"
                   placeholder="0.00"
-                  className="pl-7 bg-white font-mono"
+                  className="pl-7 bg-white font-mono text-sm w-full"
                   value={unitPriceInput}
-                  onChange={(e) => setUnitPriceInput(e.target.value)}
+                  onChange={(e) => {
+                    setUnitPriceInput(e.target.value);
+                    setValidationError(null);
+                  }}
                 />
               </div>
-              <p className="text-[11px] text-gray-500 mt-1">
-                ℹ Suggested value only. Confirm or edit before saving.
+              <p className="text-[11px] text-gray-500">
+                ℹ Edit the suggested catalog price or enter a custom price.
               </p>
             </div>
           </div>
         )}
 
+        {/* Validation Error */}
         {validationError && (
-          <p className="text-xs text-red-600 font-medium mt-1">{validationError}</p>
+          <div className="flex gap-2 items-start p-2 sm:p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs sm:text-sm mb-2">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>{validationError}</span>
+          </div>
         )}
 
-        <DialogFooter className="mt-3">
+        {/* Footer Actions */}
+        <DialogFooter className="flex gap-2 flex-col-reverse sm:flex-row">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={loading}
+            disabled={loading || isSearching}
+            className="w-full sm:w-auto text-sm"
           >
             Cancel
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!selectedItem || loading}
-            className="bg-slate-900 hover:bg-slate-800"
+            disabled={!selectedItem || loading || isSearching}
+            className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-sm"
           >
             {loading ? (
               <>
