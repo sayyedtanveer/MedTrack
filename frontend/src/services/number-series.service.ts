@@ -58,6 +58,13 @@ export interface CodePreviewResponse {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const numberSeriesService = {
+  async getMaterialCodeEntryPolicy(): Promise<Pick<NumberSeriesConfig, "auto_generate" | "manual_override">> {
+    const { data } = await apiClient.get<Pick<NumberSeriesConfig, "auto_generate" | "manual_override">>(
+      "/settings/number-series/material/code-entry-policy",
+    )
+    return data
+  },
+
   async listConfigs(): Promise<NumberSeriesConfig[]> {
     const { data } = await apiClient.get<NumberSeriesConfig[]>('/settings/number-series')
     return data

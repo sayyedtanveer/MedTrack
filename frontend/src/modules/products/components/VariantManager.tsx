@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
-import { Box, Plus, Loader2, Pencil, Check, X, Link2, Link2Off, GitBranch, ChevronDown, ChevronRight } from "lucide-react"
+import { Box, Plus, Loader2, Pencil, Check, X, Link2, Link2Off, GitBranch } from "lucide-react"
 import { productService, CreateVariantInput, UpdateVariantInput } from "@/services/product.service"
 import { materialService } from "@/services/material.service"
 import { ItemTemplate, ItemVariant } from "@/types/bom.types"
@@ -18,6 +18,7 @@ const NO_MATERIAL = "__none__"
 interface VariantManagerProps {
   template: ItemTemplate
   canEdit: boolean
+  startAdding?: boolean
 }
 
 // ── Inline Edit Form ──────────────────────────────────────────────────────────
@@ -182,17 +183,16 @@ function EditRow({ variant, fgMaterials, onSave, onCancel, isSaving }: EditRowPr
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function VariantManager({ template, canEdit }: VariantManagerProps) {
+export function VariantManager({ template, canEdit, startAdding = false }: VariantManagerProps) {
   const qc = useQueryClient()
   const navigate = useNavigate()
 
   // Create form state
-  const [isAdding, setIsAdding] = useState(false)
+  const [isAdding, setIsAdding] = useState(startAdding)
   const [newValues, setNewValues] = useState<Record<string, string>>({})
   const [standardCost, setStandardCost] = useState("0")
   const [sellingPrice, setSellingPrice] = useState("")
   const [materialId, setMaterialId] = useState(NO_MATERIAL)
-  const [advancedExpanded, setAdvancedExpanded] = useState(false)
 
   // Edit state — tracks which variant is being edited
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -222,7 +222,6 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
       setStandardCost("0")
       setSellingPrice("")
       setMaterialId(NO_MATERIAL)
-      setAdvancedExpanded(false)
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.detail || "Failed to create variant")
@@ -270,7 +269,6 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
     setStandardCost("0")
     setSellingPrice("")
     setMaterialId(NO_MATERIAL)
-    setAdvancedExpanded(false)
   }
 
   const handleSaveEdit = (id: string, payload: UpdateVariantInput) => {
@@ -315,7 +313,7 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
                       value={newValues[attr.key] || ""}
                       onValueChange={value => setVal(attr.key, value)}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger aria-label={attr.label}>
                         <SelectValue placeholder="Select value..." />
                       </SelectTrigger>
                       <SelectContent>
@@ -328,6 +326,7 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
                     </Select>
                   ) : (
                     <Input
+                      aria-label={attr.label}
                       placeholder="e.g. XL, Blue"
                       value={newValues[attr.key] || ""}
                       onChange={e => setVal(attr.key, e.target.value)}
@@ -361,112 +360,85 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
             </div>
           </div>
 
-          {/* Collapsible Advanced Section - Material Mapping */}
-          <div className="border rounded-lg overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setAdvancedExpanded(!advancedExpanded)}
-              className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-sm font-medium"
-            >
-              <span className="flex items-center gap-2">
-                {advancedExpanded ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronRight className="w-4 h-4" />
-                )}
-                Advanced: Material Mapping
-              </span>
-              {!advancedExpanded && materialId !== NO_MATERIAL && (
-                <Badge variant="outline" className="text-xs bg-primary/10 border-primary/30">
-                  Custom mapping set
-                </Badge>
-              )}
-            </button>
-            
-            {advancedExpanded && (
-              <div className="p-3 space-y-2 bg-accent/5">
-                <p className="text-xs text-muted-foreground mb-3">
-                  By default, a new Finished Good inventory material is auto-created. 
-                  Use this section only if you need to link this variant to an existing material or semi-finished item.
-                </p>
-                
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">
-                    Link to Existing Material (Optional)
-                  </Label>
-                  <Select value={materialId} onValueChange={setMaterialId}>
-                    <SelectTrigger className={materialId === NO_MATERIAL ? "" : "border-primary"}>
-                      <SelectValue placeholder="Select material or leave blank to auto-create..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_MATERIAL}>— Auto-create new FG material —</SelectItem>
-                      {/* Finished Goods Section */}
-                      {fgList.filter(m => {
-                        const t = String(m.material_type || "").toLowerCase()
-                        return t.includes("finish") || t === "fg"
-                      }).length > 0 && (
-                        <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
-                          Finished Goods
-                        </div>
-                      )}
-                      {fgList.filter(m => {
-                        const t = String(m.material_type || "").toLowerCase()
-                        return t.includes("finish") || t === "fg"
-                      }).map(m => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.code} — {m.name}
-                        </SelectItem>
-                      ))}
-                      {/* Semi-Finished Section */}
-                      {fgList.filter(m => {
-                        const t = String(m.material_type || "").toLowerCase()
-                        return t.includes("semi") || t === "sf"
-                      }).length > 0 && (
-                        <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t mt-1 pt-1">
-                          Semi-Finished
-                        </div>
-                      )}
-                      {fgList.filter(m => {
-                        const t = String(m.material_type || "").toLowerCase()
-                        return t.includes("semi") || t === "sf"
-                      }).map(m => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.code} — {m.name}{" "}
-                          <span className="text-xs text-purple-600 font-semibold">🟣 SF</span>
-                        </SelectItem>
-                      ))}
-                      {/* Other Materials Section */}
-                      {fgList.filter(m => {
-                        const t = String(m.material_type || "").toLowerCase()
-                        return !t.includes("finish") && t !== "fg" && !t.includes("semi") && t !== "sf"
-                      }).length > 0 && (
-                        <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t mt-1 pt-1">
-                          Other Materials
-                        </div>
-                      )}
-                      {fgList.filter(m => {
-                        const t = String(m.material_type || "").toLowerCase()
-                        return !t.includes("finish") && t !== "fg" && !t.includes("semi") && t !== "sf"
-                      }).map(m => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.code} — {m.name}{" "}
-                          <span className="text-xs text-muted-foreground">({m.material_type})</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {materialId === NO_MATERIAL ? (
-                    <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1 mt-1">
-                      ✓ A new Finished Good inventory material will be auto-created and linked when saved.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1 mt-1">
-                      ✓ This variant will be linked to the selected material: <span className="font-semibold">{fgList.find(m => m.id === materialId)?.code}</span>
-                    </p>
+          <div className="rounded-lg border bg-background p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              For subcontracting, select the existing Semi-Finished output material. Create it in Inventory → Materials if needed.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="variant-inventory-material" className="text-xs font-medium">
+                Link to Existing Material (Optional)
+              </Label>
+              <Select value={materialId} onValueChange={setMaterialId}>
+                <SelectTrigger id="variant-inventory-material" className={materialId === NO_MATERIAL ? "" : "border-primary"}>
+                  <SelectValue placeholder="Select material or leave blank to auto-create..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_MATERIAL}>— Auto-create new FG material —</SelectItem>
+                  {/* Finished Goods Section */}
+                  {fgList.filter(m => {
+                    const t = String(m.material_type || "").toLowerCase()
+                    return (t.includes("finish") && !t.includes("semi")) || t === "fg"
+                  }).length > 0 && (
+                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
+                      Finished Goods
+                    </div>
                   )}
-                </div>
-              </div>
-            )}
+                  {fgList.filter(m => {
+                    const t = String(m.material_type || "").toLowerCase()
+                    return (t.includes("finish") && !t.includes("semi")) || t === "fg"
+                  }).map(m => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.code} — {m.name}
+                    </SelectItem>
+                  ))}
+                  {/* Semi-Finished Section */}
+                  {fgList.filter(m => {
+                    const t = String(m.material_type || "").toLowerCase()
+                    return t.includes("semi") || t === "sf"
+                  }).length > 0 && (
+                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t mt-1 pt-1">
+                      Semi-Finished
+                    </div>
+                  )}
+                  {fgList.filter(m => {
+                    const t = String(m.material_type || "").toLowerCase()
+                    return t.includes("semi") || t === "sf"
+                  }).map(m => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.code} — {m.name}{" "}
+                      <span className="text-xs text-purple-600 font-semibold">🟣 SF</span>
+                    </SelectItem>
+                  ))}
+                  {/* Other Materials Section */}
+                  {fgList.filter(m => {
+                    const t = String(m.material_type || "").toLowerCase()
+                    return !t.includes("finish") && t !== "fg" && !t.includes("semi") && t !== "sf"
+                  }).length > 0 && (
+                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t mt-1 pt-1">
+                      Other Materials
+                    </div>
+                  )}
+                  {fgList.filter(m => {
+                    const t = String(m.material_type || "").toLowerCase()
+                    return !t.includes("finish") && t !== "fg" && !t.includes("semi") && t !== "sf"
+                  }).map(m => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.code} — {m.name}{" "}
+                      <span className="text-xs text-muted-foreground">({m.material_type})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {materialId === NO_MATERIAL ? (
+                <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1 mt-1">
+                  ✓ A new Finished Good inventory material will be auto-created and linked when saved.
+                </p>
+              ) : (
+                <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1 mt-1">
+                  ✓ This variant will be linked to the selected material: <span className="font-semibold">{fgList.find(m => m.id === materialId)?.code}</span>
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Real-time Variant Summary */}
@@ -483,9 +455,10 @@ export function VariantManager({ template, canEdit }: VariantManagerProps) {
                   : "Standard"}
               </div>
 
-              <div className="text-muted-foreground">SKU / Code:</div>
-              <div className="font-mono text-xs mt-0.5">
-                {`${template.item_code || template.code}${Object.values(newValues).filter(v => v.trim()).map(v => `-${v.toUpperCase().trim().replace(/\\s+/g, '-')}`).join('')}`}
+              <div>
+                <Label htmlFor="variant-item-code" className="text-xs text-muted-foreground">SKU / Code</Label>
+                <Input id="variant-item-code" readOnly value="" placeholder="Auto-generated on save" className="mt-1" />
+                <p className="mt-1 text-xs text-muted-foreground">Generated from the template code and variant options.</p>
               </div>
 
               <div className="text-muted-foreground">Standard Cost:</div>

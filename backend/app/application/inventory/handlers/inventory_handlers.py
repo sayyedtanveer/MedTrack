@@ -315,32 +315,6 @@ class UpdateMaterialHandler:
                     "Deactivate it and create a new material with the correct type."
                 )
 
-            # No stock and no transactions — type change is safe.
-            # Update the item code prefix to match the new type so the code
-            # stays consistent with the type (e.g. RM- → FG-).
-            if material.code_locked and material.code:
-                from backend.app.application.inventory.services.item_code_service import ItemCodeService
-                item_code_service = ItemCodeService(self._uow.session)
-                # Map canonical type to item_type sub_type string
-                type_str = next_type.value if hasattr(next_type, "value") else str(next_type)
-                # Generate new code with new type prefix for the same name
-                try:
-                    new_code = await item_code_service.generate_for_entity(
-                        tenant_id=cmd.tenant_id,
-                        entity_type="material",
-                        entity_name=next_name,
-                        user_id=None,
-                        sub_type=type_str,
-                    )
-                    material.code = new_code
-                except Exception:
-                    # If code generation fails, keep the old code but still
-                    # allow the type change — log a warning.
-                    logger.warning(
-                        "Material type changed for %s but code prefix could not be updated automatically.",
-                        cmd.id,
-                    )
-
         if (
             cmd.name is not None
             or cmd.material_type is not None

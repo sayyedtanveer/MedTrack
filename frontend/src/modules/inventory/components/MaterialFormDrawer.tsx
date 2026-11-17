@@ -3,6 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { materialService } from "@/services/material.service"
+import { useMaterialCodeEntry } from "../hooks/useMaterialCodeEntry"
 import { tenantService } from "@/services/tenant.service"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -550,6 +551,7 @@ function PurchasingTab({ materialId, material, currencyCode, onClose }: Purchasi
 export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Props) {
   const queryClient = useQueryClient()
   const isEditing = Boolean(materialId && materialId !== "new")
+  const { canEnterCode, generationDisabled, isLoading: isLoadingCodePolicy } = useMaterialCodeEntry(open && !isEditing)
 
   const { data: material, isLoading: isFetchingMaterial } = useQuery({
     queryKey: ["material", materialId],
@@ -669,7 +671,7 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
         })
       } else {
         return await materialService.createMaterial({
-          item_code: (data.item_code?.trim() || data.code?.trim()) || null,
+          item_code: canEnterCode ? data.code?.trim() || null : null,
           code_locked: data.code_locked ?? true,
           name: data.name,
           material_type: data.material_type,
@@ -736,7 +738,13 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="code">Item Code</Label>
-          <Input id="code" placeholder="Auto-generate if blank" {...register("code")} disabled={isEditing} autoFocus={!isEditing} />
+          <Input id="code" placeholder={canEnterCode ? "Enter a custom code" : generationDisabled ? "Auto-generation disabled" : "Auto-generated on save"}
+            {...register("code")} readOnly={!canEnterCode} />
+          {!canEnterCode && (
+            <p className="text-xs text-muted-foreground">
+              {generationDisabled ? "Automatic code generation is disabled in ERP settings." : "Automatically generated from ERP settings."}
+            </p>
+          )}
           {errors.code && <p className="text-xs text-destructive">{errors.code.message}</p>}
         </div>
 
@@ -764,7 +772,7 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="name">Material Name</Label>
-          <Input id="name" placeholder={namePlaceholder} {...register("name")} autoFocus={isEditing} />
+          <Input id="name" placeholder={namePlaceholder} {...register("name")} autoFocus />
           {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
           {!errors.name && <p className="text-xs text-muted-foreground">{namingHint}</p>}
         </div>
@@ -1029,7 +1037,7 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
 
           <div className="pt-4 flex gap-3 w-full sm:justify-end">
             <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">Cancel</Button>
-            <Button type="submit" disabled={saveMutation.isPending} className="w-full sm:w-auto">
+            <Button type="submit" disabled={saveMutation.isPending || isLoadingCodePolicy} className="w-full sm:w-auto">
               <Save className="mr-2 h-4 w-4" />
               {saveMutation.isPending ? "Saving..." : "Save Material"}
             </Button>

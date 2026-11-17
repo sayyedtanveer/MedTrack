@@ -34,6 +34,7 @@ from backend.app.interfaces.api.v1.dependencies.permissions import require_permi
 from backend.app.interfaces.api.v1.schemas.number_series_schemas import (
     AuditLogListResponse,
     CodePreviewResponse,
+    ItemCodeEntryPolicyResponse,
     NumberSeriesAuditLogResponse,
     NumberSeriesConfigResponse,
     NumberSeriesPrefixResponse,
@@ -182,6 +183,26 @@ async def get_config(
         await session.commit()
 
     return NumberSeriesConfigResponse.model_validate(config)
+
+
+@router.get(
+    "/{entity_type}/code-entry-policy",
+    response_model=ItemCodeEntryPolicyResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+)
+async def get_code_entry_policy(
+    entity_type: str,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+) -> ItemCodeEntryPolicyResponse:
+    """Read the entry policy without creating configuration or reserving a number."""
+    _validate_entity_type(entity_type)
+    async with get_container(request).session_factory() as session:
+        config = await ItemCodeService(session)._try_load_config(tenant_id=tenant_id, entity_type=entity_type)
+        return ItemCodeEntryPolicyResponse(
+            auto_generate=config.auto_generate if config is not None else True,
+            manual_override=config.manual_override if config is not None else "never",
+        )
 
 
 # ── Update config ──────────────────────────────────────────────────────────────

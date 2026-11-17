@@ -13,6 +13,11 @@ from pydantic import BaseModel, Field, field_validator
 PREFIX_PATTERN = re.compile(r"^[A-Z0-9]+$")
 
 
+class ItemCodeEntryPolicyResponse(BaseModel):
+    auto_generate: bool
+    manual_override: str
+
+
 class NumberSeriesConfigResponse(BaseModel):
     """Response schema for a number series config entry."""
 

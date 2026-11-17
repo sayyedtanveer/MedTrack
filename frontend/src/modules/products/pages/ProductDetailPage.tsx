@@ -139,9 +139,9 @@ export default function ProductDetailPage() {
             <Edit2 className="w-4 h-4 mr-1" />
             Edit Product
           </Button>
-          <Button variant="outline" onClick={() => navigate(`/products/${id}/edit`)} size="sm">
+          <Button variant="outline" onClick={() => navigate(`/products/${id}/edit?addVariant=1`)} size="sm">
             <Plus className="w-4 h-4 mr-1" />
-            Add Variant
+            {variants?.total === 0 ? "Create First Variant" : "Add Variant"}
           </Button>
           <Button onClick={() => navigate(`/bom/new?template_id=${id}`)} size="sm">
             <Layers className="w-4 h-4 mr-1" />
@@ -244,9 +244,9 @@ export default function ProductDetailPage() {
                       <td colSpan={7} className="py-10 text-center text-muted-foreground">
                         <div className="space-y-3">
                           <p>No variants yet. Create one standard SKU or import variant rows before using this product in sales and production.</p>
-                          <Button variant="outline" size="sm" onClick={() => navigate(`/products/${id}/edit`)}>
-                            <Edit2 className="w-4 h-4 mr-1" />
-                            Add Variant
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/products/${id}/edit?addVariant=1`)}>
+                            <Plus className="w-4 h-4 mr-1" />
+                            Create First Variant
                           </Button>
                         </div>
                       </td>

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.infrastructure.persistence.models.item_code_sequence_model import ItemCodeSequenceModel
@@ -311,7 +312,7 @@ class ItemCodeService:
         if category.code_prefix != category_prefix:
             category.code_prefix = category_prefix
 
-        sequence = await self._session.scalar(
+        locked_sequence = (
             select(ItemCodeSequenceModel)
             .where(
                 ItemCodeSequenceModel.tenant_id == tenant_id,
@@ -320,21 +321,24 @@ class ItemCodeService:
             )
             .with_for_update()
         )
+        sequence = await self._session.scalar(locked_sequence)
         if sequence is None:
-            sequence = ItemCodeSequenceModel(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                item_type=type_prefix,
-                category_id=category_id,
-                next_number=await self._initial_next_number(
+            await self._session.execute(
+                insert(ItemCodeSequenceModel)
+                .values(
                     tenant_id=tenant_id,
-                    type_prefix=type_prefix,
-                    category_prefix=category_prefix,
-                    target=target,
-                ),
+                    item_type=type_prefix,
+                    category_id=category_id,
+                    next_number=await self._initial_next_number(
+                        tenant_id=tenant_id,
+                        type_prefix=type_prefix,
+                        category_prefix=category_prefix,
+                        target=target,
+                    ),
+                )
+                .on_conflict_do_nothing(index_elements=["tenant_id", "item_type", "category_id"])
             )
-            self._session.add(sequence)
-            await self._session.flush()
+            sequence = (await self._session.execute(locked_sequence)).scalar_one()
 
         while True:
             candidate = f"{type_prefix}-{category_prefix}-{sequence.next_number:04d}"
@@ -605,7 +609,7 @@ class ItemCodeService:
 
         This ensures no two concurrent requests receive the same sequence number.
         """
-        sequence = await self._session.scalar(
+        locked_sequence = (
             select(NumberSeriesSequenceModel)
             .where(
                 NumberSeriesSequenceModel.tenant_id == tenant_id,
@@ -614,24 +618,16 @@ class ItemCodeService:
             )
             .with_for_update()
         )
-
+        sequence = await self._session.scalar(locked_sequence)
         if sequence is not None:
             return sequence
 
-        # Create new sequence starting at 1
-        now = datetime.now(timezone.utc)
-        sequence = NumberSeriesSequenceModel(
-            id=uuid.uuid4(),
-            tenant_id=tenant_id,
-            entity_type=entity_type,
-            prefix=prefix,
-            next_number=1,
-            created_at=now,
-            updated_at=now,
+        await self._session.execute(
+            insert(NumberSeriesSequenceModel)
+            .values(tenant_id=tenant_id, entity_type=entity_type, prefix=prefix, next_number=1)
+            .on_conflict_do_nothing(index_elements=["tenant_id", "entity_type", "prefix"])
         )
-        self._session.add(sequence)
-        await self._session.flush()
-        return sequence
+        return (await self._session.execute(locked_sequence)).scalar_one()
 
     async def format_preview(
         self,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Save, Plus, Trash2 } from "lucide-react"
 import { productService, CreateTemplateInput, UpdateTemplateInput } from "@/services/product.service"
@@ -28,12 +28,12 @@ const panelConfig: BusinessAssistantConfig = {
   canDo: [
     "Define base details for a product",
     "Specify Variant Attributes (e.g., Color, Size)",
-    "Generate combinations of variants automatically",
-    "Map variants to Finished Good inventory materials",
+    "Define attributes for creating variants",
+    "Link variants to finished or semi-finished inventory",
   ],
   screenWalkthrough: [
     { section: "Basic Information", purpose: "Set name, category, and base unit", impact: "Used across all variants" },
-    { section: "Product Variants", purpose: "Define variant attributes like Color and Size", impact: "Enables automatic generation of variant combinations" },
+    { section: "Variant Attributes", purpose: "Define variant attributes like Color and Size", impact: "Defines the options available when creating a variant" },
     { section: "Variants Tab (Edit Mode)", purpose: "Create, activate, and set prices for variants", impact: "Makes items available for Sales Orders" },
   ],
   fieldGuide: [
@@ -42,8 +42,8 @@ const panelConfig: BusinessAssistantConfig = {
     { field: "Variant Options", purpose: "Available choices", meaning: "Values like Black, White", example: "Black, White" },
   ],
   buttonGuide: [
-    { button: "Generate Variants", what: "Creates variant combinations from attributes", continues: "Adds to Variant grid", reversible: true },
-    { button: "Save Template", what: "Saves basic information", continues: "Navigates to edit mode if new", reversible: true },
+    { button: "Create First Variant", what: "Opens the variant form", continues: "Select variant options and link inventory", reversible: true },
+    { button: "Save Template", what: "Saves basic information", continues: "Opens the Variants tab for a new template", reversible: true },
   ],
   beforeYouStart: ["Product Categories must exist", "Units of Measure must exist"],
   afterSave: [
@@ -56,7 +56,7 @@ const panelConfig: BusinessAssistantConfig = {
     "Always set a selling price for variants before using them in Sales Orders"
   ],
   commonMistakes: [
-    "Creating a template but forgetting to generate variants",
+    "Saving a template and forgetting to create its first variant",
     "Putting spaces or special characters in the Attribute Key"
   ],
   relatedScreens: [
@@ -67,22 +67,23 @@ const panelConfig: BusinessAssistantConfig = {
     { question: "Why is the variant grid missing?", answer: "You must save the Template first. Variants can only be added to an existing template." },
     { question: "Can I sell a template?", answer: "No, Sales Orders only accept Variants." },
   ],
-  tips: ["Use 'Generate Variants' in edit mode to instantly create all possible combinations of your attributes."],
-  warnings: ["Changing variant attributes after generating variants will not automatically delete old variants."],
-  successResult: ["Template is created", "Variants can be added in the bottom section"],
+  tips: ["For a semi-finished subcontract output, link the existing semi-finished inventory item when creating the variant."],
+  warnings: ["Changing variant attributes after creating variants will not automatically delete old variants."],
+  successResult: ["Template is created", "Create the first variant from the Variants tab"],
 }
 
 
 export default function ProductTemplateFormPage() {
   const { id } = useParams()
   const isNew = !id || id === "new"
+  const [searchParams] = useSearchParams()
+  const addVariant = !isNew && searchParams.get("addVariant") === "1"
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { hasRole } = usePermissions()
   const canEdit = hasRole(["ADMIN", "MANAGER"])
 
   // Form state
-  const [code, setCode] = useState("")
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [categoryId, setCategoryId] = useState("")
@@ -91,7 +92,7 @@ export default function ProductTemplateFormPage() {
   const [attributes, setAttributes] = useState<{ key: string; label: string; values?: string[]; _isNew?: boolean }[]>([])
 
   // Load existing data if edit mode
-  const { data: templateData, isSuccess } = useQuery({
+  const { data: templateData, isSuccess, isError } = useQuery({
     queryKey: ["products", "template", id],
     queryFn: () => productService.getTemplate(id!),
     enabled: !isNew,
@@ -100,7 +101,6 @@ export default function ProductTemplateFormPage() {
   // Initialize form state when data loads
   useEffect(() => {
     if (isSuccess && templateData) {
-      setCode(templateData.item_code || templateData.code || "")
       setName(templateData.name || "")
       setDescription(templateData.description || "")
       setCategoryId(templateData.category_id || "")
@@ -120,7 +120,7 @@ export default function ProductTemplateFormPage() {
       qc.invalidateQueries({ queryKey: ["products", "templates"] })
       toast.success(isNew ? "Template created" : "Template updated")
       mutation.reset()
-      navigate(`/products/${data.id}`, { replace: true })
+      navigate(`/products/${data.id}${isNew ? "?tab=variants" : ""}`, { replace: true })
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.detail || "Failed to save template")
@@ -164,7 +164,6 @@ export default function ProductTemplateFormPage() {
     }
 
     const payload: any = {
-      item_code: code.trim() || null,
       name,
       description,
       attributes: attributes.map((attr) => {
@@ -212,6 +211,26 @@ export default function ProductTemplateFormPage() {
   }
   const removeAttr = (i: number) => setAttributes(attributes.filter((_, idx) => idx !== i))
 
+  if (addVariant) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate(`/products/${id}?tab=variants`)} aria-label="Back to product variants">
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <h1 className="text-xl font-semibold">{templateData?.name ?? "Product variants"}</h1>
+        </div>
+        {templateData ? (
+          <div className="rounded-xl border bg-card p-5">
+            <VariantManager key={templateData.id} template={templateData} canEdit={canEdit} startAdding />
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">{isError ? "Could not load the product template." : "Loading product template…"}</p>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
@@ -231,8 +250,9 @@ export default function ProductTemplateFormPage() {
           <h2 className="text-base font-medium border-b pb-2">Basic Information</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Item Code</Label>
-              <Input value={code} onChange={e => setCode(e.target.value)} disabled={!canEdit || !isNew} placeholder="Auto-generate if blank" />
+              <Label htmlFor="template-item-code">Item Code</Label>
+              <Input id="template-item-code" readOnly value={templateData?.item_code || templateData?.code || ""} placeholder="Auto-generated on save" />
+              <p className="text-xs text-muted-foreground">Automatically generated from ERP settings.</p>
             </div>
             <div className="space-y-2">
               <Label>Name</Label>
@@ -279,7 +299,7 @@ export default function ProductTemplateFormPage() {
 
         <div className="space-y-4 rounded-xl border bg-card p-5 flex flex-col">
           <div className="flex items-center justify-between border-b pb-2">
-            <h2 className="text-base font-medium">Product Variants</h2>
+            <h2 className="text-base font-medium">Variant Attributes</h2>
             {canEdit && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={addAttr}><Plus className="w-3.5 h-3.5 mr-1" /> Add Attribute</Button>}
           </div>
           <div className="text-sm text-muted-foreground space-y-1">
@@ -304,7 +324,8 @@ export default function ProductTemplateFormPage() {
                     value={attr.values ?? []}
                     onChange={(newValues) => updateAttrValues(i, newValues)}
                     disabled={!canEdit}
-                    placeholder="Type an option and press Enter..."
+                    label={attr.label ? `${attr.label} option` : "Variant option"}
+                    placeholder="Type an option…"
                   />
                 </div>
                 {canEdit && (
@@ -314,7 +335,7 @@ export default function ProductTemplateFormPage() {
                 )}
               </div>
             ))}
-            {attributes.length === 0 && <div className="text-center py-8 text-sm text-muted-foreground border border-dashed rounded-lg">No attributes defined. The product will exist as a single standard item.</div>}
+            {attributes.length === 0 && <div className="text-center py-8 text-sm text-muted-foreground border border-dashed rounded-lg">Leave attributes empty for a standard item. After saving the template, use Create First Variant to create its SKU.</div>}
           </div>
         </div>
       </div>

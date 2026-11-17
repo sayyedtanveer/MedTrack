@@ -4,6 +4,7 @@ import * as z from "zod"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { inventoryService } from "@/services/inventory.service"
 import { materialService } from "@/services/material.service"
+import { useMaterialCodeEntry } from "../hooks/useMaterialCodeEntry"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -36,6 +37,7 @@ interface Props {
 export function ProductFormDrawer({ productId, open, onClose }: Props) {
   const queryClient = useQueryClient()
   const isEditing = Boolean(productId && productId !== "new")
+  const { canEnterCode, generationDisabled, isLoading: isLoadingCodePolicy } = useMaterialCodeEntry(open && !isEditing)
 
   const { data: product, isLoading: isFetching } = useQuery({
     queryKey: ["product", productId],
@@ -102,7 +104,7 @@ export function ProductFormDrawer({ productId, open, onClose }: Props) {
       if (isEditing) {
         return inventoryService.updateProduct(productId!, data)
       }
-      return inventoryService.createProduct(data)
+      return inventoryService.createProduct({ ...data, item_code: canEnterCode ? data.item_code : undefined })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] })
@@ -131,13 +133,14 @@ export function ProductFormDrawer({ productId, open, onClose }: Props) {
               <Label htmlFor="item_code">Item Code</Label>
               <Input 
                 id="item_code" 
-                placeholder="E.g. RM-GEN-0001 (auto-generated if empty)" 
+                placeholder={canEnterCode ? "Enter a custom code" : generationDisabled ? "Auto-generation disabled" : "Auto-generated on save"}
                 {...register("item_code")} 
-                autoFocus 
-                disabled={watch("code_locked")}
+                readOnly={!canEnterCode}
               />
               <p className="text-xs text-muted-foreground">
-                Format: TYPE-CATEGORY-SEQUENCE (e.g., RM-GEN-0001). Leave empty for auto-generation.
+                {canEnterCode
+                  ? "Workspace settings allow a custom code."
+                  : generationDisabled ? "Automatic code generation is disabled in ERP settings." : "Automatically generated from ERP settings."}
               </p>
               {errors.item_code && <p className="text-xs text-destructive">{errors.item_code.message}</p>}
             </div>
@@ -207,7 +210,7 @@ export function ProductFormDrawer({ productId, open, onClose }: Props) {
           
           <div className="pt-4 flex gap-3 w-full sm:justify-end">
             <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">Cancel</Button>
-            <Button type="submit" disabled={saveMutation.isPending} className="w-full sm:w-auto">
+            <Button type="submit" disabled={saveMutation.isPending || isLoadingCodePolicy} className="w-full sm:w-auto">
               <Save className="mr-2 h-4 w-4" />
               {saveMutation.isPending ? "Saving..." : "Save Product"}
             </Button>
