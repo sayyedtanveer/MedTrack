@@ -1,15 +1,6 @@
-from __future__ import annotations
-
-import csv
-import io
-import json
-import uuid
-import zipfile
-from difflib import SequenceMatcher
-from decimal import Decimal
-
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+import openpyxl
+from openpyxl.styles import PatternFill, Font
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from backend.app.application.inventory.commands.inventory_commands import CreateMaterialCommand, UpdateMaterialCommand
 from backend.app.application.inventory.handlers.inventory_handlers import CreateMaterialHandler, UpdateMaterialHandler
@@ -92,23 +83,103 @@ class MaterialOnboardingService:
     def template_csv():
         b=io.StringIO(); w=csv.writer(b); w.writerow(FIELDS); return b.getvalue().encode()
     @staticmethod
-    def template_xlsx():
-        def col(n):
-            s=""
-            while n:
-                n, rem = divmod(n - 1, 26)
-                s = chr(65 + rem) + s
-            return s
-        cells="".join(f'<c r="{col(i+1)}1" t="inlineStr"><is><t>{v}</t></is></c>' for i,v in enumerate(FIELDS))
-        sheet=f'<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">{cells}</row></sheetData></worksheet>'
-        ct='<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'
-        rel='<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
-        wb='<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Raw Materials" sheetId="1" r:id="rId1"/></sheets></workbook>'
-        wbr='<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
-        o=io.BytesIO()
-        with zipfile.ZipFile(o,"w") as z:
-            z.writestr("[Content_Types].xml",ct); z.writestr("_rels/.rels",rel); z.writestr("xl/workbook.xml",wb); z.writestr("xl/_rels/workbook.xml.rels",wbr); z.writestr("xl/worksheets/sheet1.xml",sheet)
-        return o.getvalue()
+    async def template_xlsx(session: AsyncSession, tenant_id: uuid.UUID):
+        """Generate Excel template with storage locations dropdown and default value."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Raw Materials"
+        
+        # Add headers
+        for i, field in enumerate(FIELDS, 1):
+            cell = ws.cell(row=1, column=i, value=field)
+            cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")
+        
+        # Get all active storage locations
+        locations_query = select(LocationModel).where(
+            LocationModel.tenant_id == tenant_id,
+            LocationModel.is_active == True,
+            LocationModel.is_deleted == False
+        ).order_by(LocationModel.name)
+        locations_result = await session.execute(locations_query)
+        locations = locations_result.scalars().all()
+        
+        # Get default location
+        default_location = None
+        if locations:
+            default_query = select(LocationModel).where(
+                LocationModel.tenant_id == tenant_id,
+                LocationModel.is_default == True,
+                LocationModel.is_active == True,
+                LocationModel.is_deleted == False
+            )
+            default_result = await session.execute(default_query)
+            default_location = default_result.scalar_one_or_none()
+        
+        # Create location display values (code - name)
+        location_list = []
+        default_val = ""
+        for loc in locations:
+            loc_display = f"{loc.code} - {loc.name}" if loc.code else loc.name
+            location_list.append(loc_display)
+            if default_location and loc.id == default_location.id:
+                default_val = loc_display
+        
+        # Find the warehouse column index
+        warehouse_col = None
+        for i, field in enumerate(FIELDS, 1):
+            if field == "warehouse":
+                warehouse_col = i
+                break
+        
+        # Add dummy row with default location value
+        if warehouse_col and default_val:
+            ws.cell(row=2, column=warehouse_col, value=default_val)
+        
+        # Add data validation (dropdown) for warehouse column
+        if warehouse_col and location_list:
+            dv = DataValidation(
+                type="list",
+                formula1=f'"{",".join(location_list)}"',
+                allow_blank=False
+            )
+            dv.error = 'Storage location must be from the predefined list'
+            dv.errorTitle = 'Invalid Storage Location'
+            dv.prompt = 'Select a storage location from the dropdown'
+            dv.promptTitle = 'Storage Location'
+            
+            ws.add_data_validation(dv)
+            # Apply dropdown to all rows except header
+            dv.add(f"{openpyxl.utils.get_column_letter(warehouse_col)}2:{openpyxl.utils.get_column_letter(warehouse_col)}1000")
+        
+        # Adjust column widths
+        for column in ws.columns:
+            max_length = 15
+            ws.column_dimensions[openpyxl.utils.get_column_letter(column[0].column)].width = max_length
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output.getvalue()
+    
+    @staticmethod
+    def template_xlsx_simple():
+        """Generate Excel template without storage locations (for tests/simple usage)."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Raw Materials"
+        
+        # Add headers only
+        for i, field in enumerate(FIELDS, 1):
+            cell = ws.cell(row=1, column=i, value=field)
+            cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")
+        
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output.getvalue()
     async def create_session(self, tenant_id, user_id, filename, content):
         if not filename:
             raise ValueError("Upload file must have a filename")
@@ -203,9 +274,27 @@ class MaterialOnboardingService:
         if data.get("uom") and not unit: issues.append({"field":"uom","severity":"error","type":"invalid_uom","message":"UOM must already exist"})
         if data.get("approved_supplier") and not await self.session.scalar(select(SupplierModel).where(SupplierModel.tenant_id==tenant_id,func.lower(SupplierModel.code)==norm(data["approved_supplier"]))):
             issues.append({"field":"approved_supplier","severity":"error","type":"invalid_supplier","message":"Supplier must already exist"})
-        location_name=data.get("rack_bin") or data.get("zone") or data.get("warehouse")
-        if location_name and not await self.session.scalar(select(LocationModel).where(LocationModel.tenant_id==tenant_id,LocationModel.is_deleted.is_(False),func.lower(LocationModel.name)==norm(location_name))):
-            issues.append({"field":"rack_bin","severity":"error","type":"invalid_location","message":"Warehouse, zone, or rack/bin must already exist as a location"})
+        
+        # Location validation: Priority to storage_location (new), fallback to warehouse/zone/rack_bin (legacy)
+        location_value = data.get("storage_location") or data.get("rack_bin") or data.get("zone") or data.get("warehouse")
+        location_field = "storage_location" if data.get("storage_location") else "rack_bin"
+        
+        if location_value:
+            location = await self.session.scalar(
+                select(LocationModel).where(
+                    LocationModel.tenant_id == tenant_id,
+                    LocationModel.is_deleted.is_(False),
+                    LocationModel.is_active.is_(True),
+                    (func.lower(LocationModel.code) == norm(location_value)) | (func.lower(LocationModel.name) == norm(location_value))
+                )
+            )
+            if not location:
+                issues.append({
+                    "field": location_field,
+                    "severity": "error",
+                    "type": "invalid_location",
+                    "message": f"Location '{location_value}' not found or inactive. Warehouse, zone, or rack/bin must already exist as an active location."
+                })
         precision=parse_int(data.get("decimal_precision"),"decimal_precision",issues,0,6)
         parse_int(data.get("shelf_life"),"shelf_life",issues,0)
         parse_int(data.get("lead_time"),"lead_time",issues,0)
@@ -292,7 +381,20 @@ class MaterialOnboardingService:
         d=jload(row.normalized_json,{})
         cat=await self.session.scalar(select(MaterialCategoryModel).where(MaterialCategoryModel.tenant_id==tenant_id,func.lower(MaterialCategoryModel.name)==norm(d["material_category"])))
         unit=await self.session.scalar(select(UnitOfMeasureModel).where(UnitOfMeasureModel.tenant_id==tenant_id,func.lower(UnitOfMeasureModel.code)==norm(d["uom"])))
-        location=await self.session.scalar(select(LocationModel).where(LocationModel.tenant_id==tenant_id,LocationModel.is_deleted.is_(False),func.lower(LocationModel.name)==norm(d.get("rack_bin") or d.get("zone") or d.get("warehouse")))) if (d.get("rack_bin") or d.get("zone") or d.get("warehouse")) else None
+        
+        # Location lookup: Priority to storage_location (new), fallback to warehouse/zone/rack_bin (legacy)
+        location_value = d.get("storage_location") or d.get("rack_bin") or d.get("zone") or d.get("warehouse")
+        location = None
+        if location_value:
+            location = await self.session.scalar(
+                select(LocationModel).where(
+                    LocationModel.tenant_id == tenant_id,
+                    LocationModel.is_deleted.is_(False),
+                    LocationModel.is_active.is_(True),
+                    (func.lower(LocationModel.code) == norm(location_value)) | (func.lower(LocationModel.name) == norm(location_value))
+                )
+            )
+        
         mat=await self.session.scalar(select(MaterialModel).where(MaterialModel.tenant_id==tenant_id,func.upper(MaterialModel.code)==str(d.get("item_code") or "").upper(),MaterialModel.is_deleted.is_(False))) if d.get("item_code") else None
         repo=MaterialRepository(self.session); uow=SQLAlchemyUnitOfWork(session=self.session,event_dispatcher=None)
         std_cost = Decimal(str(d["standard_cost"])) if d.get("standard_cost") else None

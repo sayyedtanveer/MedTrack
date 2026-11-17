@@ -176,6 +176,9 @@ class WorkOrderMaterialModel(Base):
     work_order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    work_order_line_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_order_lines.id", ondelete="SET NULL"), nullable=True
+    )
     material_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("materials.id", ondelete="RESTRICT"), nullable=False
     )
@@ -202,6 +205,9 @@ class JobCardModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     work_order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    work_order_line_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_order_lines.id", ondelete="SET NULL"), nullable=True
     )
     operation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("operations.id", ondelete="RESTRICT"), nullable=False

@@ -219,7 +219,7 @@ class TestOnboardingStandardCost:
         """The XLSX template must include 'standard_cost' as a column header."""
         import io, zipfile
         from xml.etree import ElementTree as ET
-        xlsx_bytes = MaterialOnboardingService.template_xlsx()
+        xlsx_bytes = MaterialOnboardingService.template_xlsx_simple()
         with zipfile.ZipFile(io.BytesIO(xlsx_bytes)) as z:
             sheet_xml = z.read("xl/worksheets/sheet1.xml")
         root = ET.fromstring(sheet_xml)

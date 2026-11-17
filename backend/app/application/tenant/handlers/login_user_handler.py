@@ -31,9 +31,9 @@ class LoginUserHandler(ICommandHandler[LoginUserCommand, LoginResult]):
         
         tenant = await self._tenant_repo.get_by_tenant_id(command.tenant_id)
 
-        if not tenant:
-            raise DomainException("Invalid tenant", code="AUTH_FAILED")
-            
+        if not tenant or not user or not self._password_hasher.verify(command.password, user.hashed_password):
+            raise DomainException("Invalid email or password", code="AUTH_FAILED")
+
         if tenant.status == "pending":
             raise DomainException("Account pending approval", code="ACCOUNT_PENDING")
             
@@ -43,12 +43,10 @@ class LoginUserHandler(ICommandHandler[LoginUserCommand, LoginResult]):
         if tenant.status == "rejected":
             raise DomainException("Account rejected", code="ACCOUNT_REJECTED")
 
-        if not user:
+        if not tenant.is_active:
             raise DomainException("Invalid email or password", code="AUTH_FAILED")
         if not user.is_active:
             raise DomainException("Account is inactive", code="ACCOUNT_INACTIVE")
-        if not self._password_hasher.verify(command.password, user.hashed_password):
-            raise DomainException("Invalid email or password", code="AUTH_FAILED")
 
         # Build extra JWT claims for supplier / client portal users.
         # Both methods are now formally declared on IUserRepository.

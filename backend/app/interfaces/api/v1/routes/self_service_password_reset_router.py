@@ -12,9 +12,9 @@ This endpoint is for:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -22,6 +22,10 @@ import hashlib
 import uuid
 
 from backend.app.config import settings
+from backend.app.domain.shared.exceptions.domain_exception import DomainException
+from backend.app.domain.tenant.value_objects.email import Email
+from backend.app.infrastructure.persistence.repositories.tenant_repository import TenantRepository
+from backend.app.infrastructure.persistence.repositories.user_repository import UserRepository
 from backend.app.infrastructure.logging.logger import get_logger
 from backend.app.infrastructure.persistence.models.user_model import (
     UserModel,
@@ -50,7 +54,8 @@ hasher = BcryptPasswordHasher()
 class ForgotPasswordRequest(BaseModel):
     """Request to start password reset process."""
     email: EmailStr
-    tenant_id: Optional[str] = None  # UUID string; scopes lookup to one tenant
+    tenant_id: Optional[str] = None
+    workspace_slug: str | None = Field(None, min_length=2, max_length=100, pattern=r"^[a-z0-9-]+$")
 
 
 class ForgotPasswordResponse(BaseModel):
@@ -114,42 +119,38 @@ async def request_password_reset(
     )
 
     try:
-        # Build the user lookup query.
-        # Always filter to active, non-deleted users.
-        # When a tenant_id is provided, scope the lookup to that tenant to
-        # prevent cross-tenant password-reset collisions.
-        stmt = select(UserModel).where(
-            UserModel.email == email,
-            UserModel.is_deleted.is_(False),
-            UserModel.is_active.is_(True),
-        )
-
-        tenant_uuid: Optional[uuid.UUID] = None
-        if request_body.tenant_id:
-            try:
+        tenant_uuid = None
+        try:
+            normalized_email = Email(address=email)
+            if request_body.tenant_id is not None:
                 tenant_uuid = uuid.UUID(request_body.tenant_id)
-                stmt = stmt.where(UserModel.tenant_id == tenant_uuid)
-            except ValueError:
-                # Malformed tenant_id — treat as missing and fall through
-                logger.warning(
-                    "Invalid tenant_id in forgot-password request",
-                    extra={"tenant_id": request_body.tenant_id},
-                )
-
-        # Order by created_at descending so the most recently created account
-        # is preferred when multiple rows somehow match (safety net).
-        stmt = stmt.order_by(UserModel.created_at.desc())
-
-        result = await session.execute(stmt)
-        user = result.scalars().first()
-
-        if not user:
-            # Still return generic response (don't leak that user doesn't exist)
+        except (DomainException, ValueError):
             return response
+
+        tenant_repo = TenantRepository(session)
+        if request_body.workspace_slug is not None:
+            workspace = await tenant_repo.get_by_slug(request_body.workspace_slug)
+            if workspace is None or (tenant_uuid is not None and workspace.id != tenant_uuid):
+                return response
+            tenant_uuid = workspace.id
+        elif tenant_uuid is None:
+            tenant_uuid = await UserRepository(session).resolve_unique_workspace(normalized_email)
+        if tenant_uuid is None or await tenant_repo.get_by_tenant_id(tenant_uuid) is None:
+            return response
+
+        matches = (await session.scalars(select(UserModel).where(
+            func.lower(UserModel.email) == str(normalized_email),
+            UserModel.tenant_id == tenant_uuid,
+            UserModel.is_deleted.is_(False),
+        ).limit(2))).all()
+        if len(matches) != 1 or not matches[0].is_active:
+            return response
+        user = matches[0]
 
         # Expire any existing unused reset tokens for this user
         existing_stmt = select(PasswordResetTokenModel).where(
             PasswordResetTokenModel.user_id == user.id,
+            PasswordResetTokenModel.tenant_id == tenant_uuid,
             PasswordResetTokenModel.used_at.is_(None),
         )
         existing_result = await session.execute(existing_stmt)
@@ -240,8 +241,12 @@ async def reset_password(
                 detail="Reset token is invalid or expired"
             )
         
-        # Get user
-        user = await session.get(UserModel, token_row.user_id)
+        user = await session.scalar(select(UserModel).where(
+            UserModel.id == token_row.user_id,
+            UserModel.tenant_id == token_row.tenant_id,
+            UserModel.is_deleted.is_(False),
+            UserModel.is_active.is_(True),
+        ))
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

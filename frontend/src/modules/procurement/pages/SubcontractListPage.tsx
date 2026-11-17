@@ -174,6 +174,7 @@ export default function SubcontractListPage() {
       await supplyChainApi.createSubcontractOrder({
         supplier_id: supplierId,
         product_id: outputMaterialId,
+        product_type: "material",
         quantity: Number(qty),
         bom_id: bomId || null,
         due_date: dueDate || null,

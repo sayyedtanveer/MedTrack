@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import logging
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -28,6 +29,7 @@ from backend.app.infrastructure.persistence.repositories.workstation_repository 
 from backend.app.infrastructure.persistence.repositories.operation_repository import OperationRepository
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
 from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.interfaces.api.v1.dependencies.auth import (
     get_container,
     get_current_tenant_id,
@@ -65,6 +67,8 @@ def _bom_to_response(bom: BillOfMaterial) -> BOMResponse:
         created_by=bom.created_by,
         approved_by=bom.approved_by,
         operations_count=len(bom.operations),
+        making_charge=bom.making_charge,
+        making_charge_basis=bom.making_charge_basis,
         lines=[
             BOMLineResponse(
                 id=line.id,
@@ -158,8 +162,32 @@ async def create_bom(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    # Override template_id or variant_id from path param if not explicitly provided in body
-    # The body must specify exactly one; the path product_id should match it.
+    # Safety check: if the request body explicitly names a target product,
+    # verify it matches the product_id in the URL path.
+    # This prevents creating a BOM for Variant B by using
+    #   POST /products/variant_A_id/boms  with body { variant_id: variant_B_id }
+    #
+    # If neither template_id nor variant_id is provided in the body, we infer
+    # from the URL (original design intent — the BOM domain entity will still
+    # enforce that exactly one of template_id/variant_id is set).
+    if body.template_id is not None and body.template_id != product_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"BOM target mismatch: the product_id in the URL ({product_id}) "
+                f"does not match the template_id in the request body ({body.template_id}). "
+                "To create a BOM for a different product, use that product's URL."
+            ),
+        )
+    if body.variant_id is not None and body.variant_id != product_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"BOM target mismatch: the product_id in the URL ({product_id}) "
+                f"does not match the variant_id in the request body ({body.variant_id}). "
+                "To create a BOM for a different product, use that product's URL."
+            ),
+        )
     container = get_container(request)
     async with container.session_factory() as session:
         repo = BOMRepository(session)
@@ -176,6 +204,8 @@ async def create_bom(
                     approved_by=body.approved_by,
                     template_id=body.template_id,
                     variant_id=body.variant_id,
+                    making_charge=body.making_charge,
+                    making_charge_basis=body.making_charge_basis,
                     lines=[
                         BOMLineInput(
                             material_id=ln.material_id,
@@ -239,6 +269,9 @@ async def update_bom(
                     valid_from=body.valid_from,
                     valid_to=body.valid_to,
                     approved_by=body.approved_by,
+                    making_charge=body.making_charge,
+                    making_charge_basis=body.making_charge_basis,
+                    clear_making_charge=body.clear_making_charge,
                     lines=[
                         BOMLineInput(
                             material_id=ln.material_id,
@@ -453,5 +486,46 @@ async def get_bom_cost(
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
             
-    # cost_dict contains material_cost, operation_cost, total_cost, currency
-    return {"bom_id": str(bom_id), **cost_dict}
+    # cost_dict contains material_cost, operation_cost, total_cost, currency, is_complete, missing_costs
+    # Enrich missing_costs with name + code by batch-fetching material records
+    raw_missing = cost_dict.get("missing_costs") or []
+    enriched_missing = []
+    if raw_missing:
+        async with container.session_factory() as session:
+            material_ids = [
+                uuid.UUID(m["component_id"])
+                for m in raw_missing
+                if m.get("component_type") == "material"
+            ]
+            if material_ids:
+                result = await session.execute(
+                    select(MaterialModel.id, MaterialModel.name, MaterialModel.code).where(
+                        MaterialModel.id.in_(material_ids),
+                        MaterialModel.tenant_id == tenant_id,
+                        MaterialModel.is_deleted == False,
+                    )
+                )
+                name_map = {str(row.id): {"name": row.name, "code": row.code} for row in result}
+            else:
+                name_map = {}
+
+            for m in raw_missing:
+                cid = m.get("component_id", "")
+                info = name_map.get(cid, {})
+                enriched_missing.append({
+                    **m,
+                    "name": info.get("name") or m.get("name") or f"Unknown ({cid[:8]}…)",
+                    "code": info.get("code") or m.get("code"),
+                })
+
+    return {
+        "bom_id": str(bom_id),
+        "material_cost": cost_dict.get("material_cost"),
+        "operation_cost": cost_dict.get("operation_cost"),
+        "making_cost": cost_dict.get("making_cost", Decimal("0")),
+        "total_cost": cost_dict.get("total_cost"),
+        "currency_code": cost_dict.get("currency_code"),
+        "currency_symbol": cost_dict.get("currency_symbol"),
+        "is_complete": cost_dict.get("is_complete"),
+        "missing_costs": enriched_missing,
+    }

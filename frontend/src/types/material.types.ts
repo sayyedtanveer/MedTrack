@@ -28,6 +28,7 @@ export interface Material {
   is_active: boolean;
   is_low_stock: boolean;
   current_cost?: number;
+  created_at?: string | null;
 
   // Purchasing summary (populated from completed GRNs via PurchaseHistoryQueryService)
   latest_purchase_price?: number | null;
@@ -40,6 +41,9 @@ export interface Material {
   warehouse_stock?: number;
   subcontractor_stock?: number;
   subcontractor_details?: SubcontractorStockDetail[];
+  
+  // Phase 2C: Cost governance status (only in list results)
+  cost_status?: "CONFIGURED" | "NOT_CONFIGURED" | "PENDING_APPROVAL" | "LEGACY";
 }
 
 export interface StockInfo {
@@ -113,6 +117,7 @@ export interface Location {
   parent_id: string | null;
   parent_location_id?: string | null;
   is_active: boolean;
+  is_default?: boolean;
 }
 
 // Requests

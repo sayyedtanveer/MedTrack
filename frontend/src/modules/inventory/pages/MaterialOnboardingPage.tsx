@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { useQueryClient } from '@tanstack/react-query'
-import { materialOnboardingService, rawMaterialOnboardingColumns, friendlyColumnNames, type OnboardingPreview, type OnboardingPreviewRow } from '@/services/material-onboarding.service'
+import { materialOnboardingService, rawMaterialOnboardingColumns, friendlyColumnNames, type OnboardingPreview, type OnboardingPreviewRow, type OnboardingExecution } from '@/modules/inventory/services/materialOnboardingApi'
 
 const steps = ['Upload', 'Mapping', 'Review', 'Summary']
 const fieldOptions = rawMaterialOnboardingColumns
@@ -35,7 +35,7 @@ export default function MaterialOnboardingPage() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<OnboardingPreview | null>(null)
-  const [summary, setSummary] = useState<Record<string, any> | null>(null)
+  const [summary, setSummary] = useState<OnboardingExecution | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingRow, setEditingRow] = useState<OnboardingPreviewRow | null>(null)
@@ -132,6 +132,9 @@ export default function MaterialOnboardingPage() {
         
         // Invalidate all related caches to show new materials immediately
         await queryClient.invalidateQueries({ queryKey: ['materials'], refetchType: 'all' })
+        for (const key of ['material', 'material-supplier-prices', 'material-cost-status', 'bom-cost', 'bom-tree', 'suppliers']) {
+          await queryClient.invalidateQueries({ queryKey: [key] })
+        }
         await queryClient.invalidateQueries({ queryKey: ['realtimeStock'], refetchType: 'all' })
         await queryClient.invalidateQueries({ queryKey: ['stockLedger'], refetchType: 'all' })
         
@@ -142,8 +145,8 @@ export default function MaterialOnboardingPage() {
       }
       
       toast({
-        title: dryRun ? "Dry run complete" : "Import successful",
-        description: dryRun ? "Review the summary before confirming the import." : "Materials have been successfully imported.",
+        title: dryRun ? "Dry run complete" : (res.data.rejected > 0 ? "Import completed with rejected rows" : "Import complete"),
+        description: dryRun ? "Review the summary before confirming the import." : `${res.data.created} created, ${res.data.updated} updated, ${res.data.rejected} rejected. Review cost outcomes and warnings below.`,
       })
     })
   }
@@ -203,9 +206,43 @@ export default function MaterialOnboardingPage() {
                 If you are updating existing materials, ensure your file includes the <strong className="font-medium text-foreground">item_code</strong> column. Without the item code, the system relies on exact name matching—any spelling mistakes in the material name will cause the system to create accidental duplicates instead of updating the existing item.
               </AlertDescription>
             </Alert>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => materialOnboardingService.downloadTemplate('xlsx')}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel template</Button>
-              <Button variant="outline" onClick={() => materialOnboardingService.downloadTemplate('csv')}><Download className="mr-2 h-4 w-4" />CSV template</Button>
+            <div className="flex flex-wrap gap-3">
+              <div className="group relative">
+                <div className="relative inline-block">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => materialOnboardingService.downloadTemplate('xlsx')}
+                    className="relative pl-10"
+                  >
+                    <FileSpreadsheet className="absolute left-3 h-4 w-4" />
+                    <span className="ml-1">Download Excel template</span>
+                  </Button>
+                  <div className="pointer-events-none absolute -top-2 -right-2 inline-flex items-center justify-center h-5 w-5 rounded-full bg-blue-500 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                    <Download className="h-3 w-3" />
+                  </div>
+                </div>
+                <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 transform rounded-md bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 whitespace-nowrap z-50">
+                  Download a pre-formatted template to fill with your material data
+                </div>
+              </div>
+              <div className="group relative">
+                <div className="relative inline-block">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => materialOnboardingService.downloadTemplate('csv')}
+                    className="relative pl-10"
+                  >
+                    <Download className="absolute left-3 h-4 w-4" />
+                    <span className="ml-1">Download CSV template</span>
+                  </Button>
+                  <div className="pointer-events-none absolute -top-2 -right-2 inline-flex items-center justify-center h-5 w-5 rounded-full bg-blue-500 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                    <FileSpreadsheet className="h-3 w-3" />
+                  </div>
+                </div>
+                <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 transform rounded-md bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 whitespace-nowrap z-50">
+                  Download a CSV template if you prefer spreadsheet format
+                </div>
+              </div>
             </div>
             <Input type="file" accept=".csv,.xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             <Button disabled={!file || busy} onClick={upload}><Upload className="mr-2 h-4 w-4" />Upload and map</Button>
@@ -247,7 +284,7 @@ export default function MaterialOnboardingPage() {
       {step === 2 && preview && (
         <>
           <div className="grid gap-4 md:grid-cols-4">
-            {Object.entries(preview.summary).map(([k, v]) => <Card key={k}><CardContent className="p-4"><div className="text-sm text-muted-foreground">{k.replace(/_/g, ' ')}</div><div className="mt-2 text-2xl font-bold">{v}</div></CardContent></Card>)}
+            {Object.entries(preview.summary).filter(([, v]) => typeof v === 'number').map(([k, v]) => <Card key={k}><CardContent className="p-4"><div className="text-sm text-muted-foreground">{k.replace(/_/g, ' ')}</div><div className="mt-2 text-2xl font-bold">{String(v)}</div></CardContent></Card>)}
           </div>
           <Card>
             <CardHeader>
@@ -260,6 +297,8 @@ export default function MaterialOnboardingPage() {
               {errors.length === 0 ? <p className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4" />No blocking validation errors.</p> :
                 errors.map((e, i) => <div key={i} className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">Row {e.row}: {e.message}</div>)}
               {warnings.map((e, i) => <div key={i} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">Row {e.row}: {e.message}</div>)}
+              {preview.error_messages.map((message, index) => <p key={`execution-${index}`} className="text-sm text-red-700">{message}</p>)}
+              {preview.warnings.map((message, index) => <p key={`cost-${index}`} className="text-sm text-amber-700">{message}</p>)}
               {protectedCount > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm"><ShieldAlert className="mr-2 inline h-4 w-4" />{protectedCount} protected-field changes require confirmation before commit.</div>}
             </CardContent>
           </Card>
@@ -286,7 +325,7 @@ export default function MaterialOnboardingPage() {
             <Button variant="outline" onClick={() => setStep(1)} disabled={busy}>Back</Button>
             <Button variant="outline" onClick={downloadReport} disabled={busy}>Download report</Button>
             <Button variant="outline" onClick={() => execute(true)} disabled={busy}>Run dry run</Button>
-            <Button onClick={() => execute(false)} disabled={busy || errors.length > 0}>Confirm import</Button>
+            <Button onClick={() => execute(false)} disabled={busy || preview.summary.new + preview.summary.update === 0}>Confirm import</Button>
           </div>
         </>
       )}
@@ -298,7 +337,7 @@ export default function MaterialOnboardingPage() {
             <p className="text-sm text-muted-foreground mt-2">
               {summary.dry_run
                 ? 'This was a dry run. No data was modified. If the results look good, go back and confirm the import.'
-                : 'Import completed successfully.'}
+                : summary.rejected > 0 ? 'Import completed with rejected rows. Review the errors below.' : 'Import completed. Review standard-cost outcomes and any warnings below.'}
             </p>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -308,17 +347,78 @@ export default function MaterialOnboardingPage() {
               ))}
             </div>
             
+            <div className="rounded-md border p-4 space-y-1 text-sm">
+              <p>Supplier agreements (DRAFT): {summary.supplier_pricing_created.supplier_agreements_draft}</p>
+              <p>Initial standard costs configured: {summary.supplier_pricing_created.standard_costs_initialized}</p>
+            </div>
+            {summary.cost_outcomes.map(outcome => (
+              <div key={outcome.material_id} className="rounded-md border p-3 text-sm">
+                <p className="font-medium">{outcome.material_name}: {outcome.status === 'CONFIGURED' ? `Standard cost ${outcome.standard_cost} ${summary.dry_run ? 'would be configured' : 'configured'}` : 'Standard cost unconfigured'}</p>
+                <p>{outcome.message}</p>
+              </div>
+            ))}
+            {summary.warnings.map((warning, index) => <p key={index} className="text-sm text-amber-700">{warning}</p>)}
+            
             {summary.error_messages?.length > 0 && (
               <div className="rounded-md border border-red-200 bg-red-50 p-4">
                 <h4 className="text-sm font-semibold text-red-800 mb-2">Errors encountered:</h4>
                 <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
-                  {summary.error_messages.map((msg: string, i: number) => (
+                  {summary.error_messages.map((msg, i) => (
                     <li key={i}>{msg}</li>
                   ))}
                 </ul>
               </div>
             )}
             
+            {/* Display skip details with reasons - elegant mobile-responsive design */}
+            {summary.skip_details?.length > 0 && (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Items skipped during import:
+                </h4>
+                <div className="space-y-3">
+                  {summary.skip_details.map((skip, i) => (
+                    <div key={i} className="rounded-md border border-slate-300 bg-white p-3 text-sm shadow-sm">
+                      {/* Mobile-first stacked layout, switches to grid on larger screens */}
+                      <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-[auto_1fr] sm:gap-x-4 sm:gap-y-1">
+                        <div className="font-medium text-slate-700 sm:text-right">Row:</div>
+                        <div className="text-slate-900">{skip.row}</div>
+
+                        <div className="font-medium text-slate-700 sm:text-right">Material:</div>
+                        <div className="text-slate-900">
+                          <span className="font-medium">{skip.material_name}</span>
+                          {skip.item_code && <span className="text-slate-500 ml-2">({skip.item_code})</span>}
+                        </div>
+
+                        {skip.supplier_name && (
+                          <>
+                            <div className="font-medium text-slate-700 sm:text-right">Supplier:</div>
+                            <div className="text-slate-900">{skip.supplier_name}</div>
+                          </>
+                        )}
+
+                        <div className="font-medium text-slate-700 sm:text-right">Reason:</div>
+                        <div className="text-slate-900">{skip.reason}</div>
+
+                        {skip.details && (
+                          <>
+                            <div className="font-medium text-slate-700 sm:text-right">Details:</div>
+                            <div className="text-slate-600 text-xs sm:text-sm">{skip.details}</div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 text-xs text-slate-600 italic">
+                  These supplier agreements were already present. Other material updates shown in the summary may still have been applied.
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2">
               {summary.dry_run ? (
                 <Button onClick={() => setStep(2)}>Go back to review</Button>

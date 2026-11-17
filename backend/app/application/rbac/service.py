@@ -9,7 +9,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.domain.shared.permissions import ROLE_PERMISSIONS, Permission, permission_grants
+from backend.app.domain.shared.permissions import (
+    ROLE_PERMISSIONS,
+    Permission,
+    permission_grants,
+)
 from backend.app.infrastructure.persistence.models.rbac_models import (
     TenantRoleModel,
     TenantRolePermissionModel,
@@ -17,6 +21,13 @@ from backend.app.infrastructure.persistence.models.rbac_models import (
 
 
 ROLE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,49}$")
+_PRICING_PERMISSION_VALUES = frozenset({
+    Permission.PROCUREMENT_PRICING_READ.value,
+    Permission.PROCUREMENT_PRICING_AGREEMENT_WRITE.value,
+    Permission.PROCUREMENT_PRICING_COST_PROPOSE.value,
+    Permission.PROCUREMENT_PRICING_APPROVE.value,
+    Permission.PROCUREMENT_PRICING_OVERRIDE.value,
+})
 
 
 def normalize_role_name(value: str) -> str:
@@ -52,6 +63,8 @@ class EffectiveRolePermissions:
         return Permission.ALL.value in self.permissions
 
     def allows(self, permission: str) -> bool:
+        if self.role == "supplier" and permission in _PRICING_PERMISSION_VALUES:
+            return self.has_all or permission in self.permissions
         return self.has_all or any(
             permission_grants(granted, permission) for granted in self.permissions
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from sqlalchemy import func, or_, select
@@ -955,9 +955,17 @@ async def add_order_line(
         price_list_repo = PriceListRepository(session)
         from functools import partial
         from backend.app.domain.sales.services.pricing_service import PricingService
-        from backend.app.infrastructure.services.sales_providers import get_variant_selling_price
+        from backend.app.infrastructure.services.sales_providers import (
+            get_variant_selling_price,
+            get_variant_template_id,
+        )
         variant_price_provider = partial(get_variant_selling_price, session)
-        pricing_service = PricingService(price_list_repo, variant_price_provider)
+        variant_template_provider = partial(get_variant_template_id, session)
+        pricing_service = PricingService(
+            price_list_repo,
+            variant_price_provider,
+            variant_template_provider,
+        )
         
         handler = AddLineToSalesOrderCommandHandler(order_repo, pricing_service, uow)
         try:
@@ -1151,9 +1159,21 @@ async def approve_order(
             return order.to_dict() if order else None
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        except Exception as e:
-            logger.exception(f"Error approving order {order_id}: {str(e)}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Approval failed")
+        except Exception as exc:
+            await uow.rollback()
+            trace_id = str(uuid4())
+            error_logger = getattr(container, "error_logger", None)
+            if error_logger is not None:
+                await error_logger.log_error(
+                    request, exc, trace_id, http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            else:
+                logger.exception("Error approving order %s (trace %s)", order_id, trace_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Approval failed",
+                headers={"X-Error-Trace-Id": trace_id},
+            ) from exc
 
 
 @router.post(
@@ -1608,7 +1628,7 @@ async def list_price_lists(
         price_list_repo = PriceListRepository(session)
         handler = ListPriceListsQueryHandler(price_list_repo)
         try:
-            items = await handler.handle(
+            result = await handler.handle(
                 ListPriceListsQuery(
                     tenant_id=tenant_id,
                     is_default=is_default,
@@ -1617,8 +1637,12 @@ async def list_price_lists(
                     offset=offset,
                 )
             )
-            total = len(items)
-            return PriceListListResponse(items=items, total=total, limit=limit, offset=offset)
+            return PriceListListResponse(
+                items=result["items"],
+                total=result["total"],
+                limit=limit,
+                offset=offset,
+            )
         except Exception as e:
             logger.exception(f"Error listing price lists: {str(e)}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="List retrieval failed")

@@ -3,7 +3,7 @@
 from typing import Type
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.orm import selectinload
 
 from backend.app.domain.sales.entities.price_list import PriceList, PriceListLine
@@ -198,7 +198,7 @@ class PriceListRepository(BaseRepository):
         if not lines:
             return
 
-        from backend.app.infrastructure.logging import get_logger
+        from backend.app.infrastructure.logging.logger import get_logger
         logger = get_logger(__name__)
 
         variant_ids: set[UUID] = set()
@@ -369,6 +369,44 @@ class PriceListRepository(BaseRepository):
         models = result.scalars().unique().all()
         return [self._to_entity(m) for m in models]
 
+    async def find_all(
+        self,
+        tenant_id: UUID,
+        is_default: bool | None = None,
+        is_active: bool | None = True,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[PriceList], int]:
+        """Find all price lists for a tenant with optional filters.
+
+        Returns (items, total_count) for proper pagination.
+        """
+        base_conditions = [
+            self._model_class().tenant_id == tenant_id,
+            self._model_class().is_deleted.is_(False),
+        ]
+        if is_default is not None:
+            base_conditions.append(self._model_class().is_default.is_(is_default))
+        if is_active is not None:
+            base_conditions.append(self._model_class().is_active.is_(is_active))
+
+        # Count query (without selectinload for speed)
+        count_stmt = select(func.count()).select_from(self._model_class()).where(*base_conditions)
+        total = await self._session.scalar(count_stmt) or 0
+
+        # Items query
+        stmt = (
+            select(self._model_class())
+            .options(selectinload(PriceListModel.lines))
+            .where(*base_conditions)
+            .order_by(self._model_class().created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self._session.execute(stmt)
+        models = result.scalars().unique().all()
+        return [self._to_entity(m) for m in models], total
+
     async def find_by_client(
         self,
         tenant_id: UUID,
@@ -435,13 +473,17 @@ class PriceListRepository(BaseRepository):
         name: str,
         exclude_id: UUID | None = None,
     ) -> PriceList | None:
-        """Find a price list matching a name exactly (case-insensitive), optionally excluding one ID."""
+        """Find a price list matching a name exactly (case-insensitive), optionally excluding one ID.
+
+        Uses func.lower() == instead of ilike to avoid wildcard injection
+        (ilike treats % and _ as pattern characters).
+        """
         stmt = (
             select(PriceListModel)
             .options(selectinload(PriceListModel.lines))
             .where(
                 PriceListModel.tenant_id == tenant_id,
-                PriceListModel.name.ilike(name),
+                func.lower(PriceListModel.name) == func.lower(name),
                 PriceListModel.is_deleted.is_(False),
             )
         )

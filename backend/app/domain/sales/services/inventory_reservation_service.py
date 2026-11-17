@@ -104,11 +104,11 @@ class InventoryReservationService:
             # Re-raise directly so the route layer can return a 409 Conflict for
             # concurrent reservation conflicts (Cross-Cutting Req A).
             raise
-        except Exception as e:
-            # Log and re-raise with context
+        except ValueError as e:
+            # Add context to business validation errors without recasting infrastructure failures.
             raise ValueError(
                 f"Failed to reserve inventory for product {product_id}: {str(e)}"
-            )
+            ) from e
 
     async def release_for_order(
         self,

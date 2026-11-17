@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Trash2, Plus, Edit2, Check, X, Package2, Box, Layers, Lock } from "lucide-react"
 import { bomService } from "@/services/bom.service"
 import { BOM, BOMLine, BOMLineInput } from "@/types/bom.types"
@@ -30,6 +30,13 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editQty, setEditQty] = useState("")
   const [editScrap, setEditScrap] = useState("")
+
+  const unitsQuery = useQuery({
+    queryKey: ["units"],
+    queryFn: () => materialService.getUnits(),
+    enabled: bom.lines.some((line) => Boolean(line.unit_id)),
+  })
+  const unitsById = new Map(unitsQuery.data?.map((unit) => [unit.id, unit.code]))
 
   const componentQueries = useQueries({
     queries: bom.lines.map((line) => ({
@@ -178,6 +185,7 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
                           <th className="h-9 px-3 text-left font-medium text-muted-foreground w-12">Type</th>
                           <th className="h-9 px-3 text-left font-medium text-muted-foreground min-w-40">Component</th>
                           <th className="h-9 px-3 text-right font-medium text-muted-foreground w-28">Qty</th>
+                          <th scope="col" className="h-9 px-3 text-left font-medium text-muted-foreground w-24">UOM</th>
                           <th className="h-9 px-3 text-right font-medium text-muted-foreground w-24">Scrap %</th>
                           <th className="h-9 px-3 text-right font-medium text-muted-foreground w-24">Edit</th>
                         </tr>
@@ -224,6 +232,14 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
                                 ) : (
                                   <span className="font-medium">{parseFloat(line.quantity.toString()).toFixed(3)}</span>
                                 )}
+                              </td>
+                              <td className="p-3 whitespace-nowrap">
+                                <span className="sm:hidden mr-1 text-xs text-muted-foreground">UOM:</span>
+                                {!line.unit_id
+                                  ? <span className="text-muted-foreground">Not set</span>
+                                  : unitsById.get(line.unit_id) ?? (
+                                    unitsQuery.isLoading ? "Loading…" : unitsQuery.isError ? "Unavailable" : "Unknown unit"
+                                  )}
                               </td>
                               <td className="p-3 text-right">
                                 {isEditing ? (

@@ -38,7 +38,11 @@ export const bomService = {
     const { data } = await apiClient.post(`/products/${productId}/boms`, payload);
     return data;  },
 
-  async updateBOM(bomId: string, payload: Partial<CreateBOMInput>): Promise<BOM> {
+  async updateBOM(bomId: string, payload: Partial<CreateBOMInput> & {
+    making_charge?: number;
+    making_charge_basis?: "PER_PIECE";
+    clear_making_charge?: boolean;
+  }): Promise<BOM> {
     const { data } = await apiClient.put(`/boms/${bomId}`, payload);
     return data;
   },

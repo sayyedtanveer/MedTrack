@@ -87,10 +87,12 @@ class POLineIn(BaseModel):
     material_id: uuid.UUID
     quantity: Decimal
     unit_price: Decimal
+    unit_id: Optional[uuid.UUID] = None
 
 
 class PurchaseOrderCreate(BaseModel):
     supplier_id: uuid.UUID
+    currency_code: Optional[str] = None
     expected_delivery: Optional[date] = None
     notes: Optional[str] = None
     lines: List[POLineIn] = Field(default_factory=list)
@@ -128,7 +130,7 @@ class SubcontractOrderCreate(BaseModel):
     supplier_id: uuid.UUID
     product_id: uuid.UUID
     product_type: str = "variant"
-    quantity: Decimal
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     bom_id: Optional[uuid.UUID] = None
     due_date: Optional[date] = None
     notes: Optional[str] = None
@@ -136,35 +138,37 @@ class SubcontractOrderCreate(BaseModel):
 
 class SubcontractIssueRequest(BaseModel):
     material_id: uuid.UUID
-    quantity: Decimal
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     from_location_id: uuid.UUID
     # batch_id (UUID) is preferred for full traceability
     batch_id: Optional[uuid.UUID] = None
     # batch_number kept for backward compat / display
-    batch_number: Optional[str] = None
+    batch_number: Optional[str] = Field(None, min_length=1, max_length=80)
 
 
 class SubcontractReturnMaterialRequest(BaseModel):
     """Return unused / excess materials back from vendor to warehouse."""
     material_id: uuid.UUID
-    quantity: Decimal
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     to_location_id: uuid.UUID
     batch_id: Optional[uuid.UUID] = None
-    batch_number: Optional[str] = None
+    batch_number: Optional[str] = Field(None, min_length=1, max_length=80)
 
 
 class SubcontractReceiveRequest(BaseModel):
     material_id: uuid.UUID
-    quantity: Decimal
+    quantity: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     warehouse_location_id: uuid.UUID
     # output batch number — auto-generated from SCO number if omitted
-    output_batch_number: Optional[str] = None
+    output_batch_number: Optional[str] = Field(None, min_length=1, max_length=100)
 
 
 class SupplierQuotationCreate(BaseModel):
     material_id: uuid.UUID
     quantity: Decimal
     unit_price: Decimal
+    currency_code: Optional[str] = None
+    unit_id: Optional[uuid.UUID] = None
     valid_until: Optional[date] = None
     purchase_order_id: Optional[str] = None
     rfq_id: Optional[uuid.UUID] = None

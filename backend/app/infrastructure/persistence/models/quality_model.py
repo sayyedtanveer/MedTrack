@@ -121,6 +121,10 @@ class SupplierQuotationModel(Base):
     )
     quantity: Mapped[float] = mapped_column(Numeric(15, 3), nullable=False)
     unit_price: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False)
+    currency_code: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    unit_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=True
+    )
     valid_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

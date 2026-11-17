@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { isAxiosError } from "axios"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Link } from "react-router-dom"
@@ -14,18 +15,30 @@ import ForgotPasswordModal from "@/modules/auth/components/ForgotPasswordModal"
 export default function LoginPage() {
   const { login, isLoggingIn } = useAuth()
   const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [showWorkspace, setShowWorkspace] = useState(false)
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
       email: "",
       password: "",
-      tenant_id: "", // Optional in Phase 0 backend if it can resolve via email
+      workspace_slug: "",
     },
   })
 
   const onSubmit = (data: LoginFormValues) => {
-    login(data)
+    form.clearErrors("root.login")
+    login({ ...data, workspace_slug: data.workspace_slug || undefined }, {
+      onError: (error) => {
+        if (!isAxiosError(error) || error.response?.status !== 401) return
+        setShowWorkspace(true)
+        form.setError("root.login", {
+          message: data.workspace_slug
+            ? "Couldn’t sign in. Check your email, password, and workspace slug."
+            : "Couldn’t sign in. Check your email and password. If you use this email in more than one workspace, enter your workspace slug and try again.",
+        })
+      },
+    })
   }
 
   return (
@@ -73,19 +86,23 @@ export default function LoginPage() {
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="tenant_id">Workspace ID (Tenant ID)</Label>
-            <Input
-              id="tenant_id"
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              {...form.register("tenant_id")}
-              disabled={isLoggingIn}
-            />
-            <p className="text-xs text-muted-foreground">Paste the UUID you received when your workspace was created</p>
-            {form.formState.errors.tenant_id && (
-              <p className="text-sm font-medium text-destructive">{form.formState.errors.tenant_id.message}</p>
-            )}
-          </div>
+          {showWorkspace ? (
+            <div className="space-y-2">
+              <Label htmlFor="workspace_slug">Workspace slug</Label>
+              <Input id="workspace_slug" placeholder="acme-corp" {...form.register("workspace_slug")} disabled={isLoggingIn} />
+              {form.formState.errors.workspace_slug && (
+                <p className="text-sm text-destructive">{form.formState.errors.workspace_slug.message}</p>
+              )}
+            </div>
+          ) : (
+            <button type="button" className="text-sm text-primary hover:underline" onClick={() => setShowWorkspace(true)}>
+              Use a workspace slug
+            </button>
+          )}
+
+          {form.formState.errors.root?.login?.message && (
+            <p role="alert" className="text-sm text-destructive">{form.formState.errors.root.login.message}</p>
+          )}
 
           <Button type="submit" className="w-full" disabled={isLoggingIn}>
             {isLoggingIn ? "Signing in..." : "Sign in"}
@@ -102,7 +119,7 @@ export default function LoginPage() {
       <ForgotPasswordModal
         isOpen={showForgotPassword}
         onClose={() => setShowForgotPassword(false)}
-        tenantId={form.watch("tenant_id") || ""}
+        workspaceSlug={form.watch("workspace_slug")?.trim().toLowerCase()}
       />
     </Card>
   )

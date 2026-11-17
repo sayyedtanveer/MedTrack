@@ -14,11 +14,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Drawer } from "@/components/shared/Drawer"
 import { useEffect, useState } from "react"
 import { supplyChainApi } from "@/services/supply-chain.service"
+import { standardCostRevisionApi } from "@/modules/procurement/services/standardCostRevisionApi"
+import { apiClient as api } from "@/services/api"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PurchaseHistoryItem } from "@/types/material.types"
 import { MaterialTraceabilityTab } from "./MaterialTraceabilityTab"
 import { MaterialStockByLocation } from "./MaterialStockByLocation"
+import { MaterialSupplierPrices } from "./MaterialSupplierPrices"
 
 const GENERIC_RAW_NAMES = new Set([
   "raw material",
@@ -151,7 +154,7 @@ function PurchasingSummaryCard({
               {currencyCode} {fmt(latestPrice)}
             </span>
           ) : (
-            <span className="text-sm text-muted-foreground">No receipts yet</span>
+            <span className="text-sm text-muted-foreground">No purchase history yet</span>
           )}
         </div>
 
@@ -333,6 +336,215 @@ function PurchaseHistoryTable({ materialId }: { materialId: string }) {
   )
 }
 
+// ── Purchasing Tab — direct standard-cost save (no approval step) ────────────
+
+interface PurchasingTabProps {
+  materialId: string
+  material: { current_cost?: number | null; material_type?: string; cost_status?: string | null } | undefined
+  currencyCode: string
+  onClose: () => void
+}
+
+function PurchasingTab({ materialId, material, currencyCode, onClose }: PurchasingTabProps) {
+  const queryClient = useQueryClient()
+
+  // Fetch authoritative cost status so the UI reflects the BOM-visible state.
+  const { data: costStatus } = useQuery({
+    queryKey: ["material-cost-status", materialId],
+    queryFn: () => standardCostRevisionApi.getCostStatus(materialId),
+    enabled: Boolean(materialId),
+  })
+
+  const materialCost = Number(costStatus?.current_cost ?? material?.current_cost ?? 0)
+  const approvedCost = costStatus?.approved_cost
+  const effectiveCost = approvedCost != null ? Number(approvedCost) : materialCost
+  const isConfigured = costStatus?.cost_status === "CONFIGURED"
+  const isLegacy = costStatus?.cost_status === "LEGACY"
+  const hasExistingCost = isConfigured || isLegacy || materialCost > 0
+
+  const [costDraft, setCostDraft] = useState<{ value: string; expectedCost: number } | null>(null)
+  const [reasonInput, setReasonInput] = useState<string>("")
+  const [costError, setCostError] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const costInput = costDraft?.value ?? (hasExistingCost ? String(effectiveCost) : "")
+
+  const isRaw = !material?.material_type || material.material_type === "raw"
+  const isFirstSetup = !hasExistingCost
+
+  const saveLabel = isFirstSetup ? "Set Standard Cost" : "Update Standard Cost"
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const parsed = parseFloat(costInput)
+      if (isNaN(parsed) || parsed < 0) {
+        throw new Error("Cost must be a valid number ≥ 0")
+      }
+      // Require a reason when changing an already-configured cost
+      if (!isFirstSetup && !reasonInput.trim()) {
+        throw new Error("Please enter a reason for changing the standard cost.")
+      }
+
+      const body: {
+        new_cost: number
+        reason?: string
+        expected_current_cost?: number
+      } = { new_cost: parsed }
+
+      if (!isFirstSetup) {
+        body.reason = reasonInput.trim()
+      }
+
+      // Pass the cost the UI last loaded as the optimistic-lock token
+      body.expected_current_cost = costDraft?.expectedCost ?? materialCost
+
+      const response = await api.post<{ new_cost: string | number }>(
+        `/inventory/materials/${materialId}/set-standard-cost`,
+        body
+      )
+
+      return response.data
+    },
+    onSuccess: (result) => {
+      const savedCost = Number(result.new_cost)
+      queryClient.setQueryData<typeof material>(["material", materialId], (previous) =>
+        previous ? { ...previous, current_cost: savedCost } : previous
+      )
+      queryClient.setQueryData<typeof costStatus>(["material-cost-status", materialId], (previous) =>
+        previous ? { ...previous, cost_status: "CONFIGURED", has_approved_cost: true, approved_cost: savedCost, current_cost: savedCost } : previous
+      )
+      setCostDraft(null)
+      const verb = isFirstSetup ? "configured" : "updated"
+      setSuccessMsg(`Standard cost ${verb} successfully.`)
+      setCostError(null)
+      setReasonInput("")
+      // Refresh material data, cost status, and BOM-related caches
+      queryClient.invalidateQueries({ queryKey: ["material", materialId] })
+      queryClient.invalidateQueries({ queryKey: ["material-cost-status", materialId] })
+      queryClient.invalidateQueries({ queryKey: ["cost-revisions"] })
+      queryClient.invalidateQueries({ queryKey: ["bom-cost"] })
+      queryClient.invalidateQueries({ queryKey: ["bom-tree"] })
+      queryClient.invalidateQueries({ queryKey: ["materials"] })
+    },
+    onError: (err: unknown) => {
+      let msg = "Failed to save standard cost"
+      // Axios error: err.response.data.detail
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      if (axiosErr.response?.data?.detail) {
+        msg = axiosErr.response.data.detail
+      } else if (err instanceof Error) {
+        msg = err.message
+      }
+      setCostError(msg)
+      setSuccessMsg(null)
+    },
+  })
+
+  return (
+    <div className="space-y-6 pb-8">
+      {/* ── Standard Cost section ─────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="purchasing_current_cost">Standard Cost</Label>
+          {/* Cost status badge */}
+          {(costStatus || hasExistingCost) && (
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded-full border ${
+                isConfigured
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : hasExistingCost
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : "border-zinc-200 bg-zinc-50 text-zinc-500"
+              }`}
+            >
+              {isConfigured ? "Configured" : hasExistingCost ? "Legacy" : "Not Configured"}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Input
+            id="purchasing_current_cost"
+            type="number"
+            min="0"
+            step="0.0001"
+            placeholder={isFirstSetup ? "Enter cost…" : "0.0000"}
+            value={costInput}
+            onChange={(e) => {
+              const value = e.target.value
+              setCostDraft((draft) => ({ value, expectedCost: draft?.expectedCost ?? materialCost }))
+              setCostError(null)
+              setSuccessMsg(null)
+            }}
+            disabled={!isRaw}
+            className={!isRaw ? "opacity-50 cursor-not-allowed" : ""}
+          />
+          <span className="text-sm text-muted-foreground shrink-0">{currencyCode}</span>
+        </div>
+
+        {/* Reason field — only shown when changing an existing cost */}
+        {isRaw && !isFirstSetup && (
+          <div className="space-y-1">
+            <Label htmlFor="cost_reason" className="text-xs text-muted-foreground">
+              Reason for change <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="cost_reason"
+              type="text"
+              placeholder="e.g. Supplier price increase, annual review…"
+              value={reasonInput}
+              onChange={(e) => {
+                setReasonInput(e.target.value)
+                setCostError(null)
+              }}
+              maxLength={500}
+            />
+          </div>
+        )}
+
+        {costError  && <p className="text-xs text-destructive">{costError}</p>}
+        {successMsg && <p className="text-xs text-green-600">{successMsg}</p>}
+
+        {!isRaw && (
+          <p className="text-xs text-muted-foreground">
+            Standard cost is only configurable for raw materials.
+          </p>
+        )}
+        {isRaw && (
+          <p className="text-xs text-muted-foreground">
+            Saved immediately. Used by BOM cost rollup. Changes are recorded in cost history.
+          </p>
+        )}
+      </div>
+
+      <MaterialSupplierPrices materialId={materialId} />
+
+      {/* ── Live purchasing summary ───────────────────────────────── */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Purchasing Summary</p>
+        <p className="text-xs text-muted-foreground">Derived from completed GRN receipts. Read-only.</p>
+        <PurchasingSummaryCard material={{ ...material, current_cost: effectiveCost }} currencyCode={currencyCode} />
+      </div>
+
+      <div className="pt-4 flex gap-3 w-full sm:justify-end border-t">
+        <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">
+          Cancel
+        </Button>
+        {isRaw && (
+          <Button
+            type="button"
+            disabled={saveMutation.isPending}
+            onClick={() => saveMutation.mutate()}
+            className="w-full sm:w-auto"
+          >
+            <Save className="mr-2 h-4 w-4" />
+            {saveMutation.isPending ? "Saving…" : saveLabel}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Props) {
@@ -401,15 +613,15 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
         code: material.code,
         name: material.name,
         material_type: (material.material_type as "raw" | "finished" | "semi_finished") || "raw",
-        base_unit_id: material.base_unit_id || null,
+        base_unit_id: material.base_unit_id ?? null,
         description: material.description || "",
-        category_id: material.category_id || "",
+        category_id: material.category_id ?? "",
         reorder_level: material.reorder_level ?? 10,
-        location_id: material.location_id || null,
+        location_id: material.location_id ?? null,
         is_batch_tracked: material.is_batch_tracked ?? false,
         is_serialized: material.is_serialized ?? false,
         inspection_required: material.inspection_required ?? false,
-        inspection_template_id: material.inspection_template_id || null,
+        inspection_template_id: material.inspection_template_id ?? null,
         code_locked: material.code_locked ?? true,
         current_cost: material.current_cost ?? 0,
       })
@@ -431,7 +643,7 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
         code_locked: true,
       })
     }
-  }, [material, materialId, presetType, reset])
+  }, [material, materialId, presetType, reset, locations])
 
   const saveMutation = useMutation({
     mutationFn: async (data: MaterialFormValues) => {
@@ -454,8 +666,6 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
           // Phase 2
           item_code: data.item_code ?? data.code ?? undefined,
           code_locked: data.code_locked ?? undefined,
-
-          ...(data.material_type === "raw" ? { current_cost: data.current_cost ?? 0 } : {}),
         })
       } else {
         return await materialService.createMaterial({
@@ -609,15 +819,16 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
         <div className="space-y-2">
           <Label htmlFor="location_id">Storage Location</Label>
           <Select 
-            value={watch("location_id") || ""} 
-            onValueChange={(val) => setValue("location_id", val, { shouldValidate: true })}
+            key={isFetchingLocations ? "loading" : `ready-${watch("location_id") ?? "none"}`}
+            value={watch("location_id") ?? ""}
+            onValueChange={(val) => setValue("location_id", val || null, { shouldValidate: true })}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select Storage" />
             </SelectTrigger>
             <SelectContent>
               {locations?.map((l) => (
-                <SelectItem key={l.id} value={l.id}>
+                <SelectItem key={l.id} value={String(l.id)}>
                   {l.name}
                 </SelectItem>
               ))}
@@ -769,48 +980,13 @@ export function MaterialFormDrawer({ materialId, presetType, open, onClose }: Pr
 
           {/* ── Purchasing tab ── */}
           <TabsContent value="purchasing">
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 pb-8">
-              {/* Editable standard cost */}
-              <div className="space-y-2">
-                <Label htmlFor="current_cost">Standard Purchase Cost</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="current_cost"
-                    type="number"
-                    min="0"
-                    step="0.0001"
-                    placeholder="0.0000"
-                    {...register("current_cost")}
-                  />
-                  <span className="text-sm text-muted-foreground shrink-0">
-                    {currencyCode}
-                  </span>
-                </div>
-                {errors.current_cost && (
-                  <p className="text-xs text-destructive">{errors.current_cost.message as string}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Used by BOM Cost Rollup for standard costing. Set to 0 if unknown.
-                </p>
-              </div>
-
-              {/* Live purchasing summary from GRNs */}
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Purchasing Summary</p>
-                <p className="text-xs text-muted-foreground">
-                  Derived from completed GRN receipts. Read-only.
-                </p>
-                <PurchasingSummaryCard material={material} currencyCode={currencyCode} />
-              </div>
-
-              <div className="pt-4 flex gap-3 w-full sm:justify-end border-t">
-                <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">Cancel</Button>
-                <Button type="submit" disabled={saveMutation.isPending} className="w-full sm:w-auto">
-                  <Save className="mr-2 h-4 w-4" />
-                  {saveMutation.isPending ? "Saving..." : "Save Material"}
-                </Button>
-              </div>
-            </form>
+            <PurchasingTab
+              key={materialId}
+              materialId={materialId!}
+              material={material}
+              currencyCode={currencyCode}
+              onClose={onClose}
+            />
           </TabsContent>
 
           {/* ── History tab ── */}

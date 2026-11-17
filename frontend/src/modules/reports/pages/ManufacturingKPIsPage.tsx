@@ -18,13 +18,14 @@ import { BarChart3, RefreshCw, TrendingUp, TrendingDown, Minus, FileText } from 
 import apiClient from "@/services/api-client"
 
 interface ManufacturingKPIs {
-  oee_percent: number
-  yield_rate_percent: number
-  scrap_rate_percent: number
-  rework_rate_percent: number
+  oee: number
+  yield_rate: number
+  scrap_rate: number
+  rework_rate: number
   inventory_turnover: number
-  date_from: string
-  date_to: string
+  date_range: { start_date: string; end_date: string }
+  total_produced: number
+  total_completed: number
 }
 
 function TrendIcon({ value, threshold = 0 }: { value: number; threshold?: number }) {
@@ -39,15 +40,11 @@ export default function ManufacturingKPIsPage() {
 
   const [dateFrom, setDateFrom] = useState(firstOfMonth.toISOString().split("T")[0])
   const [dateTo, setDateTo] = useState(today.toISOString().split("T")[0])
-  const [productFilter, setProductFilter] = useState("")
-  const [workCenterFilter, setWorkCenterFilter] = useState("")
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<ManufacturingKPIs>({
-    queryKey: ["manufacturing-kpis", dateFrom, dateTo, productFilter, workCenterFilter],
+    queryKey: ["manufacturing-kpis", dateFrom, dateTo],
     queryFn: async () => {
-      const params: any = { date_from: dateFrom, date_to: dateTo }
-      if (productFilter) params.product_id = productFilter
-      if (workCenterFilter) params.work_center = workCenterFilter
+      const params = { date_from: dateFrom, date_to: dateTo }
       
       const response = await apiClient.get("/reports/manufacturing-kpis", { params })
       return response.data
@@ -61,7 +58,7 @@ export default function ManufacturingKPIsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Manufacturing KPIs</h1>
           <p className="mt-1 text-sm text-slate-500">
-            OEE, yield, scrap, rework rate, and inventory turnover
+            Estimated OEE, yield, scrap, rework rate, and estimated inventory turnover
           </p>
         </div>
         <Button
@@ -99,28 +96,6 @@ export default function ManufacturingKPIsPage() {
               className="h-8 w-40 text-sm"
             />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="product-filter" className="text-xs font-medium text-slate-600">Product</Label>
-            <Input
-              id="product-filter"
-              type="text"
-              placeholder="Search product..."
-              value={productFilter}
-              onChange={(e) => setProductFilter(e.target.value)}
-              className="h-8 w-48 text-sm"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="work-center-filter" className="text-xs font-medium text-slate-600">Work Center</Label>
-            <Input
-              id="work-center-filter"
-              type="text"
-              placeholder="Search work center..."
-              value={workCenterFilter}
-              onChange={(e) => setWorkCenterFilter(e.target.value)}
-              className="h-8 w-48 text-sm"
-            />
-          </div>
           <Button size="sm" onClick={() => refetch()} disabled={isFetching}>
             Apply
           </Button>
@@ -129,7 +104,7 @@ export default function ManufacturingKPIsPage() {
         {/* Record count and date range display */}
         {data && !isLoading && (
           <p className="text-xs text-slate-600">
-            Showing data for {dateFrom} – {dateTo}
+            Showing data for {data.date_range.start_date} – {data.date_range.end_date}
           </p>
         )}
       </div>
@@ -190,7 +165,7 @@ export default function ManufacturingKPIsPage() {
         </div>
       )}
 
-      {!isLoading && !isError && data && (data.oee_percent === 0 && data.yield_rate_percent === 0) && (
+      {!isLoading && !isError && data && (data.total_produced === 0 && data.total_completed === 0) && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 text-center">
           No data found for the selected date range and filters
         </div>
@@ -209,22 +184,22 @@ export default function ManufacturingKPIsPage() {
           <CardContent>
             <div className="flex items-center gap-3">
               <p className="text-3xl font-bold text-slate-900">
-                {isLoading ? "—" : `${data?.oee_percent?.toFixed(1) ?? 0}%`}
+                {isLoading ? "—" : `${data?.oee?.toFixed(1) ?? 0}%`}
               </p>
-              {!isLoading && data && <TrendIcon value={data.oee_percent} threshold={85} />}
+              {!isLoading && data && <TrendIcon value={data.oee} threshold={85} />}
             </div>
             <div className="mt-2">
               {!isLoading && data && (
                 <Badge
                   className={
-                    data.oee_percent >= 85
+                    data.oee >= 85
                       ? "bg-emerald-100 text-emerald-700"
-                      : data.oee_percent >= 65
+                      : data.oee >= 65
                         ? "bg-amber-100 text-amber-700"
                         : "bg-red-100 text-red-700"
                   }
                 >
-                  {data.oee_percent >= 85 ? "World Class" : data.oee_percent >= 65 ? "Average" : "Below Target"}
+                  {data.oee >= 85 ? "World Class" : data.oee >= 65 ? "Average" : "Below Target"}
                 </Badge>
               )}
             </div>
@@ -243,9 +218,9 @@ export default function ManufacturingKPIsPage() {
           <CardContent>
             <div className="flex items-center gap-3">
               <p className="text-3xl font-bold text-slate-900">
-                {isLoading ? "—" : `${data?.yield_rate_percent?.toFixed(1) ?? 0}%`}
+                {data && data.total_produced > 0 ? `${data.yield_rate.toFixed(1)}%` : "—"}
               </p>
-              {!isLoading && data && <TrendIcon value={data.yield_rate_percent} threshold={95} />}
+              {!isLoading && data && <TrendIcon value={data.yield_rate} threshold={95} />}
             </div>
           </CardContent>
         </Card>
@@ -262,19 +237,19 @@ export default function ManufacturingKPIsPage() {
           <CardContent>
             <div className="flex items-center gap-3">
               <p className="text-3xl font-bold text-slate-900">
-                {isLoading ? "—" : `${data?.scrap_rate_percent?.toFixed(1) ?? 0}%`}
+                {data && data.total_produced > 0 ? `${data.scrap_rate.toFixed(1)}%` : "—"}
               </p>
               {!isLoading && data && (
                 <Badge
                   className={
-                    (data.scrap_rate_percent ?? 0) <= 2
+                    (data.scrap_rate ?? 0) <= 2
                       ? "bg-emerald-100 text-emerald-700"
-                      : (data.scrap_rate_percent ?? 0) <= 5
+                      : (data.scrap_rate ?? 0) <= 5
                         ? "bg-amber-100 text-amber-700"
                         : "bg-red-100 text-red-700"
                   }
                 >
-                  {(data.scrap_rate_percent ?? 0) <= 2 ? "Good" : (data.scrap_rate_percent ?? 0) <= 5 ? "Monitor" : "High"}
+                  {(data.scrap_rate ?? 0) <= 2 ? "Good" : (data.scrap_rate ?? 0) <= 5 ? "Monitor" : "High"}
                 </Badge>
               )}
             </div>
@@ -293,17 +268,17 @@ export default function ManufacturingKPIsPage() {
           <CardContent>
             <div className="flex items-center gap-3">
               <p className="text-3xl font-bold text-slate-900">
-                {isLoading ? "—" : `${data?.rework_rate_percent?.toFixed(1) ?? 0}%`}
+                {data && data.total_completed > 0 ? `${data.rework_rate.toFixed(1)}%` : "—"}
               </p>
               {!isLoading && data && (
                 <Badge
                   className={
-                    (data.rework_rate_percent ?? 0) <= 3
+                    (data.rework_rate ?? 0) <= 3
                       ? "bg-emerald-100 text-emerald-700"
                       : "bg-amber-100 text-amber-700"
                   }
                 >
-                  {(data.rework_rate_percent ?? 0) <= 3 ? "Good" : "High"}
+                  {(data.rework_rate ?? 0) <= 3 ? "Good" : "High"}
                 </Badge>
               )}
             </div>

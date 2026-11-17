@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Search, Package2, AlertCircle, Loader } from "lucide-react"
+import { Search, Package2, ChevronDown, ChevronRight, AlertCircle, Loader2, Layers } from "lucide-react"
 import { bomService } from "@/services/bom.service"
 import { ItemTemplate, ItemVariant } from "@/types/bom.types"
 import { Button } from "@/components/ui/button"
@@ -8,35 +8,43 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Label } from "@/components/ui/label"
 
 interface ProductSelectionModalProps {
   onSelect: (product: ItemTemplate | ItemVariant, isTemplate: boolean) => void
   onCancel: () => void
 }
 
-type Product = (ItemTemplate & { _type: "template" }) | (ItemVariant & { _type: "variant" })
+/** Build a human-readable attribute string from variant_key e.g. "SIZE=SMALL|COLOR=RED" → "SMALL / RED" */
+function formatAttributes(variant_key: string): string {
+  if (!variant_key) return ""
+  return variant_key
+    .split("|")
+    .map((kv) => kv.split("=").slice(1).join("="))
+    .join(" / ")
+}
 
 export function ProductSelectionModal({ onSelect, onCancel }: ProductSelectionModalProps) {
   const [searchQuery, setSearchQuery] = useState("")
+  // Track which template groups are expanded; default all expanded
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [selectedId, setSelectedId] = useState<string>("")
+  const [selectedIsTemplate, setSelectedIsTemplate] = useState<boolean>(false)
 
-  // Fetch templates
-  const { 
-    data: templatesData, 
-    isLoading: isLoadingTemplates, 
-    isError: isErrorTemplates 
+  // ── Data fetching ─────────────────────────────────────────────────────────
+  const {
+    data: templatesData,
+    isLoading: isLoadingTemplates,
+    isError: isErrorTemplates,
   } = useQuery({
     queryKey: ["bom-templates"],
     queryFn: () => bomService.getTemplates({ page_size: 100 }),
     staleTime: 30_000,
   })
 
-  // Fetch variants
-  const { 
-    data: variantsData, 
-    isLoading: isLoadingVariants, 
-    isError: isErrorVariants 
+  const {
+    data: variantsData,
+    isLoading: isLoadingVariants,
+    isError: isErrorVariants,
   } = useQuery({
     queryKey: ["bom-variants"],
     queryFn: () => bomService.getAllVariants({ page_size: 100 }),
@@ -48,147 +56,293 @@ export function ProductSelectionModal({ onSelect, onCancel }: ProductSelectionMo
   const isLoading = isLoadingTemplates || isLoadingVariants
   const isError = isErrorTemplates || isErrorVariants
 
-  // Combine and filter products
-  const allProducts: Product[] = useMemo(() => {
-    const tpls = templates.map(t => ({ ...t, _type: "template" as const }))
-    const vars = variants.map(v => ({ ...v, _type: "variant" as const }))
-    return [...tpls, ...vars]
-  }, [templates, variants])
+  // ── Build grouped structure ───────────────────────────────────────────────
+  // Map template_id → variants that belong to it
+  const variantsByTemplate = useMemo(() => {
+    const map: Record<string, ItemVariant[]> = {}
+    for (const v of variants) {
+      const tid = v.template_id
+      if (!map[tid]) map[tid] = []
+      map[tid].push(v)
+    }
+    return map
+  }, [variants])
 
-  const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return allProducts
-    const q = searchQuery.toLowerCase()
-    return allProducts.filter(p => 
-      p.name.toLowerCase().includes(q) || 
-      p.code.toLowerCase().includes(q) ||
-      (p._type === "variant" && p.variant_key?.toLowerCase().includes(q))
-    )
-  }, [allProducts, searchQuery])
+  // ── Filtered groups (search-aware) ────────────────────────────────────────
+  const filteredGroups = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
 
-  const handleSelect = () => {
-    const product = allProducts.find(p => p.id === selectedId)
-    if (product) {
-      const isTemplate = product._type === "template"
-      const { _type, ...rest } = product
-      onSelect(rest as any, isTemplate)
+    return templates
+      .map((tpl) => {
+        const tplVariants = variantsByTemplate[tpl.id] ?? []
+
+        if (!q) {
+          return { template: tpl, variants: tplVariants, matchesParent: true }
+        }
+
+        const parentMatches =
+          tpl.name.toLowerCase().includes(q) || tpl.code.toLowerCase().includes(q)
+        const matchingVariants = tplVariants.filter(
+          (v) =>
+            v.name.toLowerCase().includes(q) ||
+            v.code.toLowerCase().includes(q) ||
+            (v.variant_key && v.variant_key.toLowerCase().includes(q)) ||
+            formatAttributes(v.variant_key ?? "").toLowerCase().includes(q)
+        )
+
+        if (!parentMatches && matchingVariants.length === 0) return null
+
+        return {
+          template: tpl,
+          variants: parentMatches ? tplVariants : matchingVariants,
+          matchesParent: parentMatches,
+        }
+      })
+      .filter(Boolean) as Array<{
+        template: ItemTemplate
+        variants: ItemVariant[]
+        matchesParent: boolean
+      }>
+  }, [templates, variantsByTemplate, searchQuery])
+
+  const totalVisible = filteredGroups.reduce(
+    (n, g) => n + 1 + g.variants.length,
+    0
+  )
+
+  // ── Expand helpers ────────────────────────────────────────────────────────
+  const isExpanded = (tplId: string) =>
+    expanded[tplId] !== false // default: expanded
+
+  const toggleExpand = (tplId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setExpanded((prev) => ({ ...prev, [tplId]: !isExpanded(tplId) }))
+  }
+
+  // ── Selection ─────────────────────────────────────────────────────────────
+  const selectTemplate = (tpl: ItemTemplate) => {
+    setSelectedId(tpl.id)
+    setSelectedIsTemplate(true)
+  }
+
+  const selectVariant = (v: ItemVariant) => {
+    setSelectedId(v.id)
+    setSelectedIsTemplate(false)
+  }
+
+  const handleConfirm = () => {
+    if (!selectedId) return
+    if (selectedIsTemplate) {
+      const tpl = templates.find((t) => t.id === selectedId)
+      if (tpl) onSelect(tpl, true)
+    } else {
+      const v = variants.find((v) => v.id === selectedId)
+      if (v) onSelect(v, false)
     }
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="w-full max-w-2xl space-y-6">
+    <div className="w-full space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold">Select Product</h2>
-        <p className="text-muted-foreground mt-1">
-          Search by product name, code, or variant code
+        <h2 className="text-xl font-semibold">Select Finished Good</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Select a parent template or a specific variant to target
         </p>
       </div>
 
-      {/* Search Input */}
-      <div className="space-y-2">
-        <Label htmlFor="product-search">Search Products</Label>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            id="product-search"
-            placeholder="e.g. Widget, PROD-001, storage_capacity_128gb"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          id="product-search"
+          placeholder="Search by name, code or variant attributes…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 h-9 text-sm"
+          autoFocus
+        />
       </div>
 
-      {/* Loading State */}
+      {/* Loading */}
       {isLoading && (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <Skeleton key={i} className="h-16 rounded-lg" />
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-12 rounded-md" />
           ))}
         </div>
       )}
 
-      {/* Error State */}
-      {isError && (
+      {/* Error */}
+      {!isLoading && isError && (
         <Alert variant="destructive">
           <AlertCircle className="w-4 h-4" />
-          <AlertDescription>
-            Failed to load products. Please try again.
-          </AlertDescription>
+          <AlertDescription>Failed to load products. Please try again.</AlertDescription>
         </Alert>
       )}
 
-      {/* Empty State */}
-      {!isLoading && !isError && filtered.length === 0 && (
-        <Alert>
-          <AlertCircle className="w-4 h-4" />
-          <AlertDescription>
-            {searchQuery ? 
-              "No products match your search" : 
-              "No products available. Please create a product template first."
-            }
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Product List */}
-      {!isLoading && !isError && filtered.length > 0 && (
-        <div className="border rounded-lg bg-card overflow-hidden">
-          <div className="max-h-96 overflow-y-auto">
-            {filtered.map(product => (
-              <button
-                key={product.id}
-                onClick={() => setSelectedId(product.id)}
-                className={`w-full px-4 py-3 text-left border-b last:border-b-0 transition-colors ${
-                  selectedId === product.id
-                    ? "bg-primary/5 border-primary"
-                    : "hover:bg-muted/50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Package2 className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
-                      <h3 className="font-medium truncate">{product.name}</h3>
-                      <Badge variant={product._type === "template" ? "default" : "secondary"} className="flex-shrink-0">
-                        {product._type === "template" ? "Template" : "Variant"}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground flex items-center gap-2">
-                      <span className="font-mono">{product.code}</span>
-                      {product._type === "variant" && product.variant_key && (
-                        <>
-                          <span>•</span>
-                          <span className="font-mono text-xs">{product.variant_key}</span>
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <div className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 transition-all ${
-                    selectedId === product.id
-                      ? "bg-primary border-primary"
-                      : "border-muted-foreground"
-                  }`} />
-                </div>
-              </button>
-            ))}
-          </div>
+      {/* Empty */}
+      {!isLoading && !isError && totalVisible === 0 && (
+        <div className="text-center py-8 text-sm text-muted-foreground">
+          <Package2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          {searchQuery
+            ? `No products match "${searchQuery}"`
+            : "No finished goods found. Create a product template first."}
         </div>
       )}
 
-      {/* Action Buttons */}
-      <div className="flex gap-3 justify-end pt-4">
-        <Button variant="outline" onClick={onCancel}>
+      {/* Grouped product list */}
+      {!isLoading && !isError && totalVisible > 0 && (
+        <div className="border rounded-md overflow-hidden bg-card max-h-[55vh] overflow-y-auto">
+          {filteredGroups.map(({ template: tpl, variants: tplVariants }) => {
+            const exp = isExpanded(tpl.id)
+            const isSelected = selectedId === tpl.id && selectedIsTemplate
+
+            return (
+              <div key={tpl.id} className="border-b last:border-b-0">
+                {/* ── Template row ── */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => selectTemplate(tpl)}
+                  onKeyDown={(e) => e.key === "Enter" && selectTemplate(tpl)}
+                  className={`flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors ${
+                    isSelected
+                      ? "bg-primary/8 border-l-2 border-primary"
+                      : "hover:bg-muted/40"
+                  }`}
+                >
+                  {/* Expand toggle */}
+                  {tplVariants.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={(e) => toggleExpand(tpl.id, e)}
+                      className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
+                      aria-label={exp ? "Collapse variants" : "Expand variants"}
+                    >
+                      {exp ? (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="w-5 shrink-0" />
+                  )}
+
+                  <Package2 className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+
+                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm truncate">{tpl.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground shrink-0">
+                      {tpl.code}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 py-0 shrink-0 bg-blue-50 text-blue-700 border-blue-200"
+                    >
+                      Template
+                    </Badge>
+                    {tplVariants.length > 0 && (
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {tplVariants.length} variant{tplVariants.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Selection indicator */}
+                  <div
+                    className={`w-4 h-4 rounded-full border-2 shrink-0 transition-colors ${
+                      isSelected
+                        ? "bg-primary border-primary"
+                        : "border-muted-foreground/40"
+                    }`}
+                  />
+                </div>
+
+                {/* ── Variant rows (collapsible) ── */}
+                {exp &&
+                  tplVariants.map((v) => {
+                    const isVarSelected = selectedId === v.id && !selectedIsTemplate
+                    const attrs = formatAttributes(v.variant_key ?? "")
+
+                    return (
+                      <div
+                        key={v.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => selectVariant(v)}
+                        onKeyDown={(e) => e.key === "Enter" && selectVariant(v)}
+                        className={`flex items-center gap-2 pl-9 pr-3 py-2 cursor-pointer select-none transition-colors border-t border-dashed border-muted ${
+                          isVarSelected
+                            ? "bg-primary/8 border-l-2 border-primary"
+                            : "hover:bg-muted/30"
+                        }`}
+                      >
+                        <Layers className="w-3 h-3 shrink-0 text-muted-foreground/70" />
+
+                        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                          <span className="text-sm truncate">{v.name}</span>
+                          <span className="font-mono text-xs text-muted-foreground shrink-0">
+                            {v.code}
+                          </span>
+                          {attrs && (
+                            <span className="text-xs text-muted-foreground/80 bg-muted/60 px-1.5 py-0.5 rounded shrink-0">
+                              {attrs}
+                            </span>
+                          )}
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0 shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200"
+                          >
+                            Variant
+                          </Badge>
+                        </div>
+
+                        <div
+                          className={`w-4 h-4 rounded-full border-2 shrink-0 transition-colors ${
+                            isVarSelected
+                              ? "bg-primary border-primary"
+                              : "border-muted-foreground/40"
+                          }`}
+                        />
+                      </div>
+                    )
+                  })}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Count info */}
+      {!isLoading && !isError && totalVisible > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {filteredGroups.length} product{filteredGroups.length !== 1 ? "s" : ""}
+          {searchQuery && " matching"}
+          {selectedId && (
+            <span className="ml-2 text-primary font-medium">
+              · {selectedIsTemplate ? "Template" : "Variant"} selected
+            </span>
+          )}
+        </p>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 justify-end pt-1">
+        <Button variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        <Button 
-          onClick={handleSelect}
+        <Button
+          size="sm"
+          onClick={handleConfirm}
           disabled={!selectedId || isLoading}
         >
           {isLoading ? (
             <>
-              <Loader className="w-4 h-4 mr-2 animate-spin" />
-              Loading...
+              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              Loading…
             </>
           ) : (
             "Select Product"

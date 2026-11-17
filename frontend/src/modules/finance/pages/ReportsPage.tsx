@@ -1,3 +1,6 @@
+import { BOMCostAnalysisReport } from "@/modules/reports/pages/BOMCostAnalysisReport"
+import { usePermissions } from "@/hooks/usePermissions"
+import { Input } from "@/components/ui/input"
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
@@ -83,8 +86,7 @@ const REPORT_SECTIONS: ReportSection[] = [
 function formatVal(val: any): string {
   if (val === null || val === undefined) return "—"
   if (typeof val === "number") {
-    if (Math.abs(val) > 999) return new Intl.NumberFormat("en-IN").format(Math.round(val))
-    return val.toFixed(2)
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 12 }).format(val)
   }
   if (typeof val === "boolean") return val ? "Yes" : "No"
   if (typeof val === "string") return val
@@ -227,7 +229,7 @@ function ReportCard({ section }: { section: ReportSection }) {
         ) : error ? (
           <div className="flex items-center gap-2 text-amber-600 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 text-sm">
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            <span>Report unavailable (access restricted or no data)</span>
+            <span>Report unavailable. Check access or retry later.</span>
           </div>
         ) : (
           <DataTable data={data} />
@@ -239,6 +241,17 @@ function ReportCard({ section }: { section: ReportSection }) {
 
 export default function ReportsPage() {
   const [searchParams] = useSearchParams()
+  const { hasPermission } = usePermissions()
+  const permissions: Record<string, string> = {
+    inventory: "inventory:read", production: "manufacturing:read", sales: "sales:read",
+    procurement: "procurement:read", quality: "quality:read", finance: "report.view_financial",
+  }
+  const [search, setSearch] = useState("")
+  const [showCost, setShowCost] = useState(searchParams.get("module") == null)
+  const matches = (label: string) => label.toLowerCase().includes(search.trim().toLowerCase())
+  const sections = REPORT_SECTIONS.filter(section => hasPermission(permissions[section.id]) &&
+    (matches(section.label) || section.endpoints.some(endpoint => matches(endpoint.label))))
+  const showBom = hasPermission("manufacturing:read") && matches("Manufacturing BOM Cost Analysis")
   const defaultModules = useMemo(() => {
     const requestedModule = searchParams.get("module")
     const sectionIds = new Set(REPORT_SECTIONS.map((section) => section.id))
@@ -266,7 +279,7 @@ export default function ReportsPage() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
       {/* Header */}
-      <div className="bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 px-8 py-6">
+      <div className="bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 px-4 py-6 md:px-8">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -276,14 +289,16 @@ export default function ReportsPage() {
               Reports & Analytics
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Role-filtered cross-module reporting · Powered by materialized views
+              Explore manufacturing, inventory, procurement, sales and finance reports.
             </p>
           </div>
         </div>
 
+        <Input aria-label="Search reports" placeholder="Search reports" className="mt-4 max-w-sm" value={search} onChange={event => setSearch(event.target.value)} />
         {/* Module filter toggles */}
         <div className="flex flex-wrap gap-2 mt-5">
-          {REPORT_SECTIONS.map((s) => {
+          {showBom && <button type="button" aria-pressed={showCost} className="rounded-full border px-3 py-1.5 text-xs font-semibold aria-pressed:bg-primary aria-pressed:text-primary-foreground" onClick={() => setShowCost(!showCost)}>BOM Cost Analysis</button>}
+          {sections.map((s) => {
             const Icon = s.icon
             const active = selectedModules.has(s.id)
             return (
@@ -305,12 +320,14 @@ export default function ReportsPage() {
         </div>
       </div>
 
+      {showBom && showCost && <div className="border-b bg-background p-4 md:p-8"><BOMCostAnalysisReport /></div>}
+      {!showBom && sections.length === 0 && <p className="p-8 text-muted-foreground">No reports match your search.</p>}
       {/* Report Cards */}
-      <div className="px-8 py-6 grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {REPORT_SECTIONS.filter((s) => selectedModules.has(s.id)).map((section) => (
+      <div className="px-4 py-6 md:px-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {sections.filter((s) => selectedModules.has(s.id)).map((section) => (
           <ReportCard key={section.id} section={section} />
         ))}
-        {selectedModules.size === 0 && (
+        {selectedModules.size === 0 && !(showBom && showCost) && (
           <div className="col-span-2 text-center py-16">
             <BarChart3 className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
             <p className="text-slate-500 dark:text-slate-400">Select modules above to view reports</p>

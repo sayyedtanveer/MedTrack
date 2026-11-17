@@ -200,7 +200,7 @@ export default function PriceListsPage() {
                     <div className="space-y-1">
                       {priceList.lines.slice(0, 3).map((line) => (
                         <div key={line.id} className="flex justify-between text-xs text-gray-700">
-                          <span>{line.product_id}</span>
+                          <span>{line.product_name || line.product_code || line.product_id.slice(0, 8)}</span>
                           <span className="font-semibold">{formatCurrency(line.unit_price)}</span>
                         </div>
                       ))}

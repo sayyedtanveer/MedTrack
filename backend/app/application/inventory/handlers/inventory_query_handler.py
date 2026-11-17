@@ -17,6 +17,7 @@ from backend.app.application.inventory.queries.inventory_queries import (
     GetMaterialQuery, GetStockQuery, GetTransactionsQuery, ListMaterialsQuery,
 )
 from backend.app.domain.inventory.entities.inventory_transaction import InventoryTransaction
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.repositories.material_repository import MaterialRepository
 from backend.app.infrastructure.persistence.repositories.transaction_repository import TransactionRepository
 
@@ -227,6 +228,96 @@ class InventoryQueryHandler:
         
         return breakdown_map
 
+    async def _get_cost_status_bulk(
+        self,
+        material_ids: List[uuid.UUID],
+        tenant_id: uuid.UUID
+    ) -> dict[uuid.UUID, str]:
+        """
+        Bulk fetch cost_status for materials (Phase 2C).
+        
+        Returns:
+            {
+                material_id_1: "CONFIGURED" | "NOT_CONFIGURED" | "PENDING_APPROVAL" | "LEGACY",
+                material_id_2: "CONFIGURED",
+            }
+        """
+        if not material_ids:
+            return {}
+        
+        from backend.app.infrastructure.persistence.repositories.procurement_pricing_repository import StandardCostRevisionRepository
+        from backend.app.infrastructure.persistence.models.procurement_pricing_models import StandardCostRevisionModel
+        from backend.app.domain.procurement.pricing.entities import StandardCostRevisionStatus
+        from sqlalchemy import select, desc
+        
+        session = self._material_repo._session
+        revision_repo = StandardCostRevisionRepository(session)
+        
+        # Fetch all materials for current_cost values
+        materials_stmt = select(MaterialModel).where(
+            MaterialModel.tenant_id == tenant_id,
+            MaterialModel.id.in_(material_ids),
+            MaterialModel.is_deleted == False,
+        )
+        materials_result = await session.execute(materials_stmt)
+        materials_map = {m.id: m for m in materials_result.scalars().all()}
+        
+        # Fetch approved revisions for all materials
+        approved_stmt = (
+            select(StandardCostRevisionModel)
+            .where(
+                StandardCostRevisionModel.tenant_id == tenant_id,
+                StandardCostRevisionModel.material_id.in_(material_ids),
+                StandardCostRevisionModel.status == StandardCostRevisionStatus.APPROVED.value,
+                StandardCostRevisionModel.is_deleted == False,
+            )
+            .order_by(desc(StandardCostRevisionModel.approved_at), desc(StandardCostRevisionModel.created_at))
+        )
+        approved_result = await session.execute(approved_stmt)
+        approved_revisions = approved_result.scalars().all()
+        
+        # Map approved revisions by material_id (latest first)
+        approved_by_material = {}
+        for revision in approved_revisions:
+            if revision.material_id not in approved_by_material:
+                approved_by_material[revision.material_id] = revision
+        
+        # Fetch pending revisions for all materials
+        pending_stmt = (
+            select(StandardCostRevisionModel)
+            .where(
+                StandardCostRevisionModel.tenant_id == tenant_id,
+                StandardCostRevisionModel.material_id.in_(material_ids),
+                StandardCostRevisionModel.status == StandardCostRevisionStatus.PENDING.value,
+                StandardCostRevisionModel.is_deleted == False,
+            )
+            .order_by(desc(StandardCostRevisionModel.created_at))
+        )
+        pending_result = await session.execute(pending_stmt)
+        pending_revisions = pending_result.scalars().all()
+        
+        # Map pending revisions by material_id (latest first)
+        pending_by_material = {}
+        for revision in pending_revisions:
+            if revision.material_id not in pending_by_material:
+                pending_by_material[revision.material_id] = revision
+        
+        # Classify cost status for each material
+        cost_status_map = {}
+        for mat_id in material_ids:
+            if mat_id in approved_by_material:
+                cost_status_map[mat_id] = "CONFIGURED"
+            elif mat_id in pending_by_material:
+                cost_status_map[mat_id] = "PENDING_APPROVAL"
+            else:
+                material = materials_map.get(mat_id)
+                if material and material.current_cost and material.current_cost > 0:
+                    cost_status_map[mat_id] = "LEGACY"
+                else:
+                    cost_status_map[mat_id] = "NOT_CONFIGURED"
+        
+        return cost_status_map
+
     async def list_materials(self, query: ListMaterialsQuery) -> PaginatedMaterials:
         # Step 1: Get materials
         items = await self._material_repo.search(
@@ -250,7 +341,10 @@ class InventoryQueryHandler:
         material_ids = [m.id for m in items]
         stock_breakdown = await self._compute_stock_by_location_bulk(material_ids, query.tenant_id)
         
-        # Step 3: Merge breakdown into results
+        # Step 2b: Phase 2C - Bulk fetch cost_status for each material
+        cost_status_map = await self._get_cost_status_bulk(material_ids, query.tenant_id)
+        
+        # Step 3: Merge breakdown and cost_status into results
         results = []
         for m in items:
             result = _to_result(m)
@@ -266,6 +360,10 @@ class InventoryQueryHandler:
                     }
                     for detail in breakdown.subcontractor_details
                 ]
+            
+            # Phase 2C: Add cost_status to result
+            result.cost_status = cost_status_map.get(m.id, "NOT_CONFIGURED")
+            
             results.append(result)
         
         return PaginatedMaterials(

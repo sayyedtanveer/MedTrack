@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, cast
 
 from sqlalchemy import func, select
@@ -25,6 +25,9 @@ from backend.app.infrastructure.persistence.models.inventory_transaction_model i
 from backend.app.infrastructure.persistence.models.inventory_management_models import StockLedgerModel
 from backend.app.infrastructure.persistence.models.location_model import LocationModel
 from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel
+from backend.app.infrastructure.persistence.models.subcontract_model import (
+    SubcontractMaterialIssueModel, SubcontractOrderLineModel, SubcontractOrderModel,
+)
 from backend.app.domain.manufacturing.exceptions import InsufficientStockError
 from backend.app.domain.inventory.entities.material_shortage import MaterialShortage, ShortageStatus
 
@@ -106,7 +109,7 @@ class InventoryService:
             tenant_id=tenant_id,
             material_id=material_id,
             transaction_type=transaction_type,
-            quantity=float(quantity),
+            quantity=quantity,
             unit_id=unit_id,
             batch_id=batch_id,
             from_location_id=from_location_id,
@@ -215,7 +218,7 @@ class InventoryService:
         # reading aggregate stock so material.current_stock stays authoritative.
         await self._session.flush()
         total = await self._sum_all_stock_levels(material.tenant_id, material.id)
-        material.current_stock = float(total)
+        material.current_stock = total
 
     async def _available_for_locked_material(self, material: MaterialModel) -> Decimal:
         """Return available stock after subtracting tenant-wide reservations."""
@@ -308,7 +311,7 @@ class InventoryService:
         quantity: Decimal,
     ) -> None:
         sl = await self._lock_stock_level(tenant_id, material_id, location_id, stock_status)
-        sl.quantity = float(Decimal(str(sl.quantity)) + quantity)
+        sl.quantity = Decimal(str(sl.quantity)) + quantity
 
     async def _deduct_bucket_quantity(
         self,
@@ -343,8 +346,8 @@ class InventoryService:
             raise InsufficientStockError(
                 f"Cannot move {quantity} from {from_status}: only {avail} on hand"
             )
-        src.quantity = float(avail - quantity)
-        dst.quantity = float(Decimal(str(dst.quantity)) + quantity)
+        src.quantity = avail - quantity
+        dst.quantity = Decimal(str(dst.quantity)) + quantity
 
     async def _lock_batch(self, tenant_id: uuid.UUID, batch_id: uuid.UUID) -> BatchModel:
         stmt = (
@@ -1716,18 +1719,31 @@ class InventoryService:
                 tenant_id=tenant_id,
                 material_id=material_id,
                 batch_number=output_batch_number,
-                quantity=float(quantity),
-                original_quantity=float(quantity),
-                remaining_quantity=float(quantity),
+                quantity=quantity,
+                original_quantity=quantity,
+                remaining_quantity=quantity,
                 location_id=warehouse_location_id,
                 status="in_stock",
             )
             self._session.add(batch)
         else:
-            batch.quantity = float(Decimal(str(batch.quantity or 0)) + quantity)
-            batch.remaining_quantity = float(
-                Decimal(str(batch.remaining_quantity or 0)) + quantity
-            )
+            if batch.location_id != warehouse_location_id:
+                raise ValueError("Output batch is at another location")
+            source_orders = (await self._session.execute(select(
+                InventoryTransactionModel.reference_id
+            ).where(
+                InventoryTransactionModel.tenant_id == tenant_id,
+                InventoryTransactionModel.batch_id == batch.id,
+                InventoryTransactionModel.reference_type == "subcontract_order",
+                InventoryTransactionModel.to_location_id == warehouse_location_id,
+                InventoryTransactionModel.remarks == "Receive finished goods from subcontractor",
+                InventoryTransactionModel.is_deleted.is_(False),
+            ).distinct())).scalars().all()
+            if source_orders != [subcontract_order_id]:
+                raise ValueError("Output batch was not created for this subcontract order")
+            batch.quantity = Decimal(str(batch.quantity or 0)) + quantity
+            batch.original_quantity = Decimal(str(batch.original_quantity or 0)) + quantity
+            batch.remaining_quantity = Decimal(str(batch.remaining_quantity or 0)) + quantity
             batch.location_id = warehouse_location_id
 
         await self._add_bucket_quantity(
@@ -1754,100 +1770,136 @@ class InventoryService:
         await self._session.flush()
         return batch
     
+    async def lock_subcontract_materials(
+        self, tenant_id: uuid.UUID, material_ids: set[uuid.UUID],
+    ) -> dict[uuid.UUID, MaterialModel]:
+        """Acquire material locks in stable order before subcontract bucket locks."""
+        locked = {}
+        for material_id in sorted(material_ids):
+            material = await self._lock_material(tenant_id, material_id)
+            if material.is_deleted or not material.is_active:
+                raise ValueError("Subcontract material is inactive or unavailable")
+            locked[material_id] = material
+        return locked
+
+    async def require_subcontract_stock_share(
+        self, *, tenant_id: uuid.UUID, supplier_id: uuid.UUID, order_id: uuid.UUID,
+        material_id: uuid.UUID, location_id: uuid.UUID, quantity: Decimal,
+    ) -> None:
+        """Preserve stock attributable to other orders in the shared supplier bucket."""
+        issue = SubcontractMaterialIssueModel
+        line = SubcontractOrderLineModel
+        order = SubcontractOrderModel
+        issued = select(
+            issue.subcontract_order_id.label("order_id"),
+            func.sum(issue.quantity - func.coalesce(issue.returned_quantity, 0)).label("remaining"),
+        ).where(issue.tenant_id == tenant_id, issue.material_id == material_id).group_by(
+            issue.subcontract_order_id,
+        ).subquery()
+        consumed = select(
+            line.subcontract_order_id.label("order_id"), func.sum(line.consumed_quantity).label("amount"),
+        ).where(line.tenant_id == tenant_id, line.material_id == material_id).group_by(
+            line.subcontract_order_id,
+        ).subquery()
+        balances = (await self._session.execute(select(
+            func.coalesce(issued.c.remaining, 0) - func.coalesce(consumed.c.amount, 0),
+        ).select_from(order).outerjoin(issued, issued.c.order_id == order.id).outerjoin(
+            consumed, consumed.c.order_id == order.id,
+        ).where(
+            order.tenant_id == tenant_id, order.supplier_id == supplier_id, order.id != order_id,
+            order.is_deleted.is_(False),
+            (issued.c.order_id.is_not(None) | consumed.c.order_id.is_not(None)),
+        ))).scalars().all()
+        if any(value < 0 for value in balances):
+            raise ValueError("Other orders at this subcontractor have unreconciled material balances")
+        stock = (await self._session.execute(select(StockLevelModel.quantity).where(
+            StockLevelModel.tenant_id == tenant_id, StockLevelModel.material_id == material_id,
+            StockLevelModel.location_id == location_id, StockLevelModel.stock_status == _ST_AVAILABLE,
+            StockLevelModel.is_deleted.is_(False),
+        ).with_for_update(of=StockLevelModel))).scalar_one_or_none()
+        other_allocations = sum((Decimal(str(value)) for value in balances), Decimal("0"))
+        if Decimal(str(stock or 0)) < other_allocations + quantity:
+            raise InsufficientStockError("Subcontractor stock cannot cover this movement and other orders' allocations")
+
+    async def return_subcontract_stock(
+        self, *, tenant_id: uuid.UUID, material: MaterialModel, quantity: Decimal,
+        source_id: uuid.UUID, destination_id: uuid.UUID, order_id: uuid.UUID,
+        user_id: uuid.UUID, batch_id: uuid.UUID | None,
+    ) -> None:
+        """Transfer an already-validated order balance back without creating stock."""
+        await self._move_bucket_quantity(
+            tenant_id=tenant_id, material_id=material.id, from_location_id=source_id,
+            to_location_id=destination_id, from_status=_ST_AVAILABLE,
+            to_status=_ST_AVAILABLE, quantity=quantity,
+        )
+        await self._sync_material_total_from_buckets(material)
+        await self._log_transaction(
+            tenant_id=tenant_id, material_id=material.id, transaction_type="transfer",
+            quantity=quantity, unit_id=material.base_unit_id, reference_type="subcontract_order",
+            reference_id=order_id, created_by=user_id, remarks="Return material from subcontractor",
+            from_location_id=source_id, to_location_id=destination_id, batch_id=batch_id,
+        )
+
     async def consume_subcontract_raw_materials(
-        self,
-        *,
-        tenant_id: uuid.UUID,
-        subcontract_order_id: uuid.UUID,
-        subcontractor_location_id: uuid.UUID,
-        created_by: uuid.UUID,
-        receipt_quantity: Decimal,
-    ) -> dict[uuid.UUID, Decimal]:
-        """Consume raw materials from subcontractor location based on BOM and output received.
-        
-        This calculates consumption proportional to the output produced using the BOM snapshot.
-        Formula: consumption = receipt_quantity × (bom_required / order_output_qty)
-        
-        Args:
-            receipt_quantity: Quantity of output just received (incremental)
-        
-        Returns:
-            Dictionary of {material_id: consumed_quantity_this_receipt}
-        """
-        from backend.app.infrastructure.persistence.models.subcontract_model import (
-            SubcontractOrderModel,
-            SubcontractOrderLineModel,
-        )
-        
-        # Get the subcontract order to access BOM snapshot
-        order_stmt = select(SubcontractOrderModel).where(
-            SubcontractOrderModel.id == subcontract_order_id,
-            SubcontractOrderModel.tenant_id == tenant_id,
-        )
-        order_result = await self._session.execute(order_stmt)
-        order = order_result.scalar_one_or_none()
-        
-        if not order:
-            raise ValueError(f"Subcontract order {subcontract_order_id} not found")
-        
-        # Get order lines (BOM snapshot)
-        lines_stmt = select(SubcontractOrderLineModel).where(
-            SubcontractOrderLineModel.subcontract_order_id == subcontract_order_id,
-            SubcontractOrderLineModel.tenant_id == tenant_id,
-        )
-        lines_result = await self._session.execute(lines_stmt)
-        lines = lines_result.scalars().all()
-        
-        consumed_this_receipt = {}
-        
-        for line in lines:
-            # Calculate consumption for this receipt based on BOM
-            # Formula: consumption = receipt_qty × (required_per_unit)
-            bom_unit_requirement = Decimal(str(line.required_quantity)) / Decimal(str(order.quantity))
-            consumption_for_this_receipt = receipt_quantity * bom_unit_requirement
-            
-            # Deduct from subcontractor location
-            remaining = await self._deduct_from_location(
-                tenant_id=tenant_id,
-                material_id=line.material_id,
-                location_id=subcontractor_location_id,
-                quantity=consumption_for_this_receipt,
-                stock_status=_ST_AVAILABLE,
+        self, *, tenant_id: uuid.UUID, order_id: uuid.UUID, supplier_id: uuid.UUID,
+        subcontractor_location_id: uuid.UUID, created_by: uuid.UUID,
+        ordered_quantity: Decimal, cumulative_received: Decimal,
+        lines: list[SubcontractOrderLineModel], materials: dict[uuid.UUID, MaterialModel],
+    ) -> None:
+        """Post the delta from the snapshot's rounded cumulative consumption target."""
+        required = []
+        for line in sorted(lines, key=lambda row: row.material_id):
+            target = (Decimal(str(line.required_quantity)) * cumulative_received / ordered_quantity).quantize(
+                Decimal("0.001"), rounding=ROUND_HALF_UP,
             )
-            
-            if remaining > 0:
-                # Not enough stock at subcontractor - this shouldn't happen
-                # but we'll consume what's available
-                actual_consumed = consumption_for_this_receipt - remaining
-            else:
-                actual_consumed = consumption_for_this_receipt
-            
-            # Update consumed_quantity on the order line (cumulative)
-            line.consumed_quantity = float(Decimal(str(line.consumed_quantity)) + actual_consumed)
-            
-            # Sync material totals (reduces current_stock)
-            material = await self._lock_material(tenant_id, line.material_id)
+            consumed = Decimal(str(line.consumed_quantity))
+            delta = target - consumed
+            balance = Decimal(str(line.issued_quantity)) - consumed - Decimal(str(line.returned_quantity))
+            if delta < 0 or balance < 0:
+                raise ValueError("Existing subcontract material balance requires reconciliation")
+            if delta > balance:
+                raise InsufficientStockError(f"Insufficient material issued to this order: {materials[line.material_id].code}")
+            if delta:
+                required.append((line, target, delta))
+
+        if required:
+            available_by_material = dict((await self._session.execute(select(
+                SubcontractMaterialIssueModel.material_id,
+                func.sum(SubcontractMaterialIssueModel.quantity - SubcontractMaterialIssueModel.returned_quantity),
+            ).where(
+                SubcontractMaterialIssueModel.tenant_id == tenant_id,
+                SubcontractMaterialIssueModel.subcontract_order_id == order_id,
+                SubcontractMaterialIssueModel.material_id.in_([line.material_id for line, _, _ in required]),
+            ).group_by(SubcontractMaterialIssueModel.material_id))).all())
+            for line, _, delta in required:
+                net_issued = Decimal(str(available_by_material.get(line.material_id, 0)))
+                if net_issued - Decimal(str(line.consumed_quantity)) < delta:
+                    raise InsufficientStockError("Order issue records do not cover required material consumption")
+
+        for line, _, delta in required:
+            await self.require_subcontract_stock_share(
+                tenant_id=tenant_id, supplier_id=supplier_id, order_id=order_id,
+                material_id=line.material_id, location_id=subcontractor_location_id, quantity=delta,
+            )
+
+        for line, target, delta in required:
+            remaining = await self._deduct_from_location(
+                tenant_id=tenant_id, material_id=line.material_id,
+                location_id=subcontractor_location_id, quantity=delta,
+            )
+            if remaining:
+                raise InsufficientStockError(f"Insufficient stock at subcontractor: {materials[line.material_id].code}")
+            material = materials[line.material_id]
+            line.consumed_quantity = target
             await self._sync_material_total_from_buckets(material)
-            
-            # Log consumption transaction
             await self._log_transaction(
-                tenant_id=tenant_id,
-                material_id=line.material_id,
-                transaction_type="out",
-                quantity=actual_consumed,
-                unit_id=material.base_unit_id,
-                reference_type="subcontract_order",
-                reference_id=subcontract_order_id,
-                created_by=created_by,
-                remarks=f"Consumed in subcontract processing (receipt: {float(receipt_quantity)} units)",
+                tenant_id=tenant_id, material_id=line.material_id, transaction_type="out",
+                quantity=delta, unit_id=material.base_unit_id, reference_type="subcontract_order",
+                reference_id=order_id, created_by=created_by, remarks="Consumed in subcontract processing",
                 from_location_id=subcontractor_location_id,
             )
-            
-            consumed_this_receipt[line.material_id] = actual_consumed
-        
         await self._session.flush()
-        return consumed_this_receipt
-    
+
     async def _deduct_from_location(
         self,
         tenant_id: uuid.UUID,
@@ -1877,7 +1929,7 @@ class InventoryService:
         
         avail = Decimal(str(sl.quantity))
         take = min(avail, quantity)
-        sl.quantity = float(avail - take)
+        sl.quantity = avail - take
         remaining = quantity - take
         
         return remaining

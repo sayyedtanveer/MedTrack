@@ -33,6 +33,7 @@ from backend.app.domain.manufacturing.exceptions import InsufficientStockError
 from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.repositories.material_repository import MaterialRepository
 from backend.app.infrastructure.persistence.repositories.transaction_repository import TransactionRepository
+from backend.app.infrastructure.persistence.repositories.procurement_pricing_repository import StandardCostRevisionRepository
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
 from backend.app.interfaces.api.v1.dependencies.auth import (
     get_container,
@@ -46,6 +47,9 @@ from backend.app.interfaces.api.v1.schemas.inventory_schemas import (
     CreateMaterialRequest,
     MaterialListResponse,
     MaterialResponse,
+    MaterialCostStatusResponse,
+    SetStandardCostRequest,
+    SetStandardCostResponse,
     StockResponse,
     TransactionRequest,
     TransactionResponse,
@@ -184,6 +188,75 @@ async def get_material(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
 
     return MaterialResponse.model_validate(result)
+
+
+@router.get(
+    "/materials/{material_id}/cost-status",
+    response_model=MaterialCostStatusResponse,
+    summary="Get material cost readiness and governance status",
+    dependencies=[Depends(require_permission("inventory:read"))],
+)
+async def get_material_cost_status(
+    material_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """
+    Detect cost configuration status for a material.
+    
+    Returns:
+    - CONFIGURED: Material has approved StandardCostRevision
+    - NOT_CONFIGURED: Material has no approved revision (cost = 0 default)
+    - PENDING_APPROVAL: Material has pending revision awaiting approval
+    - LEGACY: Material has cost but no revision (exists before governance)
+    """
+    from sqlalchemy import select
+    from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
+    
+    container = get_container(request)
+    async with container.session_factory() as session:
+        material_repo = MaterialRepository(session)
+        revision_repo = StandardCostRevisionRepository(session)
+        
+        # Fetch material
+        material = await material_repo.get_by_id(tenant_id, material_id)
+        if not material:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
+        
+        # Check for approved revision
+        approved_revision = await revision_repo.get_approved_cost(tenant_id, material_id)
+        
+        # Check for pending revision
+        pending_revisions = await revision_repo.list_by_material(tenant_id, material_id, page=1, page_size=1)
+        pending_revision = next((r for r in pending_revisions if r.status.value == "PENDING"), None)
+        
+        # Classify cost status
+        if approved_revision:
+            cost_status = "CONFIGURED"
+        elif pending_revision:
+            cost_status = "PENDING_APPROVAL"
+        elif material.current_cost and material.current_cost > 0:
+            cost_status = "LEGACY"  # Has cost but no revision (pre-governance)
+        else:
+            cost_status = "NOT_CONFIGURED"
+        
+        # Get tenant currency code
+        stmt = select(TenantModel).where(TenantModel.id == tenant_id)
+        result = await session.execute(stmt)
+        tenant_model = result.scalars().first()
+        currency_code = tenant_model.currency_code if tenant_model else "INR"
+        
+        return MaterialCostStatusResponse(
+            material_id=material_id,
+            has_approved_cost=approved_revision is not None,
+            cost_status=cost_status,
+            approved_cost=approved_revision.requested_cost if approved_revision else None,
+            current_cost=material.current_cost,
+            pending_revision_id=pending_revision.id if pending_revision else None,
+            pending_revision_status="PENDING" if pending_revision else None,
+            currency_code=currency_code,
+            base_unit_code=material.base_unit_id,  # Could be extended to fetch unit.code
+        )
 
 
 @router.put(
@@ -625,9 +698,9 @@ async def create_transaction(
                         remarks=body.remarks,
                     )
                 )
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except InsufficientStockError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     return MaterialResponse.model_validate(result)
@@ -689,3 +762,71 @@ async def get_material_purchase_history(
             material_id=material_id, tenant_id=tenant_id, page=page, page_size=page_size
         )
         return res
+
+
+# ── Set Standard Cost (Direct Authorized Save) ────────────────────────────────
+#
+# This endpoint is the ONLY authorised path for direct standard-cost updates.
+# It does NOT use the PENDING → APPROVED two-step approval workflow.
+# It is intended for the Material Buy tab's "Set / Update Standard Cost" action.
+#
+# Design decisions (per code review Nov 2026):
+#   1. The generic UpdateMaterialHandler already blocks current_cost changes
+#      through the CRUD update path — that guard is preserved and unchanged.
+#   2. An APPROVED StandardCostRevision row is created (approved_by = NULL)
+#      so the BOM CostProvider gate is satisfied without faking a manager approval.
+#      INITIAL_SETUP / DIRECT_REVISION history distinguishes direct saves.
+#   3. A MaterialCostHistory entry is appended in the same transaction.
+#   4. Both writes are atomic; neither is committed alone.
+#   5. The existing StandardCostRevision approval workflow is completely untouched.
+
+@router.post(
+    "/materials/{material_id}/set-standard-cost",
+    response_model=SetStandardCostResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Directly configure or revise a material's standard cost",
+    description=(
+        "Saves the standard cost immediately (no approval step). "
+        "Creates an APPROVED StandardCostRevision (approved_by=NULL) "
+        "so BOM costing recognises the cost, and appends an immutable MaterialCostHistory entry. "
+        "Requires procurement_pricing:cost:propose permission."
+    ),
+    dependencies=[Depends(require_permission("procurement_pricing:cost:propose"))],
+)
+async def set_standard_cost(
+    material_id: uuid.UUID,
+    body: SetStandardCostRequest,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    from sqlalchemy import select
+    from backend.app.application.procurement.pricing.direct_standard_cost import (
+        ConcurrentCostChangeError, DirectStandardCostHandler,
+    )
+    from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
+
+    container = get_container(request)
+    async with container.session_factory() as session:
+        try:
+            result = await DirectStandardCostHandler(session).handle(
+                tenant_id=tenant_id, material_id=material_id, user_id=user_id,
+                new_cost=body.new_cost, reason=body.reason,
+                expected_current_cost=body.expected_current_cost,
+            )
+            currency = (await session.execute(select(TenantModel.currency_code).where(
+                TenantModel.id == tenant_id, TenantModel.is_deleted.is_(False),
+            ))).scalar_one_or_none()
+            await session.commit()
+        except ConcurrentCostChangeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return SetStandardCostResponse(
+            material_id=material_id, previous_cost=result.previous_cost,
+            new_cost=result.new_cost, change_type=result.change_type,
+            cost_history_id=result.cost_history_id, revision_id=result.revision_id,
+            currency_code=currency or "INR",
+        )

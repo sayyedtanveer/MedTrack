@@ -120,6 +120,7 @@ export const materialService = {
     code?: string | null;
     parent_id?: string | null;
     is_active?: boolean;
+    is_default?: boolean;
   }): Promise<Location> {
     const { data } = await apiClient.post("/inventory/master-data/locations", body);
     return data;
@@ -132,9 +133,20 @@ export const materialService = {
       code?: string | null;
       parent_id?: string | null;
       is_active?: boolean;
+      is_default?: boolean;
     }
   ): Promise<Location> {
     const { data } = await apiClient.put(`/inventory/master-data/locations/${id}`, body);
+    return data;
+  },
+
+  async getDefaultLocation(): Promise<Location | null> {
+    const { data } = await apiClient.get<Location | null>("/inventory/master-data/locations/default/get");
+    return data;
+  },
+
+  async setDefaultLocation(id: string): Promise<Location> {
+    const { data } = await apiClient.post<Location>(`/inventory/master-data/locations/${id}/set-default`);
     return data;
   },
 

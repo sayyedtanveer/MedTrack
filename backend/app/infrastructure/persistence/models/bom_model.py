@@ -40,6 +40,11 @@ class BOMModel(Base):
     created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
 
+    # Outside making charge (Option A — columns added by manual SQL migration)
+    # NULL means no making charge configured for this BOM version.
+    making_charge: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    making_charge_basis: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)

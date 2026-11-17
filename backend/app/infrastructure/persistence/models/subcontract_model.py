@@ -12,9 +12,9 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, UniqueConstraint, Text,
+    Boolean, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, LargeBinary, Numeric, PrimaryKeyConstraint, SmallInteger, String, UniqueConstraint, Text, func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.infrastructure.persistence.database import Base
@@ -26,6 +26,7 @@ class SubcontractOrderModel(Base):
     __tablename__ = "subcontract_orders"
     __table_args__ = (
         UniqueConstraint("tenant_id", "order_number", name="uq_subco_tenant_number"),
+        UniqueConstraint("tenant_id", "id", name="uq_subcontract_orders_tenant_id_id"),
         Index("ix_subco_supplier", "supplier_id"),
         Index("ix_subco_tenant_status", "tenant_id", "status"),
     )
@@ -178,3 +179,28 @@ class SubcontractMaterialIssueModel(Base):
     issued_by: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     order: Mapped["SubcontractOrderModel"] = relationship("SubcontractOrderModel", back_populates="issues")
+
+
+class SubcontractStockOperationModel(Base):
+    """Committed stock response scoped to one tenant, order and action."""
+
+    __tablename__ = "subcontract_stock_operations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("tenant_id", "subcontract_order_id"), ("subcontract_orders.tenant_id", "subcontract_orders.id"),
+            name="fk_subcontract_stock_operations_order", ondelete="RESTRICT",
+        ),
+        CheckConstraint("action IN ('issue', 'receive', 'return')", name="ck_subcontract_stock_operations_action"),
+        CheckConstraint("octet_length(payload_sha256) = 32", name="ck_subcontract_stock_operations_payload_hash"),
+        CheckConstraint("response_status BETWEEN 200 AND 299", name="ck_subcontract_stock_operations_status"),
+        PrimaryKeyConstraint(name="pk_subcontract_stock_operations"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), primary_key=True)
+    subcontract_order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    action: Mapped[str] = mapped_column(String(16), primary_key=True)
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    payload_sha256: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    response_status: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    response_body: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

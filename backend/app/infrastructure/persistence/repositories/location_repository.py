@@ -22,6 +22,7 @@ class LocationRepository(BaseRepository[Location, LocationModel]):
             parent_location_id=model.parent_location_id,
             code=model.code,
             is_active=model.is_active,
+            is_default=model.is_default,
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
@@ -38,6 +39,7 @@ class LocationRepository(BaseRepository[Location, LocationModel]):
             type=entity.location_type.value if hasattr(entity.location_type, "value") else entity.location_type,
             parent_location_id=entity.parent_location_id,
             is_active=entity.is_active,
+            is_default=entity.is_default,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
             is_deleted=entity.is_deleted,

@@ -280,12 +280,18 @@ class ListPriceListsQueryHandler:
         self.price_list_repo = price_list_repo
 
     async def handle(self, query: ListPriceListsQuery):
-        """List price lists."""
-        price_lists = await self.price_list_repo.find_default(
+        """List price lists with optional filters."""
+        price_lists, total = await self.price_list_repo.find_all(
             tenant_id=query.tenant_id,
-            include_inactive=not query.is_active,
+            is_default=query.is_default,
+            is_active=query.is_active,
+            limit=query.limit,
+            offset=query.offset,
         )
-        return [pl.to_dict() for pl in price_lists]
+        return {
+            "items": [pl.to_dict() for pl in price_lists],
+            "total": total,
+        }
 
 
 class GetOrderCountByStatusQueryHandler:

@@ -16,6 +16,20 @@ import { MaterialFormDrawer } from "../components/MaterialFormDrawer"
 import { StockOperationDrawer } from "../components/StockOperationDrawer"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+const NEW_MATERIAL_WINDOW_MS = 24 * 60 * 60 * 1000
+
+function NewMaterialBadge({ createdAt }: { createdAt?: string | null }) {
+  if (!createdAt) return null
+  const age = Date.now() - Date.parse(createdAt)
+  if (!(age >= 0 && age < NEW_MATERIAL_WINDOW_MS)) return null
+
+  return (
+    <span className="ml-2 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+      New
+    </span>
+  )
+}
+
 export default function MaterialListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
@@ -73,6 +87,12 @@ export default function MaterialListPage() {
     {
       accessorKey: "name",
       header: "Material Name",
+      cell: ({ row }) => (
+        <span>
+          {row.original.name}
+          <NewMaterialBadge createdAt={row.original.created_at} />
+        </span>
+      ),
     },
     {
       id: "category_id",
@@ -277,7 +297,10 @@ export default function MaterialListPage() {
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start mb-2">
                         <div>
-                          <h3 className="font-medium text-base">{product.name}</h3>
+                          <h3 className="font-medium text-base">
+                            {product.name}
+                            <NewMaterialBadge createdAt={product.created_at} />
+                          </h3>
                           <p className="text-xs text-muted-foreground font-mono">{product.code}</p>
                         </div>
                         <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSearchParams({ operation: product.id }); }}>

@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pydantic import BaseModel
 
 from backend.app.domain.shared.exceptions.domain_exception import DomainException
+from backend.app.domain.tenant.value_objects.email import Email
 from backend.app.application.tenant.commands.register_tenant import RegisterTenantCommand
 from backend.app.application.tenant.commands.login_user import LoginUserCommand
 from backend.app.application.tenant.handlers.register_tenant_handler import RegisterTenantHandler
@@ -102,6 +103,7 @@ async def register_tenant(
     summary="Authenticate and get JWT token",
 )
 async def login(body: LoginRequest, request: Request):
+    """Authenticate in an explicit workspace or a unique email membership."""
     container = get_container(request)
     async with container.session_factory() as session:
         user_repo = UserRepository(session)
@@ -112,13 +114,30 @@ async def login(body: LoginRequest, request: Request):
             password_hasher=container.password_hasher,
             jwt_handler=container.jwt_handler,
         )
+
         try:
-            tenant_id = uuid.UUID(body.tenant_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid tenant_id format")
+            email = Email(address=body.email)
+        except DomainException as exc:
+            raise HTTPException(status_code=401, detail="Invalid email or password") from exc
+
+        tenant_id = None
+        if body.tenant_id is not None:
+            try:
+                tenant_id = uuid.UUID(body.tenant_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid tenant_id format") from exc
+        if body.workspace_slug is not None:
+            workspace = await tenant_repo.get_by_slug(body.workspace_slug)
+            if workspace is None or (tenant_id is not None and tenant_id != workspace.id):
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+            tenant_id = workspace.id
+        elif tenant_id is None:
+            tenant_id = await user_repo.resolve_unique_workspace(email)
+        if tenant_id is None:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
         command = LoginUserCommand(
-            email=body.email,
+            email=str(email),
             password=body.password,
             tenant_id=tenant_id,
         )
@@ -132,7 +151,7 @@ async def login(body: LoginRequest, request: Request):
             elif e.code == "ACCOUNT_REJECTED":
                 raise HTTPException(status_code=403, detail="Account rejected")
             else:
-                raise HTTPException(status_code=401, detail=str(e))
+                raise HTTPException(status_code=401, detail="Invalid email or password") from e
 
     return LoginResponse(
         access_token=result.access_token,

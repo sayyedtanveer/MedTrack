@@ -1,4 +1,6 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
+import { usePermissions } from "@/hooks/usePermissions"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, Loader2, GripVertical, AlertCircle, Trash2 } from "lucide-react"
 import { bomService } from "@/services/bom.service"
@@ -30,6 +32,8 @@ interface AttachForm {
 
 export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
   const qc = useQueryClient()
+  const { hasRole } = usePermissions()
+  const canEditOperation = hasRole(["ADMIN", "MANAGER"])
   const [form, setForm] = useState<AttachForm>({ operation_id: "", sequence: "" })
   const [showForm, setShowForm] = useState(false)
   const [attachError, setAttachError] = useState<string | null>(null)
@@ -84,8 +88,8 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
     },
   })
 
-  const getWsName = (wsId: string) =>
-    workstations?.find((w) => w.id === wsId)?.name ?? wsId.slice(0, 8) + "..."
+  const getWsName = (wsId: string | null | undefined) =>
+    wsId ? (workstations?.find((w) => w.id === wsId)?.name ?? wsId.slice(0, 8) + "...") : "Unassigned"
 
   const getOp = (opId: string) =>
     operations?.find((o) => o.id === opId)
@@ -161,6 +165,7 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
                 .sort((a, b) => a.sequence - b.sequence)
                 .map((ao) => {
                   const op = getOp(ao.operation_id)
+                  const capacity = workstations?.find((w) => w.id === op?.workstation_id)?.capacity_hours_per_day
                   
                   return (
                     <tr key={ao.id} className="group hover:bg-muted/20 transition-colors">
@@ -180,9 +185,9 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
                       <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">
                         <div className="flex flex-col gap-0.5">
                           <span className="font-medium text-foreground">{op ? getWsName(op.workstation_id) : "—"}</span>
-                          {op && (
+                          {capacity != null && (
                             <span className="text-xs text-muted-foreground">
-                              {workstations?.find(w => w.id === op.workstation_id)?.capacity_hours_per_day}h/day
+                              {capacity}h/day
                             </span>
                           )}
                         </div>
@@ -316,7 +321,7 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
                             <SelectItem key={op.id} value={op.id}>
                               <span className="font-medium">{op.name}</span>
                               <span className="text-muted-foreground text-xs ml-2">
-                                @ {getWsName(op.workstation_id)}
+                                {op.workstation_id ? "@ " : ""}{getWsName(op.workstation_id)}
                               </span>
                             </SelectItem>
                           ))}
@@ -360,7 +365,17 @@ export function BOMOperationList({ bom, canEdit }: BOMOperationListProps) {
               {selectedOperation && (
                 <div className="rounded-md border bg-card p-3 text-xs text-muted-foreground">
                   <span className="font-medium text-foreground">{selectedOperation.name}</span>
-                  {" "}runs at {getWsName(selectedOperation.workstation_id)} with {selectedOperation.setup_time || 0} min setup and {selectedOperation.run_time || 0} min per unit.
+                  <p className="mt-1">
+                    Workstation: {getWsName(selectedOperation.workstation_id)}
+                    {canEditOperation && (
+                      <Link className="ml-2 text-primary underline" to={`/operations/${selectedOperation.id}/edit`}>
+                        {selectedOperation.workstation_id ? "Edit workstation assignment" : "Assign workstation"}
+                      </Link>
+                    )}
+                  </p>
+                  <p className="mt-1">
+                    {selectedOperation.setup_time ?? 0} min setup · {selectedOperation.run_time ?? 0} min per unit
+                  </p>
                 </div>
               )}
 

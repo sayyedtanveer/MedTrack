@@ -50,6 +50,7 @@ from backend.app.interfaces.api.v1.routes.inventory_transactions import (
     inventory_transactions_router,
     procurement_router,
 )
+from backend.app.interfaces.api.v1.routes.procurement_pricing import router as procurement_pricing_router
 from backend.app.infrastructure.persistence.models import material_consumption_model as _material_consumption_model
 from backend.app.infrastructure.persistence.models import pick_list_model as _pick_list_model
 
@@ -97,6 +98,7 @@ api_v1_router.include_router(number_series_router)
 api_v1_router.include_router(setup_status_router)
 api_v1_router.include_router(inventory_transactions_router)
 api_v1_router.include_router(procurement_router)
+api_v1_router.include_router(procurement_pricing_router)
 api_v1_router.include_router(technical_documents_router)
 
 

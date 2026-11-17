@@ -2,13 +2,15 @@ import { useState, useEffect } from "react"
 import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
 import {
-  ArrowLeft, GitBranch, Package2, Zap, Lock, AlertCircle, Trash2
+  ArrowLeft, GitBranch, Package2, Zap, Lock, AlertCircle, Trash2, Wrench
 } from "lucide-react"
 import { bomService } from "@/services/bom.service"
 import { productService } from "@/services/product.service"
 import { BOM, ItemTemplate, ItemVariant } from "@/types/bom.types"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -33,6 +35,152 @@ import { BOMCopyDialog } from "../components/BOMCopyDialog"
 import { ProductSelectionModal } from "../components/ProductSelectionModal"
 import { VersionSelectionPanel } from "../components/VersionSelectionPanel"
 import { toast } from "sonner"
+
+// ── Outside Processing Cost section ──────────────────────────────────────────
+
+function OutsideProcessingSection({ bom, canEdit }: { bom: BOM; canEdit: boolean }) {
+  const qc = useQueryClient()
+  const [enabled, setEnabled] = useState(
+    bom.making_charge != null && bom.making_charge !== undefined
+  )
+  const [rate, setRate] = useState<string>(
+    bom.making_charge != null ? String(bom.making_charge) : ""
+  )
+  const [saving, setSaving] = useState(false)
+
+  // Keep local state in sync when BOM reloads
+  useEffect(() => {
+    const hasCharge = bom.making_charge != null
+    setEnabled(hasCharge)
+    setRate(hasCharge ? String(bom.making_charge) : "")
+  }, [bom.making_charge])
+
+  const handleSave = async () => {
+    if (!enabled) {
+      // Clear the making charge
+      setSaving(true)
+      try {
+        const updated = await bomService.updateBOM(bom.id, { clear_making_charge: true })
+        qc.setQueryData(["bom", bom.id], updated)
+        qc.invalidateQueries({ queryKey: ["bom-cost"] })
+        qc.invalidateQueries({ queryKey: ["bom-tree"] })
+        toast.success("Outside making charge removed")
+      } catch (err: any) {
+        toast.error(err?.response?.data?.detail || "Failed to remove making charge")
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+    const parsed = parseFloat(rate)
+    if (isNaN(parsed) || parsed < 0) {
+      toast.error("Making rate must be a valid number ≥ 0")
+      return
+    }
+    setSaving(true)
+    try {
+      const updated = await bomService.updateBOM(bom.id, {
+        making_charge: parsed,
+        making_charge_basis: "PER_PIECE",
+      })
+      qc.setQueryData(["bom", bom.id], updated)
+      qc.invalidateQueries({ queryKey: ["bom-cost"] })
+      qc.invalidateQueries({ queryKey: ["bom-tree"] })
+      toast.success("Outside making charge saved")
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || "Failed to save making charge")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Wrench className="w-4 h-4 text-purple-600" />
+          <span className="text-sm font-medium">Outside Processing Cost</span>
+          {bom.making_charge != null && (
+            <Badge variant="outline" className="text-xs text-purple-700 border-purple-200 bg-purple-50">
+              Configured
+            </Badge>
+          )}
+        </div>
+        {canEdit && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => {
+                setEnabled(e.target.checked)
+                if (!e.target.checked) setRate("")
+              }}
+              className="rounded"
+            />
+            <span className="text-xs text-muted-foreground">Enable</span>
+          </label>
+        )}
+      </div>
+
+      {!canEdit && bom.making_charge != null && (
+        <div className="text-sm text-muted-foreground">
+          Making Rate: <strong className="text-foreground">{bom.making_charge}</strong>
+          <span className="ml-1 text-xs">(per piece)</span>
+        </div>
+      )}
+
+      {canEdit && enabled && (
+        <div className="flex items-end gap-3">
+          <div className="space-y-1 flex-1 max-w-[180px]">
+            <Label htmlFor="making-rate" className="text-xs">Making Rate (per piece)</Label>
+            <Input
+              id="making-rate"
+              type="number"
+              min="0"
+              step="0.0001"
+              placeholder="0.00"
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              className="h-8 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Basis</Label>
+            <div className="h-8 flex items-center px-2 border rounded-md bg-muted/40 text-xs text-muted-foreground">
+              Per Piece
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleSave}
+            disabled={saving}
+            className="h-8"
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      )}
+
+      {canEdit && !enabled && bom.making_charge != null && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            Making charge will be removed when you save.
+          </span>
+          <Button size="sm" variant="outline" onClick={handleSave} disabled={saving} className="h-7 text-xs">
+            {saving ? "Removing…" : "Confirm Remove"}
+          </Button>
+        </div>
+      )}
+
+      {!enabled && bom.making_charge == null && (
+        <p className="text-xs text-muted-foreground">
+          No outside making charge. Enable above to configure a standard processing rate for this BOM.
+        </p>
+      )}
+    </div>
+  )
+}
 
 export default function BOMDetailPage() {
   const { bomId } = useParams<{ bomId: string }>()
@@ -521,8 +669,10 @@ export default function BOMDetailPage() {
 
             {/* Components Builder tab */}
             <TabsContent value="builder" className="mt-4">
-              <div className="rounded-xl border bg-card p-4">
+              <div className="rounded-xl border bg-card p-4 space-y-4">
                 <BOMLineList bom={bom} canEdit={canEditBOM() && !bom.is_active} />
+                {/* Outside Processing Cost section */}
+                <OutsideProcessingSection bom={bom} canEdit={canEditBOM() && !bom.is_active} />
               </div>
             </TabsContent>
 

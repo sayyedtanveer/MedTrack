@@ -11,6 +11,7 @@ from backend.app.application.manufacturing.handlers.work_order_handler import Wo
 from backend.app.domain.shared.domain_event import DomainEvent
 from dataclasses import dataclass
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,8 @@ class SalesManufacturingIntegrationService:
                 if so_priority:
                     priority = so_priority
                     logger.info(f"Inherited priority '{priority}' from Sales Order {sales_order_id}")
+            except SQLAlchemyError:
+                raise
             except Exception as e:
                 logger.warning(f"Could not fetch sales order priority, using default HIGH: {e}")
 
@@ -105,6 +108,8 @@ class SalesManufacturingIntegrationService:
             # Immediately release the WO so production can start and materials can be reserved
             try:
                 await self.wo_handler.handle_release(ReleaseWorkOrderCommand(tenant_id=tenant_id, work_order_id=wo_id))
+            except SQLAlchemyError:
+                raise
             except Exception:
                 # Non-fatal: if release fails, still return the created WO id
                 logger.exception("Failed to auto-release WO %s", wo_id)
@@ -130,15 +135,18 @@ class SalesManufacturingIntegrationService:
                         product=str(product_id),
                     )
                     await self.event_dispatcher.dispatch(event)
+                except SQLAlchemyError:
+                    raise
                 except Exception:
                     logger.exception("Failed to publish work order.released event for WO %s", wo_id)
 
             logger.info(f"Successfully auto-created Work Order {wo_id} for Sales shortage.")
             return wo_id
 
-        except Exception as e:
-            logger.error(f"Auto Work Order creation failed for product {product_id}: {str(e)}")
-            return None
+        except Exception:
+            # The approval owns this transaction and must roll it back.
+            logger.exception("Auto work order creation failed for product %s", product_id)
+            raise
 
     async def _resolve_active_bom(
         self,

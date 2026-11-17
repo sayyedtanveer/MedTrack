@@ -463,7 +463,36 @@ class WorkflowOrchestrationService:
             raise ValueError(f"Finished-good product {work_order.product_id} not found")
 
         if getattr(variant, "material_id", None):
-            return variant.material_id
+            # Validate the explicit material link before trusting it.
+            # An explicit link that fails validation is a data-integrity problem —
+            # we must NOT silently fall back to the SKU-based lookup in this case,
+            # as that could post finished inventory against a different variant's material.
+            linked_material = (
+                await self.session.execute(
+                    select(MaterialModel).where(
+                        MaterialModel.id == variant.material_id,
+                        MaterialModel.tenant_id == work_order.tenant_id,  # tenant isolation
+                        MaterialModel.is_deleted.is_(False),              # soft-delete guard
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if linked_material is None:
+                raise ValueError(
+                    f"Variant {variant.id} has an explicit material_id link "
+                    f"({variant.material_id}) that does not exist or belongs to a "
+                    f"different tenant. Cannot post finished-good inventory."
+                )
+            if linked_material.material_type != "finished":
+                raise ValueError(
+                    f"Variant {variant.id} has an explicit material_id link "
+                    f"({variant.material_id}) that points to material "
+                    f"'{linked_material.code}' (type='{linked_material.material_type}'). "
+                    f"Only 'finished' type materials may receive finished-good inventory. "
+                    f"Correct the variant's material link before proceeding."
+                )
+
+            return linked_material.id
 
         material = (
             await self.session.execute(

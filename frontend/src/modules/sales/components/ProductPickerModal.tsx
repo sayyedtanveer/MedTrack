@@ -213,10 +213,10 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-2xl max-h-[95vh] flex flex-col p-3 sm:p-6 rounded-lg">
+      <DialogContent className="w-[95vw] max-w-2xl max-h-[95vh] flex flex-col p-3 sm:p-6 rounded-lg gap-0">
         {/* Header */}
-        <DialogHeader className="flex flex-row items-center justify-between mb-2">
-          <DialogTitle className="text-lg sm:text-xl font-bold">Add Product to Price List</DialogTitle>
+        <DialogHeader className="flex flex-row items-center justify-between mb-2 shrink-0">
+          <DialogTitle className="text-base sm:text-xl font-bold">Add Product to Price List</DialogTitle>
           <button
             onClick={() => onOpenChange(false)}
             className="text-gray-500 hover:text-gray-700 p-1"
@@ -227,17 +227,17 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
         </DialogHeader>
 
         {/* Search Bar and Filters */}
-        <div className="space-y-3 mb-4">
+        <div className="space-y-2 sm:space-y-3 mb-2 sm:mb-4 shrink-0">
           {/* Search Input */}
           <div>
-            <label className="text-xs sm:text-sm font-semibold text-gray-700 block mb-2">
+            <label className="text-xs sm:text-sm font-semibold text-gray-700 block mb-1.5">
               Search product / SKU
             </label>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Enter product name or SKU..."
-                className="pl-9 text-sm sm:text-base w-full"
+                className="pl-9 text-sm w-full"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 autoFocus
@@ -248,23 +248,23 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
 
           {/* API Error Alert */}
           {apiError && (
-            <div className="flex gap-2 items-start p-2 sm:p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs sm:text-sm">
+            <div className="flex gap-2 items-start p-2 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs">
               <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
               <span>{apiError}</span>
             </div>
           )}
 
           {/* Filter Tabs */}
-          <div className="flex gap-2 overflow-x-auto pb-2 border-b">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 sm:pb-2 border-b scrollbar-thin">
             {[
-              { id: 'all', label: 'All Products', count: variants.length + finishedGoods.length },
-              { id: 'variant', label: 'Variants', count: variants.length },
-              { id: 'finished_product', label: 'Finished Goods', count: finishedGoods.length },
+              { id: 'all', label: 'All', count: variants.length + finishedGoods.length, shortLabel: 'All' },
+              { id: 'variant', label: 'Variants', count: variants.length, shortLabel: 'Variants' },
+              { id: 'finished_product', label: 'Finished Goods', count: finishedGoods.length, shortLabel: 'FG' },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as FilterTab)}
-                className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-full whitespace-nowrap transition-colors ${
+                className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-full whitespace-nowrap transition-colors ${
                   activeTab === tab.id
                     ? tab.id === 'variant'
                       ? 'bg-blue-600 text-white'
@@ -274,21 +274,25 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                {tab.label} ({tab.count})
+                <span className="sm:hidden">{tab.shortLabel}</span>
+                <span className="hidden sm:inline">{tab.label}</span>
+                <span className="ml-1 opacity-75">({tab.count})</span>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Product Results List - Scrollable */}
-        <div className="flex-1 overflow-y-auto min-h-40 border rounded-md divide-y divide-gray-100 bg-gray-50/50 mb-4">
+        {/* Product Results List - Scrollable with fixed max height */}
+        <div
+          className="overflow-y-auto border rounded-md divide-y divide-gray-100 bg-gray-50/50 mb-2 sm:mb-4 min-h-[120px] max-h-[35vh] sm:max-h-[40vh]"
+        >
           {isSearching ? (
-            <div className="flex items-center justify-center py-12 text-gray-500">
+            <div className="flex items-center justify-center py-8 text-gray-500">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
               <span className="text-xs sm:text-sm">Searching active products...</span>
             </div>
           ) : displayedItems.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 text-xs sm:text-sm px-4">
+            <div className="text-center py-8 text-gray-500 text-xs sm:text-sm px-4">
               <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p>No active products found</p>
               {debouncedSearch && <p className="text-xs mt-1">matching "{debouncedSearch}"</p>}
@@ -300,7 +304,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                 <div
                   key={`${item.product_type}-${item.id}`}
                   onClick={() => handleSelectItem(item)}
-                  className={`p-3 sm:p-4 cursor-pointer flex items-start sm:items-center justify-between gap-3 transition-colors ${
+                  className={`p-2.5 sm:p-3 cursor-pointer flex items-center justify-between gap-2 sm:gap-3 transition-colors ${
                     isSelected
                       ? 'bg-blue-50 border-l-4 border-l-blue-600'
                       : 'hover:bg-gray-100'
@@ -308,38 +312,38 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                   role="button"
                   tabIndex={0}
                 >
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <Badge
                         variant="outline"
-                        className={`text-xs ${
+                        className={`text-[10px] sm:text-xs px-1.5 py-0 ${
                           item.product_type === 'variant'
                             ? 'bg-blue-50 text-blue-700 border-blue-200'
                             : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                         }`}
                       >
                         {item.product_type === 'variant' ? (
-                          <span className="flex items-center gap-1">
-                            <Layers className="h-3 w-3" /> Variant
+                          <span className="flex items-center gap-0.5">
+                            <Layers className="h-2.5 w-2.5" /> Var
                           </span>
                         ) : (
-                          <span className="flex items-center gap-1">
-                            <Package className="h-3 w-3" /> Finished
+                          <span className="flex items-center gap-0.5">
+                            <Package className="h-2.5 w-2.5" /> FG
                           </span>
                         )}
                       </Badge>
-                      <span className="font-mono text-xs sm:text-sm font-semibold text-gray-800 truncate">
+                      <span className="font-mono text-xs sm:text-sm font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-none">
                         {item.code}
                       </span>
                       {item.uom_code && (
-                        <span className="text-xs text-gray-500 font-medium bg-gray-200/60 px-1.5 py-0.5 rounded whitespace-nowrap">
+                        <span className="text-[10px] sm:text-xs text-gray-500 font-medium bg-gray-200/60 px-1.5 py-0.5 rounded whitespace-nowrap">
                           {item.uom_code}
                         </span>
                       )}
                     </div>
-                    <p className="text-sm sm:text-base text-gray-900 font-medium truncate">{item.name}</p>
-                    <p className="text-xs text-gray-600">
-                      Ref. Price:{' '}
+                    <p className="text-sm text-gray-900 font-medium truncate mt-0.5">{item.name}</p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Ref:{' '}
                       {item.catalog_reference_price !== null && item.catalog_reference_price !== undefined ? (
                         <span className="font-semibold text-gray-900">
                           ₹{item.catalog_reference_price.toFixed(2)}
@@ -351,8 +355,8 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                   </div>
 
                   {isSelected && (
-                    <div className="h-6 w-6 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0">
-                      <Check className="h-4 w-4" />
+                    <div className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0">
+                      <Check className="h-3 w-3 sm:h-4 sm:w-4" />
                     </div>
                   )}
                 </div>
@@ -363,13 +367,13 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
 
         {/* Selected Product Details & Price Input */}
         {selectedItem && (
-          <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-3 sm:p-4 space-y-3 mb-4">
+          <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-2.5 sm:p-4 space-y-2 sm:space-y-3 mb-2 sm:mb-4 shrink-0">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <span className="text-xs font-semibold uppercase tracking-wider text-blue-700 block">
                   Selected Product
                 </span>
-                <p className="text-sm sm:text-base font-bold text-gray-900 mt-0.5 truncate">
+                <p className="text-sm font-bold text-gray-900 mt-0.5 truncate">
                   {selectedItem.code} · {selectedItem.name}
                 </p>
                 {selectedItem.uom_code && (
@@ -388,7 +392,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
             </div>
 
             {/* Catalog Reference Price */}
-            <div className="text-xs bg-white/70 px-2.5 py-2 rounded border border-blue-100">
+            <div className="text-xs bg-white/70 px-2.5 py-1.5 rounded border border-blue-100">
               <span className="font-medium text-gray-700">Catalog Price (reference):</span>
               {selectedItem.catalog_reference_price !== null &&
               selectedItem.catalog_reference_price !== undefined ? (
@@ -401,7 +405,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
             </div>
 
             {/* Price Input */}
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <label className="text-xs sm:text-sm font-semibold text-gray-800 block">
                 Price List Unit Price <span className="text-red-600">*</span>
               </label>
@@ -421,23 +425,20 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                   }}
                 />
               </div>
-              <p className="text-[11px] text-gray-500">
-                ℹ Edit the suggested catalog price or enter a custom price.
-              </p>
             </div>
           </div>
         )}
 
         {/* Validation Error */}
         {validationError && (
-          <div className="flex gap-2 items-start p-2 sm:p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs sm:text-sm mb-2">
+          <div className="flex gap-2 items-start p-2 bg-red-50 border border-red-200 rounded-md text-red-700 text-xs mb-2 shrink-0">
             <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <span>{validationError}</span>
           </div>
         )}
 
         {/* Footer Actions */}
-        <DialogFooter className="flex gap-2 flex-col-reverse sm:flex-row">
+        <DialogFooter className="flex gap-2 flex-col-reverse sm:flex-row shrink-0 mt-auto">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

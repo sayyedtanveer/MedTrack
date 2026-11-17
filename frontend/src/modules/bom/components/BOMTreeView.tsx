@@ -2,11 +2,12 @@ import { useState, useCallback, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronRight, ChevronDown, Package2, Layers, Box, Loader2, AlertCircle } from "lucide-react"
 import { bomService } from "@/services/bom.service"
-import { BOMTreeNode } from "@/types/bom.types"
+import { BOMTreeNode } from "@/modules/bom/types/bom.types"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { formatCurrency } from "@/utils/currency"
 
 interface BOMTreeViewProps {
   bomId: string
@@ -39,11 +40,13 @@ function TreeNode({
   bomId,
   depth,
   maxDepth,
+  currencySymbol,
 }: {
   node: BOMTreeNode
   bomId: string
   depth: number
   maxDepth: number
+  currencySymbol?: string
 }) {
   const [expanded, setExpanded] = useState(depth === 0)
   const [node, setNode] = useState<BOMTreeNode>(initialNode)
@@ -162,12 +165,14 @@ function TreeNode({
         )}
 
         {/* Cost */}
-        {node.cost != null && (
-          <span className="text-xs font-medium text-green-700 flex-shrink-0">
-            ${node.cost.toFixed(2)}
+        {depth > 0 && node.cost != null && (
+          <span className="text-xs font-medium text-green-700 flex-shrink-0" title={depth > 1 ? "Included in parent branch total; explanatory detail" : "Component contribution"}>
+            {formatCurrency(node.cost, currencySymbol)}
           </span>
         )}
       </div>
+
+      {node.is_complete === false && <p className="text-xs text-amber-700 px-4" role="alert">{node.message ?? "Incomplete BOM cost"}</p>}
 
       {/* Depth limit warning */}
       {depth >= maxDepth && hasChildren && (
@@ -183,13 +188,30 @@ function TreeNode({
       {/* Children */}
       {expanded && hasChildren && depth < maxDepth && (
         <div className="relative">
+          {node.cost_basis === "CHILD_BOM" && (
+            <div className="space-y-1 py-2 text-xs text-muted-foreground" style={{ paddingLeft: 12 + indent + INDENT_STEP }}>
+              <dl className="flex flex-wrap gap-x-5 gap-y-1">
+                <div>
+                  <dt>Child BOM contribution</dt>
+                  <dd className="font-semibold">{node.cost == null ? "Incomplete" : formatCurrency(node.cost, currencySymbol)}</dd>
+                </div>
+                {node.making_cost != null && node.making_cost > 0 && (
+                  <div>
+                    <dt>Outside Processing Cost (child BOM)</dt>
+                    <dd className="font-semibold">{formatCurrency(node.making_cost, currencySymbol)}</dd>
+                  </div>
+                )}
+              </dl>
+              {node.cost != null && <p>The component rows below are included in this contribution.</p>}
+            </div>
+          )}
           {/* Vertical connector line */}
           <div
             className="absolute top-0 bottom-2 border-l border-dashed border-border"
             style={{ left: `${16 + indent + INDENT_STEP - 4}px` }}
           />
           {node.children && node.children.map((child, i) => (
-            <TreeNode key={child.id + i} node={child} bomId={bomId} depth={depth + 1} maxDepth={maxDepth} />
+            <TreeNode key={child.line_id ?? child.id + i} node={child} bomId={bomId} depth={depth + 1} maxDepth={maxDepth} currencySymbol={currencySymbol} />
           ))}
         </div>
       )}
@@ -204,8 +226,8 @@ export function BOMTreeView({ bomId }: BOMTreeViewProps) {
   const [maxDepth, setMaxDepth] = useState(5)
 
   const { data: tree, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ["bom-tree", bomId, maxDepth],
-    queryFn: () => bomService.getBOMTree(bomId, { max_depth: maxDepth }),
+    queryKey: ["bom-tree", bomId, MAX_DEPTH],
+    queryFn: () => bomService.getBOMTree(bomId, { max_depth: MAX_DEPTH }),
     staleTime: 30_000,
     retry: 1,
   })
@@ -264,7 +286,7 @@ export function BOMTreeView({ bomId }: BOMTreeViewProps) {
             className="h-8 text-xs flex-1 sm:flex-none" 
             onClick={expandMore} 
             disabled={maxDepth >= MAX_DEPTH}
-            title="Load one more level of detail"
+            title="Show more levels of detail"
           >
             + Level
           </Button>
@@ -293,8 +315,26 @@ export function BOMTreeView({ bomId }: BOMTreeViewProps) {
         </div>
       </div>
 
+      <dl className="flex flex-wrap gap-x-6 gap-y-2 border-b px-3 py-2 text-sm">
+        <div>
+          <dt className="text-muted-foreground">Total Standard Cost</dt>
+          <dd className="font-semibold">
+            {tree.is_complete === false || tree.cost == null
+              ? "Incomplete"
+              : formatCurrency(tree.cost, tree.currency_symbol || tree.currency_code)}
+          </dd>
+        </div>
+        {tree.making_cost != null && (
+          <div>
+            <dt className="text-muted-foreground">Outside Processing Cost (this BOM)</dt>
+            <dd className="font-semibold">
+              {formatCurrency(tree.making_cost, tree.currency_symbol || tree.currency_code)}
+            </dd>
+          </div>
+        )}
+      </dl>
       {/* Tree */}
-      <TreeNode node={tree} bomId={bomId} depth={0} maxDepth={maxDepth} />
+      <TreeNode node={tree} bomId={bomId} depth={0} maxDepth={maxDepth} currencySymbol={tree.currency_symbol || tree.currency_code} />
     </div>
   )
 }

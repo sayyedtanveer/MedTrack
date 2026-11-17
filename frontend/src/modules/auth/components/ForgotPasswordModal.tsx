@@ -15,18 +15,17 @@ import { apiClient, extractErrorMessage } from "@/services/api-client"
 interface ForgotPasswordModalProps {
   isOpen: boolean
   onClose: () => void
-  /** Tenant UUID from the login form. When provided, the password reset lookup
-   *  is scoped to this tenant, preventing cross-tenant collisions. */
-  tenantId?: string
+  workspaceSlug?: string
 }
 
 type Step = "request" | "reset" | "success"
 
 
 
-export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: ForgotPasswordModalProps) {
+export default function ForgotPasswordModal({ isOpen, onClose, workspaceSlug }: ForgotPasswordModalProps) {
   const [step, setStep] = useState<Step>("request")
   const [email, setEmail] = useState("")
+  const [resetWorkspace, setResetWorkspace] = useState<string | null>(null)
   const [resetToken, setResetToken] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -36,12 +35,8 @@ export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: Forgo
   // Request password reset
   const requestMutation = useMutation({
     mutationFn: async (email: string) => {
-      // Build request body — include tenant_id if available to scope the lookup
-      // and prevent cross-tenant password reset collisions.
-      const body: { email: string; tenant_id?: string } = { email }
-      if (tenantId && tenantId.trim()) {
-        body.tenant_id = tenantId.trim()
-      }
+      const slug = (resetWorkspace ?? workspaceSlug)?.trim().toLowerCase()
+      const body = { email, workspace_slug: slug || undefined }
 
       try {
         const response = await apiClient.post("/forgot-password/request", body)
@@ -107,6 +102,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: Forgo
   const handleClose = () => {
     setStep("request")
     setEmail("")
+    setResetWorkspace(null)
     setResetToken("")
     setNewPassword("")
     setConfirmPassword("")
@@ -161,6 +157,18 @@ export default function ForgotPasswordModal({ isOpen, onClose, tenantId }: Forgo
                   disabled={requestMutation.isPending}
                   autoFocus
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="reset-workspace">Workspace slug</Label>
+                <Input
+                  id="reset-workspace"
+                  placeholder="acme-corp"
+                  value={resetWorkspace ?? workspaceSlug ?? ""}
+                  onChange={(event) => setResetWorkspace(event.target.value)}
+                  disabled={requestMutation.isPending}
+                />
+                <p className="text-xs text-muted-foreground">Enter it if you use this email in more than one workspace.</p>
               </div>
 
               {error && <div className="rounded bg-red-50 p-3 text-sm text-red-600">{error}</div>}

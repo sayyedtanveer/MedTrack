@@ -35,6 +35,11 @@ class Permission(str, Enum):
 
     PROCUREMENT_READ = "procurement:read"
     PROCUREMENT_WRITE = "procurement:write"
+    PROCUREMENT_PRICING_READ = "procurement_pricing:read"
+    PROCUREMENT_PRICING_AGREEMENT_WRITE = "procurement_pricing:agreement:write"
+    PROCUREMENT_PRICING_COST_PROPOSE = "procurement_pricing:cost:propose"
+    PROCUREMENT_PRICING_APPROVE = "procurement_pricing:approve"
+    PROCUREMENT_PRICING_OVERRIDE = "procurement_pricing:override"
 
     FINANCE_READ = "finance:read"
     FINANCE_WRITE = "finance:write"
@@ -203,6 +208,22 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
 
 
 PERMISSION_FALLBACKS: Dict[str, FrozenSet[str]] = {
+    Permission.PROCUREMENT_PRICING_READ.value: frozenset({
+        Permission.PROCUREMENT_READ.value,
+    }),
+    Permission.PROCUREMENT_PRICING_AGREEMENT_WRITE.value: frozenset({
+        Permission.PROCUREMENT_WRITE.value,
+    }),
+    Permission.PROCUREMENT_PRICING_COST_PROPOSE.value: frozenset({
+        Permission.PROCUREMENT_WRITE.value,
+    }),
+    Permission.PROCUREMENT_PRICING_APPROVE.value: frozenset({
+        Permission.FINANCE_WRITE.value,
+        Permission.INVOICE_APPROVE.value,
+    }),
+    Permission.PROCUREMENT_PRICING_OVERRIDE.value: frozenset({
+        Permission.PROCUREMENT_WRITE.value,
+    }),
     Permission.INVOICE_CREATE.value: frozenset({Permission.FINANCE_WRITE.value}),
     Permission.INVOICE_VIEW.value: frozenset({Permission.FINANCE_READ.value}),
     Permission.INVOICE_APPROVE.value: frozenset({Permission.FINANCE_WRITE.value}),
@@ -218,6 +239,14 @@ PERMISSION_FALLBACKS: Dict[str, FrozenSet[str]] = {
         Permission.FINANCE_READ.value,
     }),
 }
+
+_PRICING_PERMISSIONS = frozenset({
+    Permission.PROCUREMENT_PRICING_READ.value,
+    Permission.PROCUREMENT_PRICING_AGREEMENT_WRITE.value,
+    Permission.PROCUREMENT_PRICING_COST_PROPOSE.value,
+    Permission.PROCUREMENT_PRICING_APPROVE.value,
+    Permission.PROCUREMENT_PRICING_OVERRIDE.value,
+})
 
 
 def permission_aliases(permission: str) -> Set[str]:
@@ -237,8 +266,11 @@ def permission_grants(granted_permission: str, requested_permission: str) -> boo
 
 def has_permission(role: str, permission: str) -> bool:
     """Return True if the given role grants the requested permission."""
+    normalized_role = role.lower()
     perms = {
         granted.value if isinstance(granted, Permission) else str(granted)
-        for granted in ROLE_PERMISSIONS.get(role.lower(), frozenset())
+        for granted in ROLE_PERMISSIONS.get(normalized_role, frozenset())
     }
+    if normalized_role == "supplier" and permission in _PRICING_PERMISSIONS:
+        return Permission.ALL.value in perms or permission in perms
     return any(permission_grants(granted, permission) for granted in perms)

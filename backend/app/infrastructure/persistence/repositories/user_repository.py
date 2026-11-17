@@ -3,13 +3,14 @@ from __future__ import annotations
 import uuid
 from typing import Optional, Type
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.domain.tenant.entities.user import User
 from backend.app.domain.tenant.repositories.user_repository_interface import IUserRepository
 from backend.app.domain.tenant.value_objects.email import Email
 from backend.app.domain.tenant.value_objects.role import Role
+from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
 from backend.app.infrastructure.persistence.models.user_model import UserModel
 from backend.app.infrastructure.persistence.repositories.base_repository import BaseRepository
 
@@ -57,13 +58,12 @@ class UserRepository(BaseRepository[User, UserModel], IUserRepository):
 
     async def get_by_email(self, email: Email, tenant_id: uuid.UUID) -> Optional[User]:
         stmt = select(UserModel).where(
-            UserModel.email == str(email),
+            func.lower(UserModel.email) == str(email),
             UserModel.tenant_id == tenant_id,
             UserModel.is_deleted.is_(False),
         )
-        result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
-        return self._to_entity(model) if model else None
+        matches = (await self._session.scalars(stmt.limit(2))).all()
+        return self._to_entity(matches[0]) if len(matches) == 1 else None
 
     async def get_supplier_id_for_user(
         self, user_id: uuid.UUID, tenant_id: uuid.UUID
@@ -115,3 +115,19 @@ class UserRepository(BaseRepository[User, UserModel], IUserRepository):
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return self._to_entity(model) if model else None
+
+    async def resolve_unique_workspace(self, email: Email) -> uuid.UUID | None:
+        """Resolve a workspace only when the normalized email has one membership."""
+        stmt = (
+            select(UserModel.tenant_id)
+            .join(TenantModel, TenantModel.id == UserModel.tenant_id)
+            .where(
+                func.lower(UserModel.email) == str(email),
+                UserModel.is_deleted.is_(False),
+                TenantModel.is_deleted.is_(False),
+            )
+            .distinct()
+            .limit(2)
+        )
+        matches = (await self._session.scalars(stmt)).all()
+        return matches[0] if len(matches) == 1 else None

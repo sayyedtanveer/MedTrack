@@ -33,6 +33,7 @@ class Location(BaseEntity):
         parent_location_id: Optional[uuid.UUID] = None,
         code: Optional[str] = None,
         is_active: bool = True,
+        is_default: bool = False,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
     ) -> None:
@@ -47,6 +48,7 @@ class Location(BaseEntity):
         self._parent_location_id = parent_location_id
         self._code = code
         self._is_active = is_active
+        self._is_default = is_default
 
     @property
     def name(self) -> str:
@@ -86,4 +88,16 @@ class Location(BaseEntity):
     @is_active.setter
     def is_active(self, value: bool) -> None:
         self._is_active = value
+        self._touch()
+
+    @property
+    def is_default(self) -> bool:
+        return self._is_default
+
+    @is_default.setter
+    def is_default(self, value: bool) -> None:
+        """Set as default location. Only active locations can be default."""
+        if value and not self._is_active:
+            raise ValueError("Only active locations can be set as default")
+        self._is_default = value
         self._touch()

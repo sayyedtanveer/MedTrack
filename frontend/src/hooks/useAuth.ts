@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query"
+import { isAxiosError } from "axios"
 import { toast } from "sonner"
 import { authService } from "@/services/auth.service"
 import { useAuthStore } from "@/app/store/authStore"
@@ -51,10 +52,8 @@ export function useAuth() {
         })
       }
     },
-    onError: (error: any) => {
-      // useShowError automatically maps HTTP status to friendly messages
-      // (e.g. 422 → "Invalid input", 401 → "Authentication failed")
-      // and shows a top-center sonner toast (single popup, no duplicates).
+    onError: (error: unknown) => {
+      if (isAxiosError(error) && error.response?.status === 401) return
       showError(error)
     },
   })

@@ -124,6 +124,8 @@ class BOMHandlers:
             created_by=cmd.created_by,
             approved_by=cmd.approved_by,
             is_active=False,
+            making_charge=cmd.making_charge,
+            making_charge_basis=cmd.making_charge_basis,
         )
         for line_input in cmd.lines:
             bom.add_line(
@@ -160,6 +162,16 @@ class BOMHandlers:
             bom.valid_to = cmd.valid_to
         if cmd.approved_by is not None:
             bom.approved_by = cmd.approved_by
+        # Making charge: update only when explicitly provided or being cleared
+        if cmd.clear_making_charge:
+            bom.making_charge = None
+            bom.making_charge_basis = None
+        elif cmd.making_charge is not None or cmd.making_charge_basis is not None:
+            from backend.app.domain.bom.entities.bom import SUPPORTED_MAKING_BASES
+            BillOfMaterial._validate_making_charge(cmd.making_charge, cmd.making_charge_basis)
+            from decimal import Decimal as _D
+            bom.making_charge = _D(str(cmd.making_charge)) if cmd.making_charge is not None else None
+            bom.making_charge_basis = cmd.making_charge_basis
         if cmd.lines is not None:
             self._ensure_unique_components(cmd.lines)
             await self._validate_material_components(cmd.tenant_id, cmd.lines)

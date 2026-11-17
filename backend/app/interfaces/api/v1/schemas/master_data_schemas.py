@@ -43,6 +43,7 @@ class CreateLocationRequest(BaseModel):
     code: Optional[str] = Field(None, max_length=50)
     parent_id: Optional[uuid.UUID] = None
     is_active: bool = True
+    is_default: bool = False
 
 
 class UpdateLocationRequest(BaseModel):
@@ -50,6 +51,7 @@ class UpdateLocationRequest(BaseModel):
     code: Optional[str] = Field(None, max_length=50)
     parent_id: Optional[uuid.UUID] = None
     is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
 
 
 class LocationResponse(BaseModel):
@@ -60,6 +62,7 @@ class LocationResponse(BaseModel):
     location_type: str
     parent_location_id: Optional[uuid.UUID] = None
     is_active: bool
+    is_default: bool
 
     model_config = {"from_attributes": True}
 

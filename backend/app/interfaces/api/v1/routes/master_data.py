@@ -45,6 +45,7 @@ def _location_to_response(loc: Location) -> LocationResponse:
         location_type=lt.value if hasattr(lt, "value") else str(lt),
         parent_location_id=loc.parent_location_id,
         is_active=loc.is_active,
+        is_default=loc.is_default,
     )
 
 
@@ -258,6 +259,14 @@ async def create_location(
         lt = LocationType(req.type)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid location type")
+    
+    # Validate: only active locations can be default
+    if req.is_default and not req.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only active locations can be set as default"
+        )
+    
     async with container.session_factory() as session:
         repo = LocationRepository(session)
         uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
@@ -269,7 +278,23 @@ async def create_location(
             parent_location_id=req.parent_id,
             code=req.code,
             is_active=req.is_active,
+            is_default=req.is_default,
         )
+
+        # If this location is being marked as default, deactivate other defaults
+        if req.is_default:
+            stmt = (
+                select(LocationModel)
+                .where(
+                    LocationModel.tenant_id == tenant_id,
+                    LocationModel.is_default.is_(True),
+                    LocationModel.is_deleted.is_(False),
+                )
+            )
+            result = await session.execute(stmt)
+            other_defaults = result.scalars().all()
+            for other_loc in other_defaults:
+                other_loc.is_default = False
 
         await repo.save(location)
         await uow.commit()
@@ -294,6 +319,7 @@ async def update_location(
         location = await repo.get_by_id(location_id, tenant_id)
         if not location:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+        
         if req.name is not None:
             location.name = req.name
         if req.code is not None:
@@ -302,6 +328,34 @@ async def update_location(
             location.parent_location_id = req.parent_id
         if req.is_active is not None:
             location.is_active = req.is_active
+        
+        # Handle is_default update
+        if req.is_default is not None:
+            # Validate: only active locations can be default
+            if req.is_default and not (req.is_active if req.is_active is not None else location.is_active):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Only active locations can be set as default"
+                )
+            
+            # If marking as default, deactivate other defaults
+            if req.is_default:
+                stmt = (
+                    select(LocationModel)
+                    .where(
+                        LocationModel.tenant_id == tenant_id,
+                        LocationModel.is_default.is_(True),
+                        LocationModel.is_deleted.is_(False),
+                        LocationModel.id != location_id,
+                    )
+                )
+                result = await session.execute(stmt)
+                other_defaults = result.scalars().all()
+                for other_loc in other_defaults:
+                    other_loc.is_default = False
+            
+            location.is_default = req.is_default
+        
         await repo.save(location)
         await uow.commit()
     return _location_to_response(location)
@@ -345,6 +399,86 @@ async def delete_location(
         location._is_deleted = True
         await loc_repo.save(location)
         await uow.commit()
+
+
+@router.get(
+    "/locations/default/get",
+    response_model=Optional[LocationResponse],
+)
+async def get_default_location(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Get the default storage location for the tenant."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        stmt = (
+            select(LocationModel)
+            .where(
+                LocationModel.tenant_id == tenant_id,
+                LocationModel.is_default.is_(True),
+                LocationModel.is_deleted.is_(False),
+                LocationModel.is_active.is_(True),
+            )
+        )
+        result = await session.execute(stmt)
+        location_model = result.scalars().first()
+        
+        if not location_model:
+            return None
+        
+        repo = LocationRepository(session)
+        location = repo._to_entity(location_model)
+        return _location_to_response(location)
+
+
+@router.post(
+    "/locations/{location_id}/set-default",
+    response_model=LocationResponse,
+    dependencies=[Depends(require_permission("inventory:write"))],
+)
+async def set_default_location(
+    location_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Set a location as the default for this tenant."""
+    container = get_container(request)
+    async with container.session_factory() as session:
+        repo = LocationRepository(session)
+        uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
+        
+        location = await repo.get_by_id(location_id, tenant_id)
+        if not location:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+        
+        # Validate: only active locations can be default
+        if not location.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Only active locations can be set as default"
+            )
+        
+        # Deactivate other defaults
+        stmt = (
+            select(LocationModel)
+            .where(
+                LocationModel.tenant_id == tenant_id,
+                LocationModel.is_default.is_(True),
+                LocationModel.is_deleted.is_(False),
+                LocationModel.id != location_id,
+            )
+        )
+        result = await session.execute(stmt)
+        other_defaults = result.scalars().all()
+        for other_loc in other_defaults:
+            other_loc.is_default = False
+        
+        location.is_default = True
+        await repo.save(location)
+        await uow.commit()
+    
+    return _location_to_response(location)
 
 
 # ── Units of Measure ──────────────────────────────────────────────────────

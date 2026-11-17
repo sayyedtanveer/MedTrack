@@ -128,6 +128,121 @@ class ReportExporter:
         return output.getvalue()
 
     @staticmethod
+    def export_bom_cost_analysis(report: Dict[str, Any]) -> bytes:
+        """Write an authorized, already-calculated BOM analysis using openpyxl."""
+        from datetime import datetime, timezone
+        from decimal import Decimal
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+
+        book = Workbook()
+        book.remove(book.active)
+        product = report["product"] or {}
+        currency = report["currency_code"]
+        complete = report["is_complete"]
+
+        def exact(value: Any) -> str | None:
+            return format(value, "f") if isinstance(value, Decimal) else None
+
+        def put_sheet(name: str, headers: list[str], rows: list[tuple]) -> None:
+            sheet = book.create_sheet(name)
+            sheet.append(headers)
+            sheet.freeze_panes = "B2" if len(headers) > 4 else "A2"
+            widths = [len(label) for label in headers]
+            for row_number, row in enumerate(rows, 2):
+                for col, value in enumerate(row, 1):
+                    cell = sheet.cell(row=row_number, column=col)
+                    if isinstance(value, datetime):
+                        cell.value = value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+                        cell.number_format = "yyyy-mm-dd hh:mm:ss"
+                    else:
+                        cell.value = value
+                        if isinstance(value, str):
+                            cell.data_type = "s"
+                        elif isinstance(value, Decimal):
+                            cell.number_format = "0.00###########"
+                    widths[col - 1] = max(widths[col - 1], len(str(value)) if value is not None else 0)
+            sheet.auto_filter.ref = sheet.dimensions
+            for cell in sheet[1]:
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill("solid", fgColor="243A55")
+                cell.alignment = Alignment(wrap_text=True, vertical="center")
+            sheet.row_dimensions[1].height = 30
+            for index, width in enumerate(widths, 1):
+                sheet.column_dimensions[get_column_letter(index)].width = max(14, min(60, width + 3))
+
+        metrics = [
+            ("Calculated BOM cost per output unit", report["total_cost"]),
+            ("Direct material cost", report["direct_material_cost"]),
+            ("Nested BOM contribution", report["nested_cost"]),
+            ("Own operation cost", report["own_operation_cost"]),
+            ("Own outside processing (estimated BOM cost)", report["own_outside_processing_cost"]),
+        ]
+        put_sheet("Summary", ["Field", "Value", "Exact decimal"], [
+            ("Report", "BOM Cost Analysis", None), ("Company", report["company"], None),
+            ("Product", product.get("name"), None), ("Product code", product.get("code"), None),
+            ("Variant", report["target_name"] if report["variant_id"] else None, None),
+            ("Variant code", report["target_code"] if report["variant_id"] else None, None),
+            ("BOM ID filter", report["bom_id"], None), ("Version filter", report["version"], None),
+            ("Status", "Active" if report["is_active"] else "Draft / inactive", None),
+            ("Calculated at (UTC)", report["generated_at"], None), ("Currency", currency, None),
+            ("Output quantity", report["output_quantity"], None), ("Output UOM", report["output_uom"], None),
+            ("Cost status", "Complete" if complete else "Incomplete", None),
+            ("Calculation basis", "Current standards and estimated BOM processing per output unit", None),
+            ("Precision", "Exact decimal text is the authoritative value when Excel rounds numeric cells.", None),
+            *((name, value, exact(value)) for name, value in metrics),
+        ])
+        breakdown = [("Selected BOM", name, value, exact(value)) for name, value in metrics]
+        if report["composition"] is not None:
+            for key, label in (
+                ("material", "Raw material leaves"), ("operations", "Operations across all levels"),
+                ("outside_processing", "Outside processing across all levels (estimated BOM cost)"),
+            ):
+                value = report["composition"][key]
+                breakdown.append(("Flattened composition", label, value, exact(value)))
+            breakdown.append(("Flattened composition", "Reconciled total", report["total_cost"], exact(report["total_cost"])))
+
+        hierarchy = []
+
+        def walk(node: dict, path: str, parent: str | None) -> None:
+            quantity, unit_cost, cost = (node.get(field) for field in ("quantity", "unit_cost", "cost"))
+            hierarchy.append((
+                path, parent, node.get("version"), node.get("code"), node.get("name"),
+                node.get("cost_basis") or node["type"], quantity, exact(quantity), node.get("unit"),
+                unit_cost, exact(unit_cost), cost, exact(cost),
+                node.get("stored_standard_cost"), exact(node.get("stored_standard_cost")), node.get("message"),
+            ))
+            for index, op in enumerate(node.get("operations", []), 1):
+                op_cost = op.get("cost")
+                hierarchy.append((f"{path}.op{index}", path, None, op.get("code"), op["name"],
+                                  "Operation", None, None, None, None, None, op_cost, exact(op_cost), None, None, None))
+            making = node.get("making_cost")
+            if making is not None and making > 0:
+                hierarchy.append((f"{path}.outside", path, None, None, "Outside processing (estimated BOM cost)",
+                                  "Outside processing", None, None, None, None, None, making, exact(making), None, None, None))
+            for index, child in enumerate(node["children"], 1):
+                walk(child, f"{path}.{index}", path)
+
+        walk(report["tree"], "1", None)
+        if len(hierarchy) > 10001:
+            raise OverflowError("Workbook hierarchy exceeds the 10,001-row limit")
+        put_sheet("Cost Breakdown", ["View", "Cost category", "Amount", "Exact amount"], breakdown)
+        put_sheet("BOM Hierarchy", [
+            "Row path", "Parent path", "BOM version", "Code", "Component", "Cost basis",
+            "Quantity", "Exact quantity", "UOM", "Unit cost", "Exact unit cost", "Extended cost",
+            "Exact extended cost", "Stored Standard Cost", "Exact stored cost", "Exception",
+        ], hierarchy)
+        put_sheet("Exceptions", ["Type", "Component", "Code", "Name", "Reason", "Detail"], [
+            (issue.get("component_type"), issue.get("component_id"), issue.get("code"),
+             issue.get("name"), issue.get("reason"), issue.get("message"))
+            for issue in report["missing_costs"]
+        ])
+        output = io.BytesIO()
+        book.save(output)
+        return output.getvalue()
+
+    @staticmethod
     def export_to_pdf(report_data: Dict[str, Any], filename: str) -> bytes:
         """Export report data to PDF format."""
         try:

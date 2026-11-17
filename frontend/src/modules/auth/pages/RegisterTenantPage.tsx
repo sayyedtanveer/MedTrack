@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Link } from "react-router-dom"
@@ -11,9 +11,21 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 
+function generateSlug(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 100)
+    .replace(/-+$/, "")
+}
+
 export default function RegisterTenantPage() {
   const { register, isRegistering } = useAuth()
   const [step, setStep] = useState<1 | 2>(1)
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
 
   const form = useForm<RegisterTenantFormValues>({
     resolver: zodResolver(registerTenantSchema),
@@ -28,6 +40,15 @@ export default function RegisterTenantPage() {
     },
     mode: "onBlur",
   })
+
+  const companyName = form.watch("name")
+
+  useEffect(() => {
+    if (!slugManuallyEdited) {
+      const autoSlug = generateSlug(companyName)
+      form.setValue("slug", autoSlug, { shouldValidate: Boolean(companyName) || form.getFieldState("slug").invalid })
+    }
+  }, [companyName, slugManuallyEdited, form])
 
   const validateStep1 = async () => {
     const isValid = await form.trigger(["name", "slug"])
@@ -66,9 +87,15 @@ export default function RegisterTenantPage() {
               <Label htmlFor="slug">Workspace URL (Slug)</Label>
               <Input
                 id="slug"
+                maxLength={100}
                 placeholder="acme-corp"
-                {...form.register("slug")}
+                {...form.register("slug", {
+                  onChange: () => setSlugManuallyEdited(true)
+                })}
               />
+              <p className="text-xs text-muted-foreground">
+                Filled from the company name when possible. You can enter a different slug.
+              </p>
               {form.formState.errors.slug && (
                 <p className="text-sm font-medium text-destructive">{form.formState.errors.slug.message}</p>
               )}

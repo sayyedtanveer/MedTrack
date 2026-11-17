@@ -73,6 +73,10 @@ class MaterialResult:
     subcontractor_stock: Decimal = Decimal("0")
     subcontractor_details: list = None
     
+    # Phase 2C: Cost governance status (optional, only in list results)
+    cost_status: Optional[str] = None
+    created_at: Optional[datetime] = None
+    
     def __post_init__(self):
         if self.subcontractor_details is None:
             self.subcontractor_details = []
@@ -102,6 +106,7 @@ def _to_result(m: Material) -> MaterialResult:
         is_active=m.is_active,
         is_low_stock=m.is_low_stock(),
         current_cost=m.current_cost,
+        created_at=m.created_at,
     )
 
 
@@ -349,6 +354,16 @@ class UpdateMaterialHandler:
                 f"{next_type.value.title()} material name '{next_name}' already exists in this tenant."
             )
 
+        # ── CRITICAL: Prevent direct cost updates ─────────────────────────────
+        # All cost changes MUST go through StandardCostRevisionModel and approval workflow.
+        # This enforces segregation of duties and creates audit trail.
+        if cmd.current_cost is not None:
+            raise ValueError(
+                "Direct material cost updates are not allowed. "
+                "Use the cost revision workflow: POST /procurement/cost-revisions. "
+                "This requires Finance/Costing Manager approval."
+            )
+
         material.update(
             name=next_name if cmd.name is not None else None,
             description=cmd.description,
@@ -360,7 +375,6 @@ class UpdateMaterialHandler:
             is_batch_tracked=cmd.is_batch_tracked,
             is_serialized=cmd.is_serialized,
             is_active=cmd.is_active,
-            current_cost=cmd.current_cost,
         )
         if cmd.inspection_required is not MISSING:
             material.inspection_required = cmd.inspection_required

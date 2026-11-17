@@ -1,0 +1,34 @@
+# MedTrack reporting R1–R3 delivery and validation
+
+17 November 2026. Open Reports → BOM Cost Analysis, choose a product or variant and BOM version, then use Export Excel.
+
+## R1 — Report contracts and access
+
+- Changed backend/app/application/finance/reporting_service.py, backend/app/interfaces/api/v1/routes/reports.py, frontend/src/modules/reports/pages/ManufacturingKPIsPage.tsx and tests/integration/test_reporting_contracts.py. The existing Reports hub formatting and permission visibility were updated in frontend/src/modules/finance/pages/ReportsPage.tsx.
+- Stock Summary uses the catalog material on-hand and reserved balances at one row per material, with a tenant-scoped category and UOM. It is a catalog balance report. It does not treat location balances as independent material totals.
+- Fulfillment uses the sales-client relation and recorded delivery timestamps for fulfilled sales orders, with an inclusive tenant-local order-creation date range and an explicit UTC fallback when the company timezone is absent or invalid. A missing delivery time stays null. Order-value and fulfillment metrics retain their distinct business meanings.
+- Reports GET routes use existing domain read permissions. The previous ReportingService role checks still apply on its legacy methods. Tenant-safe category, UOM, client, delivery and variance joins and available soft-delete predicates were added at the changed query points.
+- The KPI screen consumes the existing backend field names and removes its ineffective product and work-center inputs. Yield, scrap and rework display an unavailable value when their denominators are absent. OEE and turnover remain existing estimates rather than financial or audited operational measures. Missing legacy materialized views return an explicit unavailable response.
+- The isolated API contract and role test passed (admin allowed, supplier denied for representative reporting routes and both BOM report endpoints). Direct PostgreSQL checks returned 21 unique materials, one fulfillment group over the expanded date range, and a live manufacturing KPI response. Both missing-view routes returned 503. These direct handler calls did not exercise JWT middleware. No replacement materialized views were installed.
+
+## R2 — Reports hub and BOM Cost Analysis
+
+- Changed ReportsPage.tsx, added frontend/src/modules/reports/pages/BOMCostAnalysisReport.tsx, extended backend/app/domain/bom/services/cost_rollup_service.py, backend/app/application/bom/handlers/bom_advanced_handlers.py, backend/app/infrastructure/persistence/repositories/bom_repository.py and the existing reports route.
+- BOM Cost Analysis uses existing product, variant and BOM version APIs and the shared table and UI components. It presents expandable hierarchy, operation detail, searchable and paginated component detail, source links, cost readiness, and a chart for complete, reconciled categories. The existing hub and legacy cards remain available. The standalone KPI detail pages identified as absent in the audit were not built as part of this release.
+- The existing rollup computes the cost once per request. Its optional report tree captures exact Decimal quantities and costs plus operation details. The same totals drive the report. Nested child totals contribute once. Flattened analysis sums only leaf costs and each BOM node’s own charges. The report never writes Standard Cost. A draft may be selected explicitly, while children still require valid active mappings, tenant and UOM checks.
+- The report suppresses totals and composition for incomplete BOMs. Estimated outside processing appears under its own label. BOM versions use current costs, and are not historical cost snapshots.
+- Isolated integration coverage added in tests/integration/test_semi_finished_bom_cost.py (nested amounts, stored-cost distinction, draft target, cross-tenant denial and incomplete handling) and frontend/src/modules/reports/__tests__/BOMCostAnalysisReport.test.tsx (complete/incomplete view, drill-through, export affordance and responsive layout classes). Component tests do not prove browser rendering at specific viewport sizes.
+
+## R3 — Reconciled XLSX
+
+- Extended backend/app/infrastructure/services/export_service.py and the existing reports router, connected the button on BOMCostAnalysisReport.tsx, and added workbook readback tests in test_semi_finished_bom_cost.py.
+- The XLSX route applies the same authorization and selected BOM ID as JSON. It recomputes the current report at export time. If rates change after the screen loads, the workbook reports the newer calculation timestamp. The workbook has Summary, Cost Breakdown, BOM Hierarchy and Exceptions sheets with fixed headers, filters and typed data. Explicit text cells neutralize formula-like labels. Authoritative exact decimal text accompanies numeric cells because Excel numeric precision is limited.
+- Limits are 5,000 components and operations at rollup time, and 10,001 hierarchy rows including supplementary cost rows in Excel. Overflow returns an error. The existing rollup depth guard marks deeper calculations incomplete and exposes the exception.
+- Read-only PostgreSQL through the new handlers reconciled JSON to workbook for test3 v2.0 (INR 1,252 per KG, including INR 40 estimated outside processing) and semi-prodcut vv4 (INR 1,200 per KG). In an earlier tenant-wide probe, incomplete versions exported blank totals and populated Exceptions. The draft-target regression was corrected and then rechecked against the selected test3 BOM.
+
+## Verification commands and limits
+
+- Backend: python -B -m pytest --noconftest -p no:cacheprovider tests/integration/test_reporting_contracts.py tests/integration/test_semi_finished_bom_cost.py tests/integration/test_onboarding_initial_standard_cost.py tests/integration/test_onboarding_template_dropdowns.py backend/tests/unit/bom/test_making_cost_rollup.py -q --tb=short. 110 passed. The final focused rerun of the reporting and semi-finished suites after the draft-target and fulfillment updates passed all 41.
+- Frontend: vitest run for BOMCostAnalysisReport.test.tsx, BOMCostConsistency.test.tsx and MaterialSupplierPrices.test.tsx. 11 passed. TypeScript no-emit and the production Vite build passed. Known build warnings are the mixed dynamic/static sales delivery import and large bundles.
+- No authenticated browser walkthrough or screenshot was captured. PostgreSQL probes invoked the application handlers with real tenant data in read-only transactions. Authorization tests used an isolated ASGI application with controlled auth identity and the existing permission dependency.
+- No migrations, dependency installs, result writes to PostgreSQL, Git staging or commits were performed. WeasyPrint still lacks the local system dependency observed in Phase 1. PDF is outside this delivery.

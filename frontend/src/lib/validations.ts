@@ -3,7 +3,9 @@ import { z } from "zod"
 export const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(1, "Password is required"),
-  tenant_id: z.string().uuid("Tenant ID must be a valid UUID (e.g. b5ef68c4-...)"),
+  workspace_slug: z.string().trim().toLowerCase()
+    .regex(/^(?:[a-z0-9-]{2,100})?$/, "Enter the workspace slug, for example acme-corp")
+    .optional(),
 })
 
 export type LoginFormValues = z.infer<typeof loginSchema>
@@ -11,6 +13,7 @@ export type LoginFormValues = z.infer<typeof loginSchema>
 export const registerTenantSchema = z.object({
   name: z.string().min(2, "Company name must be at least 2 characters"),
   slug: z.string().min(2, "Workspace URL must be at least 2 characters")
+    .max(100, "Workspace URL must have at most 100 characters")
     .regex(/^[a-z0-9-]+$/, "Only lowercase letters, numbers, and dashes allowed"),
   plan: z.string(),
   admin_email: z.string().email("Valid email required"),

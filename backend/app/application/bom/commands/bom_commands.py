@@ -26,6 +26,8 @@ class CreateBOMCommand:
     variant_id: Optional[uuid.UUID] = None
     valid_to: Optional[datetime] = None
     approved_by: Optional[uuid.UUID] = None
+    making_charge: Optional[Decimal] = None
+    making_charge_basis: Optional[str] = None
 
 
 @dataclass
@@ -36,6 +38,10 @@ class UpdateBOMCommand:
     valid_to: Optional[datetime] = None
     approved_by: Optional[uuid.UUID] = None
     lines: Optional[List[BOMLineInput]] = None
+    making_charge: Optional[Decimal] = field(default=None)
+    making_charge_basis: Optional[str] = field(default=None)
+    # Sentinel: when True the caller is explicitly clearing the making charge
+    clear_making_charge: bool = False
 
 
 @dataclass

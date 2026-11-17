@@ -18,7 +18,8 @@ class RegisterTenantRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1)
-    tenant_id: str = Field(..., description="UUID of the tenant to authenticate against")
+    tenant_id: str | None = Field(None, description="Explicit workspace UUID for existing clients")
+    workspace_slug: str | None = Field(None, min_length=2, max_length=100, pattern=r"^[a-z0-9-]+$")
 
 
 # ── Response schemas ───────────────────────────────────────────────────────────

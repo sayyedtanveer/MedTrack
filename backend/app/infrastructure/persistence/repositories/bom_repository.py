@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional, Tuple, Type
+from typing import Any, List, Optional, Tuple, Type
 
 from sqlalchemy import select, update, func, or_
 from sqlalchemy.orm import selectinload, joinedload
@@ -7,6 +7,10 @@ from sqlalchemy.orm import selectinload, joinedload
 from backend.app.domain.bom.entities.bom import BillOfMaterial
 from backend.app.domain.bom.entities.bom_line import BOMLine
 from backend.app.domain.bom.entities.bom_operation import BOMOperation
+from backend.app.domain.bom.services.component_resolution import BOMResolutionError
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
+from backend.app.infrastructure.persistence.models.item_template_model import ItemTemplateModel
+from backend.app.infrastructure.persistence.models.unit_of_measure_model import UnitOfMeasureModel
 from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel
 from backend.app.infrastructure.persistence.models.bom_operation_model import BOMOperationModel
 from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
@@ -35,11 +39,15 @@ class BOMRepository(BaseRepository[BillOfMaterial, BOMModel]):
             created_at=model.created_at,
             updated_at=model.updated_at,
             operations_count=model.operations_count,
+            making_charge=model.making_charge,
+            making_charge_basis=model.making_charge_basis,
             lines=[],
             operations=[],
         )
         if hasattr(model, "lines") and model.lines is not None:
             for line_model in model.lines:
+                if line_model.is_deleted:
+                    continue
                 bom.add_line(
                     BOMLine(
                         id=line_model.id,
@@ -84,6 +92,8 @@ class BOMRepository(BaseRepository[BillOfMaterial, BOMModel]):
             deleted_at=entity.deleted_at,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
+            making_charge=float(entity.making_charge) if entity.making_charge is not None else None,
+            making_charge_basis=entity.making_charge_basis,
         )
         model.lines = [
             BOMLineModel(
@@ -131,7 +141,14 @@ class BOMRepository(BaseRepository[BillOfMaterial, BOMModel]):
     async def get_active_bom(
         self, tenant_id: uuid.UUID, template_id: Optional[uuid.UUID] = None, variant_id: Optional[uuid.UUID] = None
     ) -> Optional[BillOfMaterial]:
-        """Gets the currently active BOM for a given product."""
+        """Gets the currently active BOM for a given product.
+
+        Raises ValueError if multiple active BOMs are found — that indicates
+        a data-integrity problem (concurrent activation race condition) that must
+        be repaired manually rather than silently resolved.
+        """
+        from sqlalchemy.exc import MultipleResultsFound
+
         stmt = select(BOMModel).options(selectinload(BOMModel.lines), selectinload(BOMModel.operations)).where(
             BOMModel.tenant_id == tenant_id,
             BOMModel.is_active.is_(True),
@@ -141,9 +158,18 @@ class BOMRepository(BaseRepository[BillOfMaterial, BOMModel]):
             stmt = stmt.where(BOMModel.template_id == template_id)
         if variant_id:
             stmt = stmt.where(BOMModel.variant_id == variant_id)
-            
+
         result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
+        try:
+            model = result.scalar_one_or_none()
+        except MultipleResultsFound:
+            target_label = f"variant {variant_id}" if variant_id else f"template {template_id}"
+            raise ValueError(
+                f"Data integrity error: multiple active BOMs found for {target_label} "
+                f"(tenant {tenant_id}). "
+                "Only one BOM version may be active at a time. "
+                "Deactivate all but one before proceeding."
+            )
         return self._to_entity(model) if model else None
 
     async def get_by_version(
@@ -214,32 +240,65 @@ class BOMRepository(BaseRepository[BillOfMaterial, BOMModel]):
         rows = (await self._session.execute(paged)).scalars().all()
         return [self._to_entity(r) for r in rows], total
 
+    async def get_component_info(
+        self, tenant_id: uuid.UUID, *, material_id: Optional[uuid.UUID] = None,
+        variant_id: Optional[uuid.UUID] = None, template_id: Optional[uuid.UUID] = None,
+        allow_inactive: bool = False,
+    ) -> dict[str, Any]:
+        """Read exact component identity and configured base UOM, never a name/SKU match."""
+        model_type = MaterialModel if material_id else ItemVariantModel if variant_id else ItemTemplateModel
+        component_id = material_id or variant_id or template_id
+        model = (await self._session.execute(select(model_type).where(
+            model_type.id == component_id, model_type.tenant_id == tenant_id,
+            model_type.is_deleted.is_(False),
+            *(() if allow_inactive else (model_type.is_active.is_(True),)),
+        ))).scalar_one_or_none()
+        if model is None:
+            raise BOMResolutionError("COMPONENT_INVALID", "Component is missing, inactive, deleted or outside this tenant")
+        if variant_id:
+            template = (await self._session.execute(select(ItemTemplateModel.id).where(
+                ItemTemplateModel.id == model.template_id, ItemTemplateModel.tenant_id == tenant_id,
+                ItemTemplateModel.is_deleted.is_(False),
+                *(() if allow_inactive else (ItemTemplateModel.is_active.is_(True),)),
+            ))).scalar_one_or_none()
+            if template is None:
+                raise BOMResolutionError("TARGET_INVALID", "The variant's template is missing, inactive or deleted")
+        unit = (await self._session.execute(select(UnitOfMeasureModel).where(
+            UnitOfMeasureModel.id == model.base_unit_id, UnitOfMeasureModel.tenant_id == tenant_id,
+            UnitOfMeasureModel.is_deleted.is_(False), UnitOfMeasureModel.is_active.is_(True),
+        ))).scalar_one_or_none() if model.base_unit_id else None
+        return {"name": model.name, "code": model.code,
+                "material_type": model.material_type if material_id else None,
+                "base_unit_id": unit.id if unit else None,
+                "unit_name": unit.code if unit else None}
+
     async def get_bom_for_material(
         self, tenant_id: uuid.UUID, material_id: uuid.UUID
     ) -> Optional[BillOfMaterial]:
+        """Resolve explicit SF material → variant → active BOM, failing closed on broken mappings.
+
+        None means no manufacturing mapping at all. A mapping that exists but
+        cannot yield one valid active BOM is a costing error, not a purchased leaf.
         """
-        Gets the active BOM for a semi-finished material by finding the variant
-        that references this material and returning its BOM.
-        
-        Logic:
-        1. Find ItemVariant where material_id = material_id
-        2. Get active BOM for that variant_id
-        3. Return BOM with eagerly loaded lines and operations
-        """
-        # Join ItemVariant → BOM to find active BOM for material
-        stmt = (
-            select(BOMModel)
-            .join(ItemVariantModel, BOMModel.variant_id == ItemVariantModel.id)
-            .options(selectinload(BOMModel.lines), selectinload(BOMModel.operations))
-            .where(
-                ItemVariantModel.material_id == material_id,
-                ItemVariantModel.tenant_id == tenant_id,
-                BOMModel.tenant_id == tenant_id,
-                BOMModel.is_active.is_(True),
-                BOMModel.is_deleted.is_(False),
-            )
-        )
-        
-        result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
-        return self._to_entity(model) if model else None
+        info = await self.get_component_info(tenant_id, material_id=material_id)
+        if info["material_type"] != "semi_finished":
+            return None
+        mappings = (await self._session.execute(select(ItemVariantModel).where(
+            ItemVariantModel.material_id == material_id, ItemVariantModel.tenant_id == tenant_id,
+        ))).scalars().all()
+        if not mappings:
+            return None
+        valid = [variant for variant in mappings if variant.is_active and not variant.is_deleted]
+        if not valid:
+            raise BOMResolutionError("MAPPING_INVALID", "Manufacturing mapping exists but its variant is inactive or deleted")
+        if len(valid) != 1:
+            raise BOMResolutionError("MAPPING_AMBIGUOUS", "Multiple active variants map to this semi-finished material")
+        variant = valid[0]
+        await self.get_component_info(tenant_id, variant_id=variant.id)
+        try:
+            child = await self.get_active_bom(tenant_id, variant_id=variant.id)
+        except ValueError as exc:
+            raise BOMResolutionError("BOM_AMBIGUOUS", str(exc)) from exc
+        if child is None:
+            raise BOMResolutionError("BOM_MISSING", "Manufacturing mapping exists but no active, nondeleted child BOM exists")
+        return child

@@ -28,6 +28,7 @@ class PurchaseOrderModel(Base):
     )
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     expected_delivery: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    currency_code: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     total_amount: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -62,6 +63,9 @@ class PurchaseOrderLineModel(Base):
     )
     material_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("materials.id", ondelete="RESTRICT"), nullable=False
+    )
+    unit_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=True
     )
     quantity: Mapped[float] = mapped_column(Numeric(15, 3), nullable=False)
     received_quantity: Mapped[float] = mapped_column(Numeric(15, 3), nullable=False, default=0)

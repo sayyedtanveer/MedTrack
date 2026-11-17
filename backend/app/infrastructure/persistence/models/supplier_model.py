@@ -59,6 +59,7 @@ class SupplierPriceHistoryModel(Base):
     __table_args__ = (
         Index("ix_supplier_price_history_tenant_supplier", "tenant_id", "supplier_id"),
         Index("ix_supplier_price_history_material", "material_id"),
+        UniqueConstraint("tenant_id", "grn_line_id", name="uq_supplier_price_history_grn_line"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -71,7 +72,14 @@ class SupplierPriceHistoryModel(Base):
     material_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("materials.id", ondelete="CASCADE"), nullable=False
     )
+    grn_line_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("grn_lines.id", ondelete="RESTRICT"), nullable=True
+    )
     unit_price: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False)
+    currency_code: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    unit_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=True
+    )
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

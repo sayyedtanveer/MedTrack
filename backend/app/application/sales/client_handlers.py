@@ -150,6 +150,14 @@ class CreatePriceListCommandHandler:
         Returns:
             Price list ID
         """
+        # Check name uniqueness (same guard as UpdatePriceListCommandHandler)
+        duplicate = await self.price_list_repo.find_by_exact_name(
+            tenant_id=command.tenant_id,
+            name=command.name,
+        )
+        if duplicate:
+            raise ValueError("A price list with this name already exists")
+
         price_list_id = uuid4()
         price_list = PriceList(
             id=price_list_id,

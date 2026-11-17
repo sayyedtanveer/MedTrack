@@ -47,14 +47,18 @@ class ReportingService:
                     m.name,
                     m.code,
                     mc.name as category,
-                    sl.quantity_on_hand,
-                    sl.quantity_reserved,
-                    sl.quantity_on_hand - sl.quantity_reserved as available,
+                    u.code as uom,
+                    m.current_stock AS quantity_on_hand,
+                    m.reserved_stock AS quantity_reserved,
+                    m.current_stock - m.reserved_stock AS available,
                     m.reorder_level,
-                    CASE WHEN sl.quantity_on_hand <= m.reorder_level THEN true ELSE false END as is_low_stock
+                    CASE WHEN m.reorder_level IS NULL THEN false
+                         ELSE m.current_stock - m.reserved_stock <= m.reorder_level END AS is_low_stock
                 FROM materials m
-                LEFT JOIN stock_levels sl ON sl.material_id = m.id AND sl.tenant_id = m.tenant_id
                 LEFT JOIN material_categories mc ON mc.id = m.category_id
+                    AND mc.tenant_id = m.tenant_id AND NOT mc.is_deleted
+                LEFT JOIN units_of_measure u ON u.id = m.base_unit_id
+                    AND u.tenant_id = m.tenant_id AND NOT u.is_deleted
                 WHERE m.tenant_id = :tenant_id AND m.is_deleted = false
                 ORDER BY m.name
                 """
@@ -102,7 +106,7 @@ class ReportingService:
                     SUM(produced_quantity) as total_produced,
                     SUM(scrap_quantity) as total_scrap
                 FROM work_orders
-                WHERE tenant_id = :tenant_id
+                WHERE tenant_id = :tenant_id AND NOT is_deleted
                 GROUP BY status
                 ORDER BY status
                 """
@@ -180,7 +184,7 @@ class ReportingService:
                     COUNT(so.id) as order_count,
                     SUM(so.grand_total) as total_revenue
                 FROM sales_clients sc
-                LEFT JOIN sales_orders so ON so.client_id = sc.id AND so.is_deleted = false
+                LEFT JOIN sales_orders so ON so.client_id = sc.id AND so.tenant_id = sc.tenant_id AND so.is_deleted = false
                 WHERE sc.tenant_id = :tenant_id AND sc.is_deleted = false
                 GROUP BY sc.id, sc.name, sc.code
                 ORDER BY total_revenue DESC NULLS LAST
@@ -219,7 +223,7 @@ class ReportingService:
                     result,
                     COUNT(*) as count
                 FROM quality_inspections
-                WHERE tenant_id = :tenant_id
+                WHERE tenant_id = :tenant_id AND NOT is_deleted
                 GROUP BY result
                 ORDER BY result
                 """

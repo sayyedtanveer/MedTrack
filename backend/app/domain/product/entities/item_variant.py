@@ -30,18 +30,40 @@ def _build_variant_key(attr_keys_ordered: List[str], attribute_values: Dict[str,
 def _build_variant_code(template_code: str, attr_keys_ordered: List[str], attribute_values: Dict[str, Any]) -> str:
     """
     Auto-generate variant code from template code + attribute values.
-    Example: "TSHIRT" + ["SIZE", "COLOR"] + {"SIZE": "SMALL", "COLOR": "RED"} → "TSHIRT-SMALL-RED"
+
+    Examples:
+        "TSHIRT" + ["SIZE", "COLOR"] + {"SIZE": "SMALL", "COLOR": "RED"}
+            → "TSHIRT-SMALL-RED"
+
+        "FG-MT-0006" + [] + {}
+            → "FG-MT-0006-DEFAULT"
+            (templates with no attributes produce one default variant;
+             the -DEFAULT suffix distinguishes the variant from the template
+             and prevents a trailing hyphen in the generated code)
     """
     suffix_parts = [str(attribute_values[k]).upper().strip() for k in attr_keys_ordered]
+    if not suffix_parts:
+        # No attributes → one default variant; use -DEFAULT to keep the code
+        # clean and distinct from the parent template code.
+        return f"{template_code.upper()}-DEFAULT"
     return f"{template_code.upper()}-{'-'.join(suffix_parts)}"
 
 
 def _build_variant_name(template_name: str, attr_keys_ordered: List[str], attribute_values: Dict[str, Any]) -> str:
     """
     Auto-generate display name.
-    Example: "T-Shirt" + ["SIZE", "COLOR"] + {"SIZE": "Small", "COLOR": "Red"} → "T-Shirt - Small / Red"
+
+    Examples:
+        "T-Shirt" + ["SIZE", "COLOR"] + {"SIZE": "Small", "COLOR": "Red"}
+            → "T-Shirt - Small / Red"
+
+        "Steel Pipe" + [] + {}
+            → "Steel Pipe"
+            (zero-attribute template: variant name equals the template name)
     """
     val_parts = [str(attribute_values[k]).strip() for k in attr_keys_ordered]
+    if not val_parts:
+        return template_name
     return f"{template_name} - {' / '.join(val_parts)}"
 
 

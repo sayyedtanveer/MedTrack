@@ -71,7 +71,7 @@ class ErrorLogger:
         self._repository = ErrorLogRepository(session_factory)
 
     async def log_error(
-        self, request: Request, exception: Exception, trace_id: str
+        self, request: Request, exception: Exception, trace_id: str, *, http_status: int | None = None
     ) -> None:
         """
         Capture and persist an error to database.
@@ -117,6 +117,8 @@ class ErrorLogger:
 
             # Determine status code and error code
             status_code, error_code = self._map_exception_to_status_and_code(exception)
+            if http_status is not None and http_status >= 500:
+                status_code, error_code = http_status, ErrorCode.INTERNAL_ERROR
 
             # For 5xx, print full traceback to logs to make debugging possible in dev/tests
             if status_code >= 500:

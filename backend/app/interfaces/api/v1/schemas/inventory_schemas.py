@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -46,14 +46,9 @@ class UpdateMaterialRequest(BaseModel):
     is_batch_tracked: Optional[bool] = None
     is_serialized: Optional[bool] = None
     is_active: Optional[bool] = None
+    current_cost: Optional[Decimal] = Field(None, ge=0, description="Standard cost per unit")
     inspection_required: Optional[bool] = None
     inspection_template_id: Optional[uuid.UUID] = None
-    current_cost: Optional[Decimal] = Field(
-        None,
-        ge=0,
-        le=Decimal("999999999.9999"),
-        description="Standard Purchase Cost",
-    )
 
     @field_validator("code", "item_code", mode="before")
     @classmethod
@@ -138,6 +133,7 @@ class MaterialResponse(BaseModel):
     is_active: bool
     is_low_stock: bool
     current_cost: Decimal = Decimal("0")
+    created_at: Optional[datetime] = None
     
     # Purchasing summary fields
     latest_purchase_price: Optional[Decimal] = None
@@ -150,6 +146,12 @@ class MaterialResponse(BaseModel):
     warehouse_stock: Decimal = Decimal("0")
     subcontractor_stock: Decimal = Decimal("0")
     subcontractor_details: List[SubcontractorStockDetail] = []
+    
+    # Phase 2C: Cost governance status (optional for backward compatibility)
+    cost_status: Optional[Literal["CONFIGURED", "NOT_CONFIGURED", "PENDING_APPROVAL", "LEGACY"]] = Field(
+        None,
+        description="Material cost readiness status (only in list results)"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -295,3 +297,102 @@ class PurchaseHistoryPaginatedResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+# ── Material Cost Status Response Schema ────────────────────────────────────
+class MaterialCostStatusResponse(BaseModel):
+    """Cost readiness and governance status for a material."""
+    
+    material_id: uuid.UUID = Field(..., description="Material ID")
+    has_approved_cost: bool = Field(
+        ..., 
+        description="True if material has an approved StandardCostRevision"
+    )
+    cost_status: Literal["CONFIGURED", "NOT_CONFIGURED", "PENDING_APPROVAL", "LEGACY"] = Field(
+        ...,
+        description="Current cost governance status"
+    )
+    current_cost: Decimal | None = None
+    approved_cost: Optional[Decimal] = Field(
+        None,
+        description="Approved standard cost value (if exists)"
+    )
+    pending_revision_id: Optional[uuid.UUID] = Field(
+        None,
+        description="ID of pending revision awaiting approval (if exists)"
+    )
+    pending_revision_status: Optional[Literal["PENDING"]] = Field(
+        None,
+        description="Status of pending revision"
+    )
+    currency_code: str = Field(
+        ...,
+        description="Tenant currency code (e.g., INR)"
+    )
+    base_unit_code: Optional[str] = Field(
+        None,
+        description="Base unit of measure code for cost"
+    )
+    
+    model_config = {"from_attributes": True}
+
+
+# ── Set Standard Cost (Direct Save) ────────────────────────────────────────────
+class SetStandardCostRequest(BaseModel):
+    """
+    Request body for the direct standard-cost save endpoint.
+
+    Used by the Material Buy tab when the tenant workflow does NOT require a
+    separate manager approval.  The actor (extracted from the JWT) becomes the
+    cost-configuration owner recorded in history.
+    """
+    new_cost: Decimal = Field(
+        ...,
+        ge=0,
+        le=Decimal("999999999.9999"),
+        description="New standard cost per base unit of measure; saved to four decimal places.",
+    )
+    reason: Optional[str] = Field(
+        None,
+        max_length=500,
+        description=(
+            "Required when changing an existing cost. "
+            "Optional (auto-set to INITIAL_SETUP) when no cost has been configured yet."
+        ),
+    )
+    # Optimistic-lock: client passes back the cost it last saw.
+    # Backend rejects if material.current_cost has changed since the client loaded.
+    # The Buy tab passes zero for first setup too, to detect concurrent changes.
+    expected_current_cost: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        description=(
+            "Cost the client last read from the server. "
+            "If the server's current cost differs, the request is rejected "
+            "to prevent silent concurrent overwrites."
+        ),
+    )
+
+
+class SetStandardCostResponse(BaseModel):
+    """Response returned after a successful direct standard-cost save."""
+    material_id: uuid.UUID
+    previous_cost: Optional[Decimal] = Field(
+        None, description="Cost before this save (None for first-time setup)."
+    )
+    new_cost: Decimal = Field(..., description="Effective cost after the save.")
+    change_type: str = Field(
+        ..., description="INITIAL_SETUP or DIRECT_REVISION depending on prior state."
+    )
+    cost_history_id: uuid.UUID = Field(
+        ..., description="ID of the immutable MaterialCostHistory record created."
+    )
+    revision_id: uuid.UUID = Field(
+        ...,
+        description=(
+            "ID of the StandardCostRevision record (status=APPROVED, approved_by=NULL) "
+            "that was created so BOM costing can recognise this cost."
+        ),
+    )
+    currency_code: str
+
+    model_config = {"from_attributes": True}

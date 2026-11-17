@@ -1,15 +1,10 @@
 import { apiClient } from "./api-client"
 import { AuthResponse, MeResponse } from "@/types/auth.types"
 
-// The login endpoint expects a JSON body based on what we built in Phase 0
-// Specifically: class LoginUserCommand(Command): email, password 
-// Wait - FastAPI OAuth2PasswordRequestForm expects form-data `username` and `password`.
-// Let's check how we wrote backend/app/interfaces/api/v1/routes/auth.py
-// In Phase 0, we created a custom LoginRequest schema: json mapping {"email", "password", "tenant_id"}
-
 interface LoginRequest {
   email: string
   password: string
+  workspace_slug?: string
   tenant_id?: string
 }
 

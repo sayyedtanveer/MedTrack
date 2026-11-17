@@ -156,26 +156,26 @@ export default function PriceListDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/sales/price-lists')}>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/sales/price-lists')} className="shrink-0">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-gray-900">{priceList.name}</h1>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{priceList.name}</h1>
               {priceList.is_default && (
-                <Badge className="bg-blue-100 text-blue-800">Default</Badge>
+                <Badge className="bg-blue-100 text-blue-800 shrink-0">Default</Badge>
               )}
               {priceList.is_active ? (
-                <Badge className="bg-green-100 text-green-800">Active</Badge>
+                <Badge className="bg-green-100 text-green-800 shrink-0">Active</Badge>
               ) : (
-                <Badge className="bg-gray-100 text-gray-600">Inactive</Badge>
+                <Badge className="bg-gray-100 text-gray-600 shrink-0">Inactive</Badge>
               )}
             </div>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-xs sm:text-sm text-gray-500 mt-1">
               Valid from {new Date(priceList.valid_from).toLocaleDateString()}
               {priceList.valid_to
                 ? ` to ${new Date(priceList.valid_to).toLocaleDateString()}`
@@ -183,14 +183,15 @@ export default function PriceListDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button
             variant="outline"
             size="sm"
             onClick={() => navigate(`/sales/price-lists/${id}/edit`)}
           >
             <Edit2 className="mr-2 h-3 w-3" />
-            Edit Details
+            <span className="hidden sm:inline">Edit Details</span>
+            <span className="sm:hidden">Edit</span>
           </Button>
           <Button size="sm" onClick={() => setShowAddDialog(true)}>
             <Plus className="mr-2 h-3 w-3" />
@@ -201,8 +202,8 @@ export default function PriceListDetailPage() {
 
       {/* Lines table */}
       {priceList.lines.length === 0 ? (
-        <div className="text-center py-16 text-gray-500">
-          <p className="text-lg font-medium">No products have been added to this price list yet.</p>
+        <div className="text-center py-8 sm:py-16 text-gray-500">
+          <p className="text-base sm:text-lg font-medium">No products have been added to this price list yet.</p>
           <Button className="mt-4" onClick={() => setShowAddDialog(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Add First Product
@@ -210,6 +211,7 @@ export default function PriceListDetailPage() {
         </div>
       ) : (
         <div className="border rounded-md bg-white overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-gray-50/75">
@@ -346,6 +348,7 @@ export default function PriceListDetailPage() {
               })}
             </TableBody>
           </Table>
+          </div>
         </div>
       )}
 

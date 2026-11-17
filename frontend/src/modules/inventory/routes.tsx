@@ -11,6 +11,7 @@ const InventoryDashboard = lazy(() => import("./pages/InventoryDashboard"))
 const BatchListPage = lazy(() => import("./pages/BatchListPage"))
 const StorekeeperDashboardPage = lazy(() => import("./pages/StorekeeperDashboardPage"))
 const MaterialOnboardingPage = lazy(() => import("./pages/MaterialOnboardingPage"))
+const MaterialBuyPage = lazy(() => import("./pages/MaterialBuyPage"))
 
 // Simple fallback
 const PageLoading = () => <div className="p-8 flex items-center justify-center">Loading...</div>
@@ -53,5 +54,9 @@ export const inventoryRoutes: RouteObject[] = [
   {
     path: "inventory/material-onboarding",
     element: inventoryElement(<MaterialOnboardingPage />),
+  },
+  {
+    path: "inventory/material-buy",
+    element: inventoryElement(<MaterialBuyPage />),
   },
 ]

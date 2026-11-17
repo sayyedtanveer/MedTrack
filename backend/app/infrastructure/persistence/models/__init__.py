@@ -47,3 +47,18 @@ import backend.app.infrastructure.persistence.models.workstation_model
 import backend.app.infrastructure.persistence.models.work_order_model
 import backend.app.infrastructure.persistence.models.import_models
 import backend.app.infrastructure.persistence.models.technical_document_model
+
+from backend.app.infrastructure.persistence.models.grn_model import (
+    GoodsReceiptNoteModel,
+    GRNLineModel,
+)
+from backend.app.infrastructure.persistence.models.material_model import MaterialModel
+from backend.app.infrastructure.persistence.models.procurement_pricing_models import (
+    PriceOverrideRecordModel,
+    StandardCostRevisionModel,
+    SupplierPriceAgreementModel,
+)
+from backend.app.infrastructure.persistence.models.quality_model import SupplierQuotationModel
+from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
+from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
+from backend.app.infrastructure.persistence.models.user_model import UserModel

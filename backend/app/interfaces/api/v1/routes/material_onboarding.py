@@ -3,8 +3,10 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +16,7 @@ from openpyxl.utils import get_column_letter
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, func
 
 from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.models.unit_of_measure_model import UnitOfMeasureModel
@@ -22,13 +24,21 @@ from backend.app.infrastructure.persistence.models.material_category_model impor
 from backend.app.infrastructure.persistence.models.inventory_transaction_model import InventoryTransactionModel
 from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel
 from backend.app.infrastructure.persistence.models.location_model import LocationModel
+from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
 from backend.app.application.inventory.services.item_code_service import ItemCodeService
 from backend.app.interfaces.api.v1.dependencies.auth import (
     get_container,
     get_current_tenant_id,
     get_current_user_id,
+    get_current_role,
 )
 from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
+
+from backend.app.application.inventory.services.onboarding_pricing import (
+    agreement_dates, import_date, parse_import_decimal, plan_initial_cost,
+)
+from backend.app.application.procurement.pricing.direct_standard_cost import DirectStandardCostHandler
+from backend.app.infrastructure.persistence.models.tenant_model import TenantModel
 
 router = APIRouter(prefix="/inventory/material-onboarding", tags=["Material Onboarding"])
 
@@ -38,11 +48,14 @@ _sessions: Dict[str, Dict[str, Any]] = {}
 # ── Target field definitions ──────────────────────────────────────────────────
 RAW_MATERIAL_COLUMNS = [
     "item_code", "material_name", "material_category", "material_type", "uom",
-    "batch_tracking_enabled", "shelf_life", "expiry_tracking", "warehouse", "zone", "rack_bin",
+    "batch_tracking_enabled", "shelf_life", "expiry_tracking", "storage_location",
     "min_stock", "max_stock", "reorder_level", "reorder_quantity", "barcode", "traceability_enabled",
     "qc_required", "approved_supplier", "supplier_item_code", "purchase_uom", "lead_time", "moq",
     "length_uom", "cuttable_inventory", "remaining_quantity_tracking", "decimal_precision", "reusable_remainder",
     "opening_stock",
+    # === SUPPLIER PRICING FIELDS (Phase 2) ===
+    "supplier_name", "supplier_price", "supplier_currency", "supplier_moq", "supplier_uom",
+    "effective_from_date", "effective_to_date", "proposed_initial_cost",
 ]
 
 FRIENDLY_TO_TECHNICAL = {
@@ -51,9 +64,7 @@ FRIENDLY_TO_TECHNICAL = {
     "Category": "material_category",
     "Base Unit": "uom",
     "Barcode": "barcode",
-    "Warehouse": "warehouse",
-    "Zone": "zone",
-    "Rack / Bin": "rack_bin",
+    "Storage Location": "storage_location",
     "Opening Stock": "opening_stock",
     "Minimum Stock": "min_stock",
     "Maximum Stock": "max_stock",
@@ -74,6 +85,15 @@ FRIENDLY_TO_TECHNICAL = {
     "Track Remaining Quantity?": "remaining_quantity_tracking",
     "Decimal Places": "decimal_precision",
     "Reuse Remaining Material?": "reusable_remainder",
+    # === SUPPLIER PRICING FIELDS (Phase 2) ===
+    "Supplier Name": "supplier_name",
+    "Supplier Price": "supplier_price",
+    "Supplier Currency": "supplier_currency",
+    "Supplier MOQ": "supplier_moq",
+    "Supplier UOM": "supplier_uom",
+    "Effective From": "effective_from_date",
+    "Effective To": "effective_to_date",
+    "Proposed Initial Cost": "proposed_initial_cost",
 }
 TECHNICAL_TO_FRIENDLY = {v: k for k, v in FRIENDLY_TO_TECHNICAL.items()}
 FRIENDLY_COLUMNS = list(FRIENDLY_TO_TECHNICAL.keys())
@@ -237,7 +257,8 @@ def _apply_mapping(raw_row: Dict[str, str], mapping: Dict[str, str]) -> Dict[str
     data: Dict[str, Any] = {}
     for source, target in mapping.items():
         if target and target != "_ignore":
-            data[target] = raw_row.get(source, "")
+            value = raw_row.get(source, "")
+            data[target] = import_date(value) if target in {"effective_from_date", "effective_to_date"} else value
     return data
 
 
@@ -513,6 +534,47 @@ def _validate_row(
             "severity": "warning",
             "message": "Track Remaining Quantity is enabled but Can Be Cut is disabled - this combination is unusual",
         })
+    
+    # ═════════════════════════════════════════════════════════════════════════════
+    # SUPPLIER PRICING VALIDATION (Phase 2)
+    # ═════════════════════════════════════════════════════════════════════════════
+    if len(str(data.get("supplier_item_code", "")).strip()) > 120:
+        issues.append({"field": "supplier_item_code", "severity": "error",
+                       "message": "Supplier Item Code cannot exceed 120 characters"})
+
+    pricing_fields = ("supplier_name", "supplier_price", "supplier_currency", "supplier_moq",
+                      "supplier_uom", "effective_from_date", "effective_to_date")
+    has_pricing = any(str(data.get(field, "")).strip() for field in pricing_fields)
+    if has_pricing:
+        for field in ("supplier_name", "supplier_price", "supplier_currency", "supplier_uom"):
+            if not str(data.get(field, "")).strip():
+                issues.append({"field": field, "severity": "error", "message": f"{friendly(field)} is required when providing supplier pricing"})
+        currency = str(data.get("supplier_currency", "")).strip()
+        if currency and not re.fullmatch(r"[A-Z]{3}", currency):
+            issues.append({"field": "supplier_currency", "severity": "error", "message": "Supplier Currency must be a three-letter uppercase currency code"})
+        if len(str(data.get("supplier_uom", ""))) > 20:
+            issues.append({"field": "supplier_uom", "severity": "error", "message": "Supplier UOM cannot exceed 20 characters"})
+        try:
+            agreement_dates(data, datetime.now(timezone.utc).date())
+        except ValueError:
+            issues.append({"field": "effective_from_date", "severity": "error", "message": "Use valid YYYY-MM-DD dates with Effective To on or after Effective From"})
+    for field in ("supplier_price", "supplier_moq", "proposed_initial_cost"):
+        value = str(data.get(field, "")).strip()
+        if value:
+            try:
+                number = parse_import_decimal(value)
+                if field == "supplier_price" and number <= 0:
+                    raise ValueError("Supplier Price must be greater than zero")
+                if field in {"supplier_price", "supplier_moq"} and number.as_tuple().exponent < -6:
+                    raise ValueError("Supplier price and MOQ support at most six decimal places")
+            except ValueError as exc:
+                issues.append({"field": field, "severity": "error", "message": f"{friendly(field)}: {exc}"})
+
+    by_code = existing_codes.get(item_code.upper()) if item_code else None
+    by_name = existing_codes.get(name.upper())
+    if ((by_code and str(by_code.get("name", "")).upper() != name.upper())
+        or (item_code and by_name and str(by_name.get("item_code") or by_name.get("code") or "").upper() != item_code.upper())):
+        issues.append({"field": "item_code", "severity": "error", "message": "Material code/name identity conflict; use the existing material's matching code and name"})
 
     # Determine classification and protected changes
     lookup_key = item_code.upper() if item_code else name.upper()
@@ -531,6 +593,14 @@ def _validate_row(
                 protected_changes.append({"field": pf, "from": old_val, "to": new_val})
     else:
         classification = "new"
+
+    for numeric_field in ("opening_stock", "min_stock", "max_stock", "reorder_level", "reorder_quantity", "moq"):
+        value = str(data.get(numeric_field, "")).strip()
+        if value:
+            try:
+                parse_import_decimal(value)
+            except ValueError as exc:
+                issues.append({"field": numeric_field, "severity": "error", "message": f"{friendly(numeric_field)}: {exc}"})
 
     has_errors = any(i["severity"] == "error" for i in issues)
     row_status = "error" if has_errors else "ready"
@@ -555,15 +625,153 @@ class RowUpdateRequest(BaseModel):
         extra = "allow"
 
 
+# ── Helper: Fetch Storage Locations ───────────────────────────────────────────
+
+async def _get_storage_locations(db_session: AsyncSession, tenant_id: uuid.UUID) -> List[str]:
+    """
+    Fetch all active storage locations for a tenant.
+    Used for Excel data validation dropdown.
+    Returns: List of location names/codes sorted alphabetically.
+    """
+    try:
+        from backend.app.infrastructure.persistence.models.location_model import LocationModel
+        
+        # Priority: Use code if available, fallback to name
+        stmt = (
+            select(LocationModel)
+            .where(
+                LocationModel.tenant_id == tenant_id,
+                LocationModel.is_deleted == False,
+                LocationModel.is_active == True
+            )
+            .order_by(LocationModel.name.asc())
+        )
+        
+        result = await db_session.execute(stmt)
+        locations = result.scalars().all()
+        
+        # Return code or name (code preferred if available)
+        location_values = [
+            loc.code if loc.code else loc.name 
+            for loc in locations 
+            if loc.code or loc.name
+        ]
+        return location_values
+    except Exception as e:
+        logging.exception("Could not fetch storage locations", extra={"tenant_id": str(tenant_id)})
+        raise
+
+
+async def _get_unit_of_measures(db_session: AsyncSession, tenant_id: uuid.UUID) -> List[str]:
+    """
+    Fetch all active Units of Measure for a tenant.
+    Used for Excel data validation dropdown.
+    Returns: List of UOM codes sorted alphabetically.
+    """
+    try:
+        stmt = (
+            select(UnitOfMeasureModel.code)
+            .where(
+                UnitOfMeasureModel.tenant_id == tenant_id,
+                UnitOfMeasureModel.is_deleted == False,
+                UnitOfMeasureModel.is_active == True
+            )
+            .order_by(UnitOfMeasureModel.code.asc())
+        )
+        
+        result = await db_session.execute(stmt)
+        uom_codes = [row for row in result.scalars().all() if row]
+        return uom_codes
+    except Exception as e:
+        logging.exception("Could not fetch UOMs", extra={"tenant_id": str(tenant_id)})
+        raise
+
+
+async def _get_default_storage_location(db_session: AsyncSession, tenant_id: uuid.UUID) -> Optional[str]:
+    """
+    Fetch the default storage location for a tenant.
+    Returns: Location code or name, or None if no default configured.
+    """
+    try:
+        from backend.app.infrastructure.persistence.models.location_model import LocationModel
+        
+        stmt = (
+            select(LocationModel)
+            .where(
+                LocationModel.tenant_id == tenant_id,
+                LocationModel.is_default == True,
+                LocationModel.is_deleted == False,
+                LocationModel.is_active == True
+            )
+        )
+        
+        result = await db_session.execute(stmt)
+        location = result.scalars().first()
+        
+        if location:
+            return location.code if location.code else location.name
+        return None
+    except Exception as e:
+        logging.exception("Could not fetch default storage location", extra={"tenant_id": str(tenant_id)})
+        raise
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get(
     "/template",
     summary="Download the material onboarding template",
-    # No auth required — public template
+    # Master data must come from the authenticated tenant.
 )
-async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$")):
-    """Return a downloadable template file with the expected column headers."""
+async def get_template(
+    format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
+    request: Request = None,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Return a downloadable template file with the expected column headers.
+    
+    Excel dropdowns include active master data from the authenticated tenant.
+    """
+    
+    # Fetch storage locations, UOMs, and default location for dropdown (if authenticated)
+    storage_locations = []
+    unit_of_measures = []
+    supplier_names = []
+    # Same suggested currencies as company settings; other codes remain editable.
+    currency_codes = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "JPY", "AUD", "CAD"]
+    default_location = None
+    try:
+        if request and tenant_id:
+            logging.info(f"🔍 Fetching master data for tenant: {tenant_id}")
+            container = get_container(request)
+            async with container.session_factory() as db:
+                storage_locations = await _get_storage_locations(db, tenant_id)
+                logging.info(f"✅ Fetched {len(storage_locations)} storage locations: {storage_locations[:5] if len(storage_locations) > 5 else storage_locations}")
+                unit_of_measures = await _get_unit_of_measures(db, tenant_id)
+                logging.info(f"✅ Fetched {len(unit_of_measures)} UOMs: {unit_of_measures[:10] if len(unit_of_measures) > 10 else unit_of_measures}")
+                supplier_names = list((await db.execute(
+                    select(SupplierModel.name).where(
+                        SupplierModel.tenant_id == tenant_id,
+                        SupplierModel.is_deleted.is_(False),
+                        SupplierModel.is_active.is_(True),
+                    ).order_by(SupplierModel.name.asc())
+                )).scalars().all())
+                supplier_names = list(dict.fromkeys(name for name in supplier_names if name))
+                tenant_currency = (await db.execute(select(TenantModel.currency_code).where(
+                    TenantModel.id == tenant_id, TenantModel.is_deleted.is_(False),
+                ))).scalar_one_or_none()
+                if tenant_currency and tenant_currency.strip().upper() not in currency_codes:
+                    currency_codes.append(tenant_currency.strip().upper())
+                default_location = await _get_default_storage_location(db, tenant_id)
+                if default_location:
+                    logging.info(f"✅ Fetched default storage location: {default_location}")
+                else:
+                    logging.info("ℹ️  No default storage location configured")
+        else:
+            logging.info("⚠️  No authentication - template will not include dropdowns")
+    except Exception as e:
+        logging.exception("Could not load template master data", extra={"tenant_id": str(tenant_id)})
+        raise HTTPException(status_code=503, detail="Could not load template master data. Please retry.") from e
     if format == "xlsx":
         try:
             logging.info("🔍 Starting Excel template generation...")
@@ -618,25 +826,17 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
                  "Material category for grouping and reporting. System will auto-create if doesn't exist.",
                  "Example: Metals, Plastics, Chemicals\nTip: Use consistent naming"),
                 
-                ("Base Unit", "REQUIRED", 
-                 "Primary measurement unit for this material. Cannot be changed after creation.",
-                 "Example: KG, METER, LITER, PCS\n⚠️ PROTECTED: Choose carefully!"),
+                ("Base Unit", "REQUIRED (Dropdown)", 
+                 "Primary measurement unit for this material. Select from dropdown (auto-populated from master). Cannot be changed after creation.",
+                 "Example: KG, METER, LITER, PCS\n⚠️ PROTECTED: Choose carefully!\nTip: Select from dropdown list\nNote: If you need a new unit, contact admin to add it to master"),
                 
                 ("Barcode", "Optional", 
                  "Barcode/SKU for scanner integration. Must be unique if provided.",
                  "Example: 1234567890123\nTip: Leave blank if no barcode"),
                 
-                ("Warehouse", "Optional", 
-                 "Default storage warehouse location name.",
-                 "Example: Main Warehouse, Raw Materials Store"),
-                
-                ("Zone", "Optional", 
-                 "Specific zone within warehouse for organization.",
-                 "Example: Zone-A, Zone-B, Chemical Storage"),
-                
-                ("Rack / Bin", "Optional", 
-                 "Specific rack or bin location for precise placement.",
-                 "Example: R1-B2, Shelf-3-A"),
+                ("Storage Location", "Optional (Dropdown)", 
+                 "Where this material is stored in the warehouse. Select from dropdown (auto-populated from master). System will prefill if possible.",
+                 "Example: Select from dropdown list\nTip: Choose from available locations\nNote: Dropdown populated from storage master"),
                 
                 ("Opening Stock", "Optional", 
                  "Initial quantity when first creating this material. Only used for NEW materials.",
@@ -683,12 +883,12 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
                  "Example: Acme Steel Corp\nTip: Must match existing supplier"),
                 
                 ("Supplier Item Code", "Optional", 
-                 "Supplier's product code for this material. Used in POs.",
+                 "Enter the supplier catalog code for this material manually. This is not the supplier master code.",
                  "Example: AC-STEEL-500\nTip: Copy from supplier catalog"),
                 
                 ("Purchase Unit", "Optional", 
-                 "Unit used when purchasing (if different from base unit). System will handle conversion.",
-                 "Example: If base=KG, purchase=TON\nLeave blank if same as base"),
+                 "Legacy purchase-unit metadata. Use Supplier UOM for supplier quotes; onboarding performs no unit conversion.",
+                 "Use the configured base unit for automatic initial cost setup"),
                 
                 ("Lead Time (Days)", "Optional", 
                  "Number of days from PO to delivery. Used for MRP planning.",
@@ -717,6 +917,39 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
                 ("Reuse Remaining Material?", "Optional", 
                  "YES = Unused remainder goes back to stock. NO = Remainder is discarded.",
                  "YES: Expensive materials\nNO: Contaminated or low-value scraps\nRequires 'Track Remaining Quantity?' = YES"),
+                
+                # === SUPPLIER PRICING FIELDS (Phase 2) ===
+                ("Supplier Name", "Optional",
+                 "Select an active supplier name from the dropdown. You may type a new name; existing onboarding creation rules still apply.",
+                 "Example: Acme Steel Corp\nTip: Leave blank if no supplier pricing\nNote: Used to create SupplierPriceAgreement"),
+                
+                ("Supplier Price", "Optional",
+                 "Unit price of this material from the supplier (in supplier's currency).",
+                 "Example: 150.50\nMust be > 0 if provided\nWill be stored in SupplierPriceAgreement (DRAFT status)"),
+                
+                ("Supplier Currency", "Optional",
+                 "Select a suggested currency or enter a three-letter uppercase code. Currency is quote-specific; the supplier master has no currency default.",
+                 "Example: USD, INR, EUR\nMust be a valid 3-letter code\nRequired if Supplier Price provided"),
+                
+                ("Supplier MOQ", "Optional",
+                 "Minimum Order Quantity from this supplier (in supplier's UOM).",
+                 "Example: 100\nMust be >= 0\nOptional but recommended"),
+                
+                ("Supplier UOM", "Optional",
+                 "Select the quoted purchase unit from the tenant UOM master dropdown. The supplier master has no default UOM.",
+                 "Example: TON (if base unit is KG)\nNo conversion is performed\nRequired when a supplier price is provided"),
+                
+                ("Effective From", "Optional",
+                 "Start date for this supplier agreement (YYYY-MM-DD format).",
+                 "Example: 2024-11-09\nFormat: YYYY-MM-DD\nIf blank, defaults to today"),
+                
+                ("Effective To", "Optional",
+                 "End date for this supplier agreement (YYYY-MM-DD format). Leave blank for ongoing.",
+                 "Example: 2025-11-09\nFormat: YYYY-MM-DD\nIf blank, agreement is ongoing"),
+                
+                ("Proposed Initial Cost", "Optional",
+                 "Initial standard cost per base unit in tenant currency for NEW materials. Requires cost-setting permission; saved directly with audit history.",
+                 "Example: 120.00\nMust be >= 0\nCreates an APPROVED direct revision and cost history\nIf blank, one unambiguous current supplier rate can initialize cost when currency and UOM match\nExisting material costs are preserved; explicit zero is supported"),
             ]
             
             thin_border = Border(
@@ -851,10 +1084,12 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
             # Sample row
             ws.append([
                 "", "Sample Raw Material (Delete Me)", "Metals", "KG", "",
-                "", "", "", "100", "10", "500", "20", "50",
+                "LOC-001", "100", "10", "500", "20", "50",
                 "No", "No", "", "No", "No",
                 "", "", "", "7", "",
-                "", "No", "No", "2", "No"
+                "", "No", "No", "2", "No",
+                # === SUPPLIER PRICING FIELDS ===
+                "", "", "", "", "", "", "", ""
             ])
             
             # Add note in sample row
@@ -880,7 +1115,48 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
                 if column.endswith("?"):
                     col_letter = get_column_letter(col_idx)
                     yes_no_dv.add(f"{col_letter}2:{col_letter}1048576")
-                    
+            
+            # Named ranges avoid Excel's 255-character inline-list limit and
+            # preserve commas/quotes in master values. Keep three visible tabs.
+            from openpyxl.workbook.defined_name import DefinedName
+
+            master_ws = wb.create_sheet(title="_Master Data")
+            master_ws.sheet_state = "hidden"
+            master_ws.append(["Storage Locations", "Units of Measure", "Suppliers", "Currencies"])
+            for source_column, values in enumerate(
+                (storage_locations, unit_of_measures, supplier_names, currency_codes), 1
+            ):
+                for index, value in enumerate(values, 2):
+                    master_ws.cell(row=index, column=source_column, value=value).data_type = "s"
+
+            for heading, values, source_column, range_name, allow_blank, allow_manual in (
+                ("Storage Location", storage_locations, "A", "StorageLocationOptions", True, False),
+                ("Base Unit", unit_of_measures, "B", "BaseUnitOptions", False, False),
+                ("Supplier Name", supplier_names, "C", "SupplierNameOptions", True, True),
+                ("Supplier Currency", currency_codes, "D", "SupplierCurrencyOptions", True, True),
+                ("Supplier UOM", unit_of_measures, "B", "SupplierUOMOptions", True, False),
+            ):
+                if not values:
+                    logging.warning("No active master values for template dropdown",
+                                    extra={"tenant_id": str(tenant_id), "field": heading})
+                    continue
+                defined_name = DefinedName(
+                    range_name,
+                    attr_text=f"'_Master Data'!${source_column}$2:${source_column}${len(values) + 1}",
+                )
+                wb.defined_names.add(defined_name)
+                validation = DataValidation(type="list", formula1=f"={range_name}",
+                                            allow_blank=allow_blank, showDropDown=False)
+                validation.error = f"Please select {heading} from the dropdown."
+                validation.errorTitle = "Invalid master value"
+                validation.showErrorMessage = not allow_manual
+                ws.add_data_validation(validation)
+                column = get_column_letter(FRIENDLY_COLUMNS.index(heading) + 1)
+                validation.add(f"{column}2:{column}1048576")
+            if default_location:
+                column = get_column_letter(FRIENDLY_COLUMNS.index("Storage Location") + 1)
+                ws[f"{column}2"] = default_location
+
             logging.info(f"✅ Excel template complete with {len(wb.sheetnames)} sheets: {wb.sheetnames}")
             buf = io.BytesIO()
             wb.save(buf)
@@ -893,23 +1169,27 @@ async def get_template(format: str = Query(default="csv", pattern="^(csv|xlsx)$"
             )
         except ImportError as e:
             logging.error(f"❌ Import error during Excel template generation: {e}")
-            pass  # fall through to csv
+            raise HTTPException(status_code=503, detail="Excel template generation is unavailable. Please retry.") from e
         except Exception as e:
             logging.error(f"❌ Unexpected error during Excel template generation: {type(e).__name__}: {e}", exc_info=True)
-            pass  # fall through to csv
+            raise HTTPException(status_code=503, detail="Could not generate the Excel template. Please retry.") from e
 
     # CSV - Simple single file (matches the single data tab in Excel)
     logging.info("📄 Generating CSV template")
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(FRIENDLY_COLUMNS)
+    
     # Sample row for raw material (only raw materials for bulk upload)
+    sample_location = default_location if default_location else "LOC-001"
     writer.writerow([
         "", "Sample Raw Material (Delete Me)", "Metals", "KG", "",
-        "", "", "", "100", "10", "500", "20", "50",
+        sample_location, "100", "10", "500", "20", "50",
         "No", "No", "", "No", "No",
         "", "", "", "7", "",
-        "", "No", "No", "2", "No"
+        "", "No", "No", "2", "No",
+        # === SUPPLIER PRICING FIELDS ===
+        "", "", "", "", "", "", "", ""
     ])
     buf.seek(0)
     return StreamingResponse(
@@ -1012,11 +1292,12 @@ async def validate_session(
                 name_key = (row.name or "").upper()
                 if name_key:
                     existing_codes[name_key] = rec
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Unable to load existing materials for validation") from exc
 
     mapping = body.mapping
     processed_rows = []
+    seen_material_keys: set[str] = set()
     for i, raw_row in enumerate(session["raw_rows"], start=2):
         data = _apply_mapping(raw_row, mapping)
         
@@ -1026,6 +1307,39 @@ async def validate_session(
             
         row_id = str(uuid.uuid4())
         classification, row_status, issues, protected_changes = _validate_row(data, i, existing_codes)
+        item_key = str(data.get("item_code", "")).strip().upper()
+        name_key = str(data.get("material_name", "")).strip().upper()
+        duplicate_material = (
+            (item_key and item_key in seen_material_keys)
+            or (name_key and name_key in seen_material_keys)
+        )
+        if duplicate_material and row_status != "error":
+            classification = "update"
+        elif classification == "new":
+            if item_key:
+                seen_material_keys.add(item_key)
+                existing_codes[item_key] = {"code": item_key, "name": name_key}
+            if name_key:
+                seen_material_keys.add(name_key)
+                existing_codes[name_key] = {"code": item_key, "name": name_key}
+        
+        # === EXTRACT SUPPLIER PRICING DETAILS (Phase 2) ===
+        supplier_pricing = None
+        if data.get("supplier_name") and data.get("supplier_price"):
+            try:
+                supplier_pricing = {
+                    "supplier_name": data.get("supplier_name", "").strip(),
+                    "supplier_price": float(str(data.get("supplier_price", "0")).replace(",", "")),
+                    "supplier_currency": data.get("supplier_currency", "").strip(),
+                    "supplier_moq": float(str(data.get("supplier_moq", "0")).replace(",", "")) if data.get("supplier_moq") else None,
+                    "supplier_uom": data.get("supplier_uom", "").strip() or None,
+                    "effective_from_date": data.get("effective_from_date", "").strip() or None,
+                    "effective_to_date": data.get("effective_to_date", "").strip() or None,
+                    "proposed_initial_cost": float(str(data.get("proposed_initial_cost", "0")).replace(",", "")) if data.get("proposed_initial_cost") else None,
+                }
+            except (ValueError, TypeError):
+                supplier_pricing = None
+        
         processed_rows.append({
             "id": row_id,
             "row_number": i,
@@ -1034,6 +1348,16 @@ async def validate_session(
             "data": data,
             "issues": issues,
             "protected_changes": protected_changes,
+            "supplier_pricing": supplier_pricing,  # Extracted for easier frontend display
+            "pricing_status": (
+                "supplier_draft_and_initial_cost_to_evaluate"
+                if data.get("supplier_price") and data.get("proposed_initial_cost")
+                else "supplier_draft_and_initial_cost_to_evaluate"
+                if data.get("supplier_price")
+                else "initial_cost_to_evaluate"
+                if data.get("proposed_initial_cost")
+                else "not_configured"
+            ),
         })
 
     session["mapping"] = mapping
@@ -1057,38 +1381,26 @@ async def validate_session(
 )
 async def get_preview(
     session_id: str,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    role: str = Depends(get_current_role),
 ):
-    """Return per-row validation results and a summary."""
+    """Simulate the same row savepoints/constraints as execution, then roll back."""
     session = _get_session(session_id, tenant_id)
-    rows = session.get("rows", [])
-
     if session.get("status") != "validated":
-        raise HTTPException(status_code=400, detail="Session has not been validated yet. Call /validate first.")
-
-    if not rows or len(rows) == 0:
-        raise HTTPException(
-            status_code=400, 
-            detail="No valid data rows found in the uploaded file. The file may contain only sample/dummy data. Please add your material data to the template and upload again."
-        )
-
-    total = len(rows)
-    new_count = sum(1 for r in rows if r["classification"] == "new")
-    update_count = sum(1 for r in rows if r["classification"] == "update")
-    skip_count = sum(1 for r in rows if r["classification"] == "skip")
-    error_count = sum(1 for r in rows if r["status"] == "error")
-    warning_count = sum(1 for r in rows for i in r["issues"] if i["severity"] == "warning")
-
+        raise HTTPException(status_code=400, detail="Validate the session first")
+    outcome = await execute_session(session_id, ExecuteRequest(dry_run=True), request, tenant_id, user_id, role)
+    rows = session.get("rows", [])
     return {
         "summary": {
-            "total_rows": total,
-            "new": new_count,
-            "update": update_count,
-            "skip": skip_count,
-            "errors": error_count,
-            "warnings": warning_count,
+            "total_rows": len(rows), "new": outcome["created"], "update": outcome["updated"],
+            "skip": outcome["skipped"], "errors": outcome["rejected"],
+            "warnings": len(outcome["warnings"]),
+            "supplier_pricing": outcome["supplier_pricing_created"],
         },
-        "rows": rows,
+        "rows": rows, "warnings": outcome["warnings"],
+        "error_messages": outcome["error_messages"], "cost_outcomes": outcome["cost_outcomes"],
     }
 
 
@@ -1117,6 +1429,7 @@ async def execute_session(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     user_id: uuid.UUID = Depends(get_current_user_id),
+    role: str = Depends(get_current_role),
 ):
     """
     Commit the onboarding session. With dry_run=True runs all logic without
@@ -1127,179 +1440,255 @@ async def execute_session(
     if not rows:
         raise HTTPException(status_code=400, detail="Session has not been validated yet.")
 
+    # Revalidate row values on every execution, including corrected rows and dry runs.
+    for row in rows:
+        _, row_status, issues, _ = _validate_row(row["data"], row["row_number"], {})
+        if row_status == "error":
+            row["status"] = "error"
+            row["issues"] = issues
+    can_set_cost = True
+    try:
+        await require_permission("procurement_pricing:cost:propose")(request, role, tenant_id)
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        can_set_cost = False
+    cost_outcomes: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    grouped_rows: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        grouped_rows.setdefault(str(row["data"].get("material_name", "")).strip().upper(), []).append(row)
+    failed_groups: set[str] = set()
+    new_materials: Dict[str, uuid.UUID] = {}
+
+    names_by_code: Dict[str, set[str]] = {}
+    codes_by_name: Dict[str, set[str]] = {}
+    for row in rows:
+        data = row["data"]
+        code = str(data.get("item_code", "")).strip().upper()
+        name = str(data.get("material_name", "")).strip().upper()
+        if code:
+            names_by_code.setdefault(code, set()).add(name)
+            codes_by_name.setdefault(name, set()).add(code)
+    for row in rows:
+        code = str(row["data"].get("item_code", "")).strip().upper()
+        name = str(row["data"].get("material_name", "")).strip().upper()
+        if len(names_by_code.get(code, set())) > 1 or len(codes_by_name.get(name, set())) > 1:
+            row["status"] = "error"
+            row["classification"] = "skip"
+            issue = {"field": "item_code", "severity": "error", "message": "Conflicting material code/name identities in this upload"}
+            if issue not in row["issues"]:
+                row["issues"].append(issue)
+
     actionable = [r for r in rows if r["classification"] in ("new", "update") and r["status"] != "error"]
 
+    actionable.sort(key=lambda row: (
+        str(row["data"].get("material_name", "")).strip().upper(),
+        not bool(row["data"].get("item_code")), row["row_number"],
+    ))
+
     created = updated = skipped = errors = 0
-    error_messages: List[str] = []
+    rejected = sum(1 for r in rows if r["status"] == "error")
+    supplier_agreements_created = 0
+    cost_revisions_created = 0
+    error_messages: List[str] = [
+        f"Row {row['row_number']}: {issue['message']}"
+        for row in rows if row["status"] == "error"
+        for issue in row["issues"] if issue["severity"] == "error"
+    ]
+    skip_details: List[Dict[str, Any]] = []  # Track skip reasons with row details
 
-    if not body.dry_run:
-        container = get_container(request)
+    container = get_container(request)
 
-        # Fetch UOM and category lookups, auto-create missing, and create materials all in ONE atomic transaction
-        uom_map: Dict[str, uuid.UUID] = {}
-        cat_map: Dict[str, uuid.UUID] = {}
-        existing_map: Dict[str, MaterialModel] = {}
+    # Fetch UOM and category lookups, auto-create missing, and create materials all in ONE atomic transaction
+    uom_map: Dict[str, uuid.UUID] = {}
+    cat_map: Dict[str, uuid.UUID] = {}
+    existing_map: Dict[str, MaterialModel] = {}
 
-        try:
-            async with container.session_factory() as db:
-                # Phase 1: Load existing master data
-                uom_result = await db.execute(
-                    select(UnitOfMeasureModel.code, UnitOfMeasureModel.id).where(
-                        UnitOfMeasureModel.tenant_id == tenant_id,
-                        UnitOfMeasureModel.is_deleted.is_(False),
-                    )
+    try:
+        async with container.session_factory() as db:
+            # Phase 1: Load existing master data
+            uom_result = await db.execute(
+                select(UnitOfMeasureModel.code, UnitOfMeasureModel.id).where(
+                    UnitOfMeasureModel.tenant_id == tenant_id,
+                    UnitOfMeasureModel.is_deleted.is_(False),
+                    UnitOfMeasureModel.is_active.is_(True),
                 )
-                for r in uom_result:
-                    uom_map[r.code.upper()] = r.id
+            )
+            for r in uom_result:
+                code = r.code.strip().upper()
+                if code in uom_map and uom_map[code] != r.id:
+                    raise ValueError(f"Ambiguous configured UOM: {code}")
+                uom_map[code] = r.id
 
-                cat_result = await db.execute(
-                    select(MaterialCategoryModel.name, MaterialCategoryModel.id).where(
-                        MaterialCategoryModel.tenant_id == tenant_id,
-                        MaterialCategoryModel.is_deleted.is_(False),
-                    )
+            cat_result = await db.execute(
+                select(MaterialCategoryModel.name, MaterialCategoryModel.id).where(
+                    MaterialCategoryModel.tenant_id == tenant_id,
+                    MaterialCategoryModel.is_deleted.is_(False),
                 )
-                for r in cat_result:
-                    cat_map[r.name.upper()] = r.id
+            )
+            for r in cat_result:
+                cat_map[r.name.upper()] = r.id
 
-                mat_result = await db.execute(
-                    select(MaterialModel).where(
-                        MaterialModel.tenant_id == tenant_id,
-                        MaterialModel.is_deleted.is_(False),
-                    )
+            mat_result = await db.execute(
+                select(MaterialModel).where(
+                    MaterialModel.tenant_id == tenant_id,
+                    MaterialModel.is_deleted.is_(False),
                 )
-                for mat in mat_result.scalars():
-                    key = (mat.item_code or mat.code or "").upper()
-                    if key:
-                        existing_map[key] = mat
-                    name_key = (mat.name or "").upper()
-                    if name_key:
-                        existing_map[name_key] = mat
+            )
+            for mat in mat_result.scalars():
+                key = (mat.item_code or mat.code or "").upper()
+                if key:
+                    existing_map[key] = mat
+                name_key = (mat.name or "").upper()
+                if name_key:
+                    existing_map[name_key] = mat
 
-                # Phase 2: Auto-create missing UOMs (SAME TRANSACTION)
-                for row in actionable:
+            original_material_ids = {mat.id for mat in existing_map.values()}
+            costing_currency = (await db.execute(select(TenantModel.currency_code).where(
+                TenantModel.id == tenant_id, TenantModel.is_deleted.is_(False),
+            ))).scalar_one_or_none()
+
+            # Phase 2: Auto-create missing UOMs (SAME TRANSACTION)
+            for row in actionable:
+                data = row["data"]
+                uom_code = str(data.get("uom", "")).strip().upper()
+                if uom_code and uom_code not in uom_map:
+                    new_uom = UnitOfMeasureModel(
+                        id=uuid.uuid4(),
+                        tenant_id=tenant_id,
+                        code=uom_code,
+                        name=uom_code,
+                        precision=2,
+                        is_active=True,
+                        is_deleted=False,
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    db.add(new_uom)
+                    uom_map[uom_code] = new_uom.id
+
+            # Phase 3: Auto-create missing categories (SAME TRANSACTION)
+            for row in actionable:
+                data = row["data"]
+                cat_name = str(data.get("material_category", "")).strip().upper()
+                if cat_name and cat_name not in cat_map:
+                    new_cat = MaterialCategoryModel(
+                        id=uuid.uuid4(),
+                        tenant_id=tenant_id,
+                        name=cat_name,
+                        code_prefix=cat_name[:3] if len(cat_name) >= 3 else cat_name,
+                        description=None,
+                        is_active=True,
+                        is_deleted=False,
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    db.add(new_cat)
+                    cat_map[cat_name] = new_cat.id
+
+            # Flush master data to prepare IDs
+            await db.flush()
+
+            # Phase 4: Create/Update materials (SAME TRANSACTION, after master data flushed)
+            item_code_service = ItemCodeService(db)
+            logger = logging.getLogger(__name__)
+
+            for row in actionable:
+                row_transaction = await db.begin_nested()
+                row_counts = (
+                    created,
+                    updated,
+                    supplier_agreements_created,
+                    cost_revisions_created,
+                )
+                try:
                     data = row["data"]
+                    name = str(data.get("material_name", "")).strip()
+                    item_code = str(data.get("item_code", "")).strip()
                     uom_code = str(data.get("uom", "")).strip().upper()
-                    if uom_code and uom_code not in uom_map:
-                        new_uom = UnitOfMeasureModel(
-                            id=uuid.uuid4(),
-                            tenant_id=tenant_id,
-                            code=uom_code,
-                            name=uom_code,
-                            precision=2,
-                            is_active=True,
-                            is_deleted=False,
-                            created_at=datetime.now(timezone.utc),
-                            updated_at=datetime.now(timezone.utc),
-                        )
-                        db.add(new_uom)
-                        uom_map[uom_code] = new_uom.id
-
-                # Phase 3: Auto-create missing categories (SAME TRANSACTION)
-                for row in actionable:
-                    data = row["data"]
                     cat_name = str(data.get("material_category", "")).strip().upper()
-                    if cat_name and cat_name not in cat_map:
-                        new_cat = MaterialCategoryModel(
-                            id=uuid.uuid4(),
-                            tenant_id=tenant_id,
-                            name=cat_name,
-                            code_prefix=cat_name[:3] if len(cat_name) >= 3 else cat_name,
-                            description=None,
-                            is_active=True,
-                            is_deleted=False,
-                            created_at=datetime.now(timezone.utc),
-                            updated_at=datetime.now(timezone.utc),
-                        )
-                        db.add(new_cat)
-                        cat_map[cat_name] = new_cat.id
-                
-                # Flush master data to prepare IDs
-                await db.flush()
 
-                # Phase 4: Create/Update materials (SAME TRANSACTION, after master data flushed)
-                item_code_service = ItemCodeService(db)
-                logger = logging.getLogger(__name__)
+                    uom_id = uom_map.get(uom_code)
+                    cat_id = cat_map.get(cat_name)
 
-                for row in actionable:
-                    try:
-                        data = row["data"]
-                        name = str(data.get("material_name", "")).strip()
-                        item_code = str(data.get("item_code", "")).strip()
-                        uom_code = str(data.get("uom", "")).strip().upper()
-                        cat_name = str(data.get("material_category", "")).strip().upper()
+                    def _f(key: str) -> str | None:
+                        val = data.get(key, "").strip()
+                        return val if val else None
 
-                        uom_id = uom_map.get(uom_code)
-                        cat_id = cat_map.get(cat_name)
+                    def _bool_val(val: str) -> bool:
+                        return str(val).lower() in ("true", "1", "yes")
 
-                        def _f(key: str) -> str | None:
-                            val = data.get(key, "").strip()
-                            return val if val else None
+                    def _float_f(key: str) -> float | None:
+                        try:
+                            val = float(data.get(key, 0) or 0)
+                            return val if val > 0 else None
+                        except (TypeError, ValueError):
+                            return None
 
-                        def _bool_val(val: str) -> bool:
-                            return str(val).lower() in ("true", "1", "yes")
+                    def _int_f(key: str) -> int | None:
+                        try:
+                            val = int(data.get(key, 0) or 0)
+                            return val if val > 0 else None
+                        except (TypeError, ValueError):
+                            return None
 
-                        def _float_f(key: str) -> float | None:
+                    code_match = existing_map.get(item_code.upper()) if item_code else None
+                    name_match = existing_map.get(name.upper())
+                    if ((code_match and code_match.name.upper() != name.upper())
+                        or (item_code and name_match and code_match is not name_match)):
+                        raise ValueError("Material code/name identity conflict")
+                    group_codes = {str(r["data"].get("item_code", "")).strip().upper()
+                                   for r in grouped_rows[name.upper()] if r["data"].get("item_code")}
+                    if len(group_codes) > 1:
+                        raise ValueError("Conflicting material codes for the same material name")
+                    existing = code_match or name_match
+                    if existing:
+                        # Serialize agreement checks/writes for this material.
+                        existing = (await db.execute(select(MaterialModel).where(
+                            MaterialModel.id == existing.id, MaterialModel.tenant_id == tenant_id,
+                            MaterialModel.is_deleted.is_(False),
+                        ).with_for_update().execution_options(populate_existing=True))).scalar_one()
+                        if any(row.get("protected_changes") for row in grouped_rows[name.upper()]) and not session["protected_confirmed"] and not body.dry_run:
+                            raise ValueError("Protected material changes require confirmation")
+                    if not existing:
+                        # Create
+                        # Parse opening_stock for new materials
+                        opening_stock_raw = str(data.get("opening_stock", "")).strip()
+                        opening_stock_value: float = 0
+                        if opening_stock_raw:
                             try:
-                                val = float(data.get(key, 0) or 0)
-                                return val if val > 0 else None
-                            except (TypeError, ValueError):
-                                return None
-
-                        def _int_f(key: str) -> int | None:
-                            try:
-                                val = int(data.get(key, 0) or 0)
-                                return val if val > 0 else None
-                            except (TypeError, ValueError):
-                                return None
-
-                        existing = existing_map.get(item_code.upper()) or existing_map.get(name.upper())
-                        if not existing:
-                            # Create
-                            # Parse opening_stock for new materials
-                            opening_stock_raw = str(data.get("opening_stock", "")).strip()
-                            opening_stock_value: float = 0
-                            if opening_stock_raw:
-                                try:
-                                    opening_stock_value = float(opening_stock_raw.replace(",", ""))
-                                    if opening_stock_value < 0:
-                                        opening_stock_value = 0
-                                except (ValueError, TypeError):
+                                opening_stock_value = float(opening_stock_raw.replace(",", ""))
+                                if opening_stock_value < 0:
                                     opening_stock_value = 0
+                            except (ValueError, TypeError):
+                                opening_stock_value = 0
 
-                            # Determine material_type for prefix resolution
-                            material_type = "raw"  # Enforced for Raw Material upload
+                        # Determine material_type for prefix resolution
+                        material_type = "raw"  # Enforced for Raw Material upload
 
-                            # Generate item code using Number Series Engine (Req 7.3, 14.2)
-                            generated_code = ""
-                            if item_code:
-                                # CSV contains an item_code — respect manual_override policy
-                                try:
-                                    result = await item_code_service.validate_manual_code_with_policy(
-                                        tenant_id=tenant_id,
-                                        entity_type="material",
-                                        code=item_code,
-                                        user_is_admin=False,  # Bulk upload doesn't assume admin
-                                        sub_type=material_type,
-                                        entity_name=name,
-                                        user_id=user_id,
-                                    )
-                                    generated_code = result.code
-                                except ValueError as code_err:
-                                    # If manual code is rejected (e.g. duplicate, format error),
-                                    # log warning and auto-generate instead
-                                    logger.warning(
-                                        "Manual code '%s' rejected for row %d: %s. Auto-generating.",
-                                        item_code, row["row_number"], code_err,
-                                    )
-                                    generated_code = await item_code_service.generate_for_entity(
-                                        tenant_id=tenant_id,
-                                        entity_type="material",
-                                        sub_type=material_type,
-                                        entity_name=name,
-                                        user_id=user_id,
-                                    )
-                            else:
-                                # No item_code in CSV — auto-generate using Number Series Engine
+                        # Generate item code using Number Series Engine (Req 7.3, 14.2)
+                        generated_code = ""
+                        if item_code:
+                            # CSV contains an item_code — respect manual_override policy
+                            try:
+                                result = await item_code_service.validate_manual_code_with_policy(
+                                    tenant_id=tenant_id,
+                                    entity_type="material",
+                                    code=item_code,
+                                    user_is_admin=False,  # Bulk upload doesn't assume admin
+                                    sub_type=material_type,
+                                    entity_name=name,
+                                    user_id=user_id,
+                                )
+                                generated_code = result.code
+                            except ValueError as code_err:
+                                # If manual code is rejected (e.g. duplicate, format error),
+                                # log warning and auto-generate instead
+                                logger.warning(
+                                    "Manual code '%s' rejected for row %d: %s. Auto-generating.",
+                                    item_code, row["row_number"], code_err,
+                                )
                                 generated_code = await item_code_service.generate_for_entity(
                                     tenant_id=tenant_id,
                                     entity_type="material",
@@ -1307,131 +1696,325 @@ async def execute_session(
                                     entity_name=name,
                                     user_id=user_id,
                                 )
+                        else:
+                            # No item_code in CSV — auto-generate using Number Series Engine
+                            generated_code = await item_code_service.generate_for_entity(
+                                tenant_id=tenant_id,
+                                entity_type="material",
+                                sub_type=material_type,
+                                entity_name=name,
+                                user_id=user_id,
+                            )
 
-                            mat = MaterialModel(
+                        mat = MaterialModel(
+                            id=uuid.uuid4(),
+                            tenant_id=tenant_id,
+                            code=generated_code,
+                            name=name,
+                            base_unit_id=uom_id,
+                            category_id=cat_id,
+                            is_batch_tracked=_bool_val(data.get("batch_tracking_enabled", "false")),
+                            is_serialized=_bool_val(data.get("traceability_enabled", "false")),
+                            qc_required_flag=_bool_val(data.get("qc_required", "false")),
+                            reorder_level=_float_f("reorder_level"),
+                            safety_stock=_float_f("min_stock"),
+                            lead_time_days=_int_f("lead_time"),
+                            length_uom=_f("length_uom"),
+                            supplier_item_code=_f("supplier_item_code"),
+                            current_cost=0,
+                            current_stock=opening_stock_value,
+                            reserved_stock=0,
+                            is_active=True,
+                            is_deleted=False,
+                            created_by=user_id,
+                            updated_by=user_id,
+                            code_locked=True,
+                        )
+                        db.add(mat)
+
+                        # Flush to ensure material exists in DB before creating dependent transaction
+                        await db.flush()
+
+                        # If opening_stock > 0, create Stock In transaction + StockLevelModel entry
+                        if opening_stock_value > 0:
+                            # Get default warehouse location
+                            warehouse_location_id = await _get_default_warehouse_location(db, tenant_id)
+
+                            # Create the transaction record
+                            tx = InventoryTransactionModel(
                                 id=uuid.uuid4(),
                                 tenant_id=tenant_id,
-                                code=generated_code,
-                                name=name,
-                                base_unit_id=uom_id,
-                                category_id=cat_id,
-                                is_batch_tracked=_bool_val(data.get("batch_tracking_enabled", "false")),
-                                is_serialized=_bool_val(data.get("traceability_enabled", "false")),
-                                qc_required_flag=_bool_val(data.get("qc_required", "false")),
-                                reorder_level=_float_f("reorder_level"),
-                                safety_stock=_float_f("min_stock"),
-                                lead_time_days=_int_f("lead_time"),
-                                length_uom=_f("length_uom"),
-                                current_cost=0,
-                                current_stock=opening_stock_value,
-                                reserved_stock=0,
+                                material_id=mat.id,
+                                transaction_type="in",
+                                quantity=opening_stock_value,
+                                reference_type="onboarding_opening_balance",
+                                remarks="Opening balance via onboarding import",
+                                created_by=user_id,
+                                created_at=datetime.now(timezone.utc),
+                                updated_at=datetime.now(timezone.utc),
+                            )
+                            db.add(tx)
+
+                            # Create StockLevelModel entry at warehouse location (critical for stock-by-location visibility)
+                            if warehouse_location_id:
+                                stock_level = StockLevelModel(
+                                    id=uuid.uuid4(),
+                                    tenant_id=tenant_id,
+                                    material_id=mat.id,
+                                    location_id=warehouse_location_id,
+                                    stock_status="available",
+                                    quantity=opening_stock_value,
+                                    is_deleted=False,
+                                    created_at=datetime.now(timezone.utc),
+                                    updated_at=datetime.now(timezone.utc),
+                                )
+                                db.add(stock_level)
+
+                        created += 1
+                    else:
+                        # Update
+                        if session["protected_confirmed"]:
+                            # material_type cannot be changed by raw material import
+                            existing.is_batch_tracked = _bool_val(data.get("batch_tracking_enabled", str(existing.is_batch_tracked)))
+                            existing.is_serialized = _bool_val(data.get("traceability_enabled", str(existing.is_serialized)))
+                            base_unit = uom_id or existing.base_unit_id
+                            if base_unit:
+                                existing.base_unit_id = base_unit
+                        category = cat_id or existing.category_id
+                        if category:
+                            existing.category_id = category
+                        reorder = _float_f("reorder_level")
+                        if reorder:
+                            existing.reorder_level = reorder
+                        safety = _float_f("min_stock")
+                        if safety:
+                            existing.safety_stock = safety
+                        lead = _int_f("lead_time")
+                        if lead:
+                            existing.lead_time_days = lead
+                        length = _f("length_uom")
+                        if length:
+                            existing.length_uom = length
+                        supplier_item_code = _f("supplier_item_code")
+                        if supplier_item_code:
+                            existing.supplier_item_code = supplier_item_code
+                        existing.updated_by = user_id
+                        updated += 1
+
+                    # Pricing records are independent of material creation and of each other.
+                    supplier_name_raw = str(data.get("supplier_name", "")).strip()
+                    supplier_price_str = str(data.get("supplier_price", "")).strip()
+                    supplier_currency = str(data.get("supplier_currency", "")).strip()
+                    supplier_uom_str = str(data.get("supplier_uom", "")).strip()
+                    effective_from_str = str(data.get("effective_from_date", "")).strip()
+                    effective_to_str = str(data.get("effective_to_date", "")).strip()
+                    proposed_cost_str = str(data.get("proposed_initial_cost", "")).strip()
+
+                    material = existing if existing else mat
+                    material_id = material.id
+
+                    if supplier_name_raw and supplier_price_str and supplier_currency:
+                        from backend.app.infrastructure.persistence.models.procurement_pricing_models import (
+                            SupplierPriceAgreementModel,
+                        )
+
+                        supplier_result = await db.execute(
+                            select(SupplierModel).where(
+                                SupplierModel.tenant_id == tenant_id,
+                                func.lower(SupplierModel.name) == supplier_name_raw.lower(),
+                                SupplierModel.is_deleted.is_(False),
+                            )
+                        )
+                        supplier = supplier_result.scalars().first()
+
+                        if not supplier:
+                            supplier_code = f"SUP-{uuid.uuid4().hex[:8].upper()}"
+                            supplier = SupplierModel(
+                                id=uuid.uuid4(),
+                                tenant_id=tenant_id,
+                                code=supplier_code,
+                                name=supplier_name_raw,
                                 is_active=True,
                                 is_deleted=False,
                                 created_by=user_id,
                                 updated_by=user_id,
-                                code_locked=True,
                             )
-                            db.add(mat)
-                            
-                            # Flush to ensure material exists in DB before creating dependent transaction
+                            db.add(supplier)
                             await db.flush()
 
-                            # If opening_stock > 0, create Stock In transaction + StockLevelModel entry
-                            if opening_stock_value > 0:
-                                # Get default warehouse location
-                                warehouse_location_id = await _get_default_warehouse_location(db, tenant_id)
-                                
-                                # Create the transaction record
-                                tx = InventoryTransactionModel(
+                        supplier_uom_code = supplier_uom_str.upper()
+                        supplier_uom_id = uom_map.get(supplier_uom_code)
+                        if supplier_uom_id is None:
+                            raise ValueError(f"Supplier UOM '{supplier_uom_str}' is not configured and active for this tenant")
+
+                        supplier_price = Decimal(supplier_price_str.replace(",", ""))
+                        supplier_moq_str = str(data.get("supplier_moq", "")).strip()
+                        supplier_moq = (
+                            Decimal(supplier_moq_str.replace(",", ""))
+                            if supplier_moq_str
+                            else None
+                        )
+                        effective_from_date, effective_to_date = agreement_dates(
+                            data, datetime.now(timezone.utc).date()
+                        )
+
+                        overlap_stmt = select(SupplierPriceAgreementModel).where(
+                            SupplierPriceAgreementModel.tenant_id == tenant_id,
+                            SupplierPriceAgreementModel.supplier_id == supplier.id,
+                            SupplierPriceAgreementModel.material_id == material_id,
+                            SupplierPriceAgreementModel.status != "CANCELLED",
+                            SupplierPriceAgreementModel.is_deleted.is_(False),
+                            SupplierPriceAgreementModel.effective_from
+                            <= (effective_to_date or datetime.max.replace(tzinfo=timezone.utc)),
+                            or_(
+                                SupplierPriceAgreementModel.effective_to.is_(None),
+                                SupplierPriceAgreementModel.effective_to >= effective_from_date,
+                            ),
+                        )
+                        overlaps = (await db.execute(overlap_stmt)).scalars().all()
+                        overlap = overlaps[0] if overlaps else None
+                        if overlaps:
+                            same_terms = len(overlaps) == 1 and (
+                                Decimal(str(overlap.base_price)) == supplier_price
+                                and str(overlap.currency_code).upper() == supplier_currency.upper()
+                                and overlap.purchase_uom_id == supplier_uom_id
+                                and overlap.minimum_order_quantity == supplier_moq
+                                and (not effective_from_str or overlap.effective_from.date() == effective_from_date.date())
+                                and ((overlap.effective_to is None and effective_to_date is None)
+                                     or (overlap.effective_to is not None and effective_to_date is not None
+                                         and overlap.effective_to.date() == effective_to_date.date()))
+                                and not overlap.quantity_tier
+                            )
+                            if not same_terms:
+                                raise ValueError("Supplier agreement overlaps existing pricing with changed price, UOM, MOQ, dates or tiers; review the existing agreement")
+                            skip_details.append({
+                                "row": row["row_number"], "material_name": name,
+                                "item_code": item_code or material.code,
+                                "supplier_name": supplier_name_raw,
+                                "reason": "Identical supplier agreement already exists",
+                                "details": f"{supplier_currency} {supplier_price}; all agreement terms unchanged",
+                            })
+
+                        # Only insert a new agreement when no overlapping agreement exists
+                        if overlap is None:
+                            db.add(
+                                SupplierPriceAgreementModel(
                                     id=uuid.uuid4(),
                                     tenant_id=tenant_id,
-                                    material_id=mat.id,
-                                    transaction_type="in",
-                                    quantity=opening_stock_value,
-                                    reference_type="onboarding_opening_balance",
-                                    remarks="Opening balance via onboarding import",
+                                    supplier_id=supplier.id,
+                                    material_id=material_id,
+                                    status="DRAFT",
+                                    base_price=supplier_price,
+                                    currency_code=supplier_currency.upper(),
+                                    purchase_uom_id=supplier_uom_id,
+                                    minimum_order_quantity=supplier_moq,
+                                    quantity_tier=None,
+                                    effective_from=effective_from_date,
+                                    effective_to=effective_to_date,
+                                    notes="Imported from material onboarding",
+                                    is_deleted=False,
                                     created_by=user_id,
-                                    created_at=datetime.now(timezone.utc),
-                                    updated_at=datetime.now(timezone.utc),
+                                    updated_by=user_id,
                                 )
-                                db.add(tx)
-                                
-                                # Create StockLevelModel entry at warehouse location (critical for stock-by-location visibility)
-                                if warehouse_location_id:
-                                    stock_level = StockLevelModel(
-                                        id=uuid.uuid4(),
-                                        tenant_id=tenant_id,
-                                        material_id=mat.id,
-                                        location_id=warehouse_location_id,
-                                        stock_status="available",
-                                        quantity=opening_stock_value,
-                                        is_deleted=False,
-                                        created_at=datetime.now(timezone.utc),
-                                        updated_at=datetime.now(timezone.utc),
-                                    )
-                                    db.add(stock_level)
+                            )
+                            supplier_agreements_created += 1
 
-                            created += 1
-                        else:
-                            # Update
-                            if session["protected_confirmed"]:
-                                # material_type cannot be changed by raw material import
-                                existing.is_batch_tracked = _bool_val(data.get("batch_tracking_enabled", str(existing.is_batch_tracked)))
-                                existing.is_serialized = _bool_val(data.get("traceability_enabled", str(existing.is_serialized)))
-                                base_unit = uom_id or existing.base_unit_id
-                                if base_unit:
-                                    existing.base_unit_id = base_unit
-                            category = cat_id or existing.category_id
-                            if category:
-                                existing.category_id = category
-                            reorder = _float_f("reorder_level")
-                            if reorder:
-                                existing.reorder_level = reorder
-                            safety = _float_f("min_stock")
-                            if safety:
-                                existing.safety_stock = safety
-                            lead = _int_f("lead_time")
-                            if lead:
-                                existing.lead_time_days = lead
-                            length = _f("length_uom")
-                            if length:
-                                existing.length_uom = length
-                            existing.updated_by = user_id
-                            updated += 1
-                    except Exception as exc:
-                        errors += 1
-                        error_messages.append(f"Row {row['row_number']}: {exc}")
-
-                skipped = len(rows) - len(actionable)
-
-                # Single atomic commit for entire transaction
-                try:
-                    await db.commit()
+                    # Cost is resolved after ALL supplier rows have succeeded.
+                    # Existing pending revisions/history are preserved; re-import creates none.
+                    await row_transaction.commit()
+                    existing_map[(material.code or "").upper()] = material
+                    if item_code:
+                        existing_map[item_code.upper()] = material
+                    existing_map[name.upper()] = material
+                    if material.id not in original_material_ids:
+                        new_materials[name.upper()] = material.id
+                    elif proposed_cost_str:
+                        warnings.append(f"Row {row['row_number']}: existing material standard cost and pending revisions preserved; proposed initial cost ignored.")
+                    
                 except Exception as exc:
-                    await db.rollback()
-                    raise HTTPException(status_code=500, detail=f"Commit failed: {exc}")
+                    await row_transaction.rollback()
+                    (
+                        created,
+                        updated,
+                        supplier_agreements_created,
+                        cost_revisions_created,
+                    ) = row_counts
+                    failed_groups.add(name.upper())
+                    errors += 1
+                    rejected += 1
+                    error_messages.append(f"Row {row['row_number']}: {exc}")
 
-        except HTTPException:
-            # Re-raise HTTP exceptions (already formatted)
-            raise
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Onboarding execution failed: {str(exc)}")
-        finally:
-            # Clean up session after execution (success or failure)
+            for group_name, material_id in new_materials.items():
+                material = (await db.execute(select(MaterialModel).where(
+                    MaterialModel.id == material_id, MaterialModel.tenant_id == tenant_id,
+                    MaterialModel.is_deleted.is_(False),
+                ))).scalar_one()
+                group = grouped_rows[group_name]
+                plan = plan_initial_cost(
+                    group, base_uom_id=material.base_unit_id, uom_ids=uom_map,
+                    currency_code=costing_currency, can_set_cost=can_set_cost,
+                )
+                if group_name in failed_groups:
+                    message = "Standard cost not initialized: another supplier row failed."
+                    amount = None
+                else:
+                    message, amount = plan.message, plan.cost
+                if amount is not None:
+                    async with db.begin_nested():
+                        result = await DirectStandardCostHandler(db).handle(
+                            tenant_id=tenant_id, material_id=material_id, user_id=user_id,
+                            new_cost=amount, expected_current_cost=Decimal("0"), initial_only=True,
+                        )
+                    cost_revisions_created += 1
+                else:
+                    warnings.append(f"{material.name}: {message}")
+                cost_outcomes.append({"material_id": str(material_id), "material_name": material.name,
+                                      "status": "CONFIGURED" if amount is not None else "NOT_CONFIGURED",
+                                      "standard_cost": str(amount) if amount is not None else None,
+                                      "message": message})
+
+            skipped = sum(
+                1 for r in rows
+                if r["classification"] == "skip" and r["status"] != "error"
+            )
+
+            # Single atomic commit for entire transaction
+            try:
+                if body.dry_run:
+                    await db.rollback()
+                else:
+                    await db.commit()
+            except Exception as exc:
+                await db.rollback()
+                raise HTTPException(status_code=500, detail=f"Commit failed: {exc}")
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (already formatted)
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Onboarding execution failed: {str(exc)}")
+    finally:
+        # Clean up session after execution (success or failure)
+        if not body.dry_run:
             _sessions.pop(session_id, None)
-    else:
-        # Dry run: just count
-        created = sum(1 for r in actionable if r["classification"] == "new")
-        updated = sum(1 for r in actionable if r["classification"] == "update")
-        skipped = len(rows) - len(actionable)
 
     return {
         "dry_run": body.dry_run,
+        "warnings": warnings,
+        "cost_outcomes": cost_outcomes,
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "rejected": rejected,
         "errors": errors,
         "error_messages": error_messages,
+        "skip_details": skip_details,  # Include skip details with reasons
+        # === SUPPLIER PRICING SUMMARY ===
+        "supplier_pricing_created": {
+            "supplier_agreements_draft": supplier_agreements_created,
+            "cost_revisions_pending": 0,
+            "standard_costs_initialized": cost_revisions_created,
+        },
     }
 
 
@@ -1572,4 +2155,3 @@ def _get_session(session_id: str, tenant_id: uuid.UUID) -> Dict[str, Any]:
     if session["tenant_id"] != str(tenant_id):
         raise HTTPException(status_code=403, detail="Access denied")
     return session
-

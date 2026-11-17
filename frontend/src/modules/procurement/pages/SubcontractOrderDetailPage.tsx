@@ -338,12 +338,32 @@ export default function SubcontractOrderDetailPage() {
   const warehouses = locations.filter((l) => l.is_active)
   const canApprove = order.status === "draft"
   const canIssue   = order.status === "approved" || order.status === "materials_issued"
-  const canReceive = order.status === "materials_issued" || order.status === "partially_received"
+  const canReceive = !order.output_fulfilled && (order.status === "materials_issued" || order.status === "partially_received")
   const canReturn  = ["materials_issued", "partially_received", "completed"].includes(order.status)
   const canCancel  = order.status === "draft" || order.status === "approved"
 
   return (
     <div className="space-y-8 max-w-4xl pb-12">
+      {(order.output_fulfilled || order.status === "completed") && order.materials_reconciled === false && (
+        <div role="status" className="rounded-md border border-amber-500/40 p-4">
+          <p className="font-medium">
+            {order.status === "completed" ? "Completed order needs material reconciliation" : "Output fulfilled · Material reconciliation pending"}
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            {order.reconciliation_exceptions?.map((entry) => (
+              <li key={entry.material_id ?? entry.reason}>
+                {entry.reason === "missing_bom_snapshot" ? "Approved BOM snapshot is missing." : (
+                  <>
+                    {entry.material_id && <MaterialInfo materialId={entry.material_id} />}
+                    {entry.outstanding && ` · Open balance ${entry.outstanding}`}
+                    {entry.reason === "stock_records_need_review" && " · Stock records need review"}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div>

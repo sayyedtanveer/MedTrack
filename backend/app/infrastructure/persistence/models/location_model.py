@@ -26,6 +26,7 @@ class LocationModel(Base):
         UUID(as_uuid=True), ForeignKey("locations.id"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

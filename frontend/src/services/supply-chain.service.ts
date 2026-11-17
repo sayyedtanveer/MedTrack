@@ -1,7 +1,30 @@
+import { isAxiosError } from "axios"
 import { apiClient } from "./api-client"
 
 // Use central `apiClient` baseURL. Keep this empty so `apiClient` controls the prefix.
 const BASE = ""
+
+const pendingSubcontractOperations = new Map<string, string>()
+
+async function postSubcontractStock(path: string, body: object) {
+  const fingerprint = JSON.stringify([path, body])
+  const operationId = pendingSubcontractOperations.get(fingerprint) ?? globalThis.crypto.randomUUID()
+  pendingSubcontractOperations.set(fingerprint, operationId)
+  try {
+    const response = await apiClient.post(path, body, { headers: { "Idempotency-Key": operationId } })
+    if (pendingSubcontractOperations.get(fingerprint) === operationId) {
+      pendingSubcontractOperations.delete(fingerprint)
+    }
+    return response
+  } catch (error) {
+    const status = isAxiosError(error) ? error.response?.status : undefined
+    if (status && status >= 400 && status < 500 && ![408, 409, 429].includes(status)
+        && pendingSubcontractOperations.get(fingerprint) === operationId) {
+      pendingSubcontractOperations.delete(fingerprint)
+    }
+    throw error
+  }
+}
 
 const asArray = <T>(payload: T[] | { items?: T[] } | null | undefined): T[] => {
   if (Array.isArray(payload)) return payload
@@ -111,6 +134,13 @@ export type SubcontractIssueRecord = {
 }
 
 export type SubcontractOrderDetail = SubcontractOrderSummary & {
+  output_fulfilled?: boolean
+  materials_reconciled?: boolean
+  reconciliation_exceptions?: Array<{
+    material_id?: string
+    outstanding?: string
+    reason: string
+  }>
   lines: SubcontractOrderLine[]
   issues: SubcontractIssueRecord[]
   approved_by?: string | null
@@ -253,19 +283,19 @@ export const supplyChainApi = {
     from_location_id: string
     batch_id?: string | null
     batch_number?: string | null
-  }) => apiClient.post(`${BASE}/subcontract/orders/${orderId}/issue`, body),
+  }) => postSubcontractStock(`${BASE}/subcontract/orders/${orderId}/issue`, body),
   receiveSubcontract: (orderId: string, body: {
     material_id: string
     quantity: number
     warehouse_location_id: string
     output_batch_number?: string | null
-  }) => apiClient.post(`${BASE}/subcontract/orders/${orderId}/receive`, body),
+  }) => postSubcontractStock(`${BASE}/subcontract/orders/${orderId}/receive`, body),
   returnSubcontractMaterial: (orderId: string, body: {
     material_id: string
     quantity: number
     to_location_id: string
     batch_id?: string | null
-  }) => apiClient.post(`${BASE}/subcontract/orders/${orderId}/return-material`, body),
+  }) => postSubcontractStock(`${BASE}/subcontract/orders/${orderId}/return-material`, body),
   getSubcontractTraceability: (id: string) =>
     apiClient.get(`${BASE}/subcontract/orders/${id}/traceability`),
   getBOMsForSubcontractMaterial: (materialId: string) =>

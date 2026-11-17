@@ -95,8 +95,10 @@ export default defineConfig(function (_a) {
             dedupe: ["react", "react-dom"],
         },
         server: {
-            host: '0.0.0.0',
-            port: 5000,
+            middlewareMode: false,
+            host: process.env.VITE_HOST || '0.0.0.0',
+            port: parseInt(process.env.VITE_PORT || '5173'),
+            strictPort: false,
             allowedHosts: true,
             proxy: {
                 '/api': {
@@ -104,26 +106,6 @@ export default defineConfig(function (_a) {
                     changeOrigin: true,
                     secure: false,
                     ws: true,
-                },
-                '/docs': {
-                    target: apiTarget,
-                    changeOrigin: true,
-                    secure: false,
-                },
-                '/redoc': {
-                    target: apiTarget,
-                    changeOrigin: true,
-                    secure: false,
-                },
-                '/openapi.json': {
-                    target: apiTarget,
-                    changeOrigin: true,
-                    secure: false,
-                },
-                '/docs/oauth2-redirect': {
-                    target: apiTarget,
-                    changeOrigin: true,
-                    secure: false,
                 }
             }
         }

@@ -8,12 +8,14 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.interfaces.api.v1.dependencies.auth import (
     get_current_tenant_id,
     get_current_role,
 )
+from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
 from backend.app.application.finance.reporting_service import ReportingService
 from backend.app.application.documents.services.document_generation_service import DocumentGenerationService
 from backend.app.application.documents.services.template_service import TemplateService
@@ -36,7 +38,15 @@ async def _get_db_session(request: Request):
         yield session
 
 
-@router.get("/inventory/summary")
+async def _require_reporting_view(session: AsyncSession, name: str) -> None:
+    available = (await session.execute(text(
+        "SELECT ispopulated FROM pg_matviews WHERE schemaname = 'public' AND matviewname = :name"
+    ), {"name": name})).scalar_one_or_none()
+    if not available:
+        raise HTTPException(status_code=503, detail="This report source is unavailable.")
+
+
+@router.get("/inventory/summary", dependencies=[Depends(require_permission("inventory:read"))])
 async def inventory_summary(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -51,7 +61,7 @@ async def inventory_summary(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/inventory/turnover")
+@router.get("/inventory/turnover", dependencies=[Depends(require_permission("inventory:read"))])
 async def inventory_turnover(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -61,12 +71,13 @@ async def inventory_turnover(
     role = request.scope.get("user_role", "viewer")
     try:
         svc = ReportingService(session)
+        await _require_reporting_view(session, "mv_inventory_turnover")
         return await svc.inventory_turnover(tenant_id, role.upper())
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/inventory/near-empty-batches")
+@router.get("/inventory/near-empty-batches", dependencies=[Depends(require_permission("inventory:read"))])
 async def near_empty_batches(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -105,7 +116,7 @@ async def near_empty_batches(
     return result
 
 
-@router.get("/inventory/consumption-variance")
+@router.get("/inventory/consumption-variance", dependencies=[Depends(require_permission("inventory:read"))])
 async def consumption_variance_report(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     session: AsyncSession = Depends(_get_db_session),
@@ -135,7 +146,7 @@ async def consumption_variance_report(
     ]
 
 
-@router.get("/production/summary")
+@router.get("/production/summary", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def production_summary(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -193,7 +204,7 @@ async def production_summary(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/production/efficiency")
+@router.get("/production/efficiency", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def production_efficiency(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -203,12 +214,13 @@ async def production_efficiency(
     role = request.scope.get("user_role", "viewer")
     try:
         svc = ReportingService(session)
+        await _require_reporting_view(session, "mv_work_order_efficiency")
         return await svc.work_order_efficiency(tenant_id, role.upper())
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/sales/summary")
+@router.get("/sales/summary", dependencies=[Depends(require_permission("sales:read"))])
 async def sales_summary(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -223,7 +235,7 @@ async def sales_summary(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/sales/top-clients")
+@router.get("/sales/top-clients", dependencies=[Depends(require_permission("sales:read"))])
 async def top_clients(
     request: Request,
     limit: int = Query(10, ge=1, le=50),
@@ -239,7 +251,7 @@ async def top_clients(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/procurement/summary")
+@router.get("/procurement/summary", dependencies=[Depends(require_permission("procurement:read"))])
 async def procurement_summary(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -254,7 +266,7 @@ async def procurement_summary(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/quality/summary")
+@router.get("/quality/summary", dependencies=[Depends(require_permission("quality:read"))])
 async def quality_summary(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -269,7 +281,7 @@ async def quality_summary(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/finance/summary")
+@router.get("/finance/summary", dependencies=[Depends(require_permission("report.view_financial"))])
 async def finance_summary(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -284,7 +296,7 @@ async def finance_summary(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/finance/ar-aging")
+@router.get("/finance/ar-aging", dependencies=[Depends(require_permission("report.view_financial"))])
 async def ar_aging(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -299,7 +311,7 @@ async def ar_aging(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/finance/ap-aging")
+@router.get("/finance/ap-aging", dependencies=[Depends(require_permission("report.view_financial"))])
 async def ap_aging(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -314,7 +326,7 @@ async def ap_aging(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/finance/trial-balance")
+@router.get("/finance/trial-balance", dependencies=[Depends(require_permission("report.view_financial"))])
 async def trial_balance(
     request: Request,
     as_of: Optional[date] = Query(None),
@@ -330,7 +342,7 @@ async def trial_balance(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/finance/profit-loss")
+@router.get("/finance/profit-loss", dependencies=[Depends(require_permission("report.view_financial"))])
 async def profit_and_loss(
     request: Request,
     from_date: Optional[date] = Query(None),
@@ -347,7 +359,7 @@ async def profit_and_loss(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/finance/balance-sheet")
+@router.get("/finance/balance-sheet", dependencies=[Depends(require_permission("report.view_financial"))])
 async def balance_sheet(
     request: Request,
     as_of: Optional[date] = Query(None),
@@ -363,7 +375,7 @@ async def balance_sheet(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/finance/cash-flow")
+@router.get("/finance/cash-flow", dependencies=[Depends(require_permission("report.view_financial"))])
 async def cash_flow(
     request: Request,
     months: int = Query(6, ge=1, le=24),
@@ -393,7 +405,7 @@ async def refresh_materialized_views(
     return {"refreshed": refreshed}
 
 
-@router.get("/inventory/summary/export/pdf")
+@router.get("/inventory/summary/export/pdf", dependencies=[Depends(require_permission("inventory:read"))])
 async def inventory_summary_pdf(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -505,7 +517,7 @@ async def inventory_summary_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/dashboard/manufacturing")
+@router.get("/dashboard/manufacturing", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def manufacturing_dashboard(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -530,7 +542,7 @@ async def manufacturing_dashboard(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/dashboard/procurement")
+@router.get("/dashboard/procurement", dependencies=[Depends(require_permission("procurement:read"))])
 async def procurement_dashboard(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -551,7 +563,7 @@ async def procurement_dashboard(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/dashboard/finance")
+@router.get("/dashboard/finance", dependencies=[Depends(require_permission("report.view_financial"))])
 async def finance_dashboard(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -575,7 +587,7 @@ async def finance_dashboard(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/dashboard/sales")
+@router.get("/dashboard/sales", dependencies=[Depends(require_permission("sales:read"))])
 async def sales_dashboard(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -624,7 +636,7 @@ def _dataclass_to_dict(obj) -> dict:
     return obj
 
 
-@router.get("/dashboard/kpis")
+@router.get("/dashboard/kpis", dependencies=[Depends(require_permission("reports:read"))])
 async def admin_dashboard_kpis(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -667,7 +679,7 @@ async def admin_dashboard_kpis(
     return kpi_dict
 
 
-@router.get("/production/dashboard")
+@router.get("/production/dashboard", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def production_dashboard_metrics(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -706,7 +718,7 @@ async def production_dashboard_metrics(
     return result
 
 
-@router.get("/manufacturing-kpis")
+@router.get("/manufacturing-kpis", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def manufacturing_kpis(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -735,7 +747,7 @@ async def manufacturing_kpis(
     return result
 
 
-@router.get("/production/cycle-time")
+@router.get("/production/cycle-time", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def production_cycle_time(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -766,7 +778,7 @@ async def production_cycle_time(
     return result
 
 
-@router.get("/production/qc-rate")
+@router.get("/production/qc-rate", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def production_qc_rate(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -798,7 +810,7 @@ async def production_qc_rate(
     return result
 
 
-@router.get("/production/output")
+@router.get("/production/output", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def production_output(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -806,7 +818,7 @@ async def production_output(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     product_id: Optional[uuid.UUID] = Query(None),
-    period: str = Query("daily", regex="^(daily|weekly|monthly)$"),
+    period: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
 ):
     """Produced vs planned output, aggregated by period (daily/weekly/monthly).
 
@@ -875,7 +887,7 @@ async def production_output(
     }
 
 
-@router.get("/sales/fulfillment")
+@router.get("/sales/fulfillment", dependencies=[Depends(require_permission("sales:read"))])
 async def sales_fulfillment(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -893,10 +905,22 @@ async def sales_fulfillment(
     from datetime import datetime, timezone, timedelta
     from sqlalchemy import text
 
-    end = date_to or date.today()
+    calendar = (await session.execute(text("""
+        SELECT tz.name AS zone, (now() AT TIME ZONE tz.name)::date AS local_day
+        FROM pg_timezone_names tz
+        WHERE tz.name = COALESCE((
+            SELECT t.timezone FROM tenants t
+            WHERE t.id = :tid AND NOT t.is_deleted
+        ), 'UTC')
+    """), {"tid": tenant_id})).first()
+    zone = calendar.zone if calendar else "UTC"
+    end = date_to or (calendar.local_day if calendar else datetime.now(timezone.utc).date())
     start = date_from or (end - timedelta(days=90))
 
-    params = {"tid": tenant_id, "date_from": start, "date_to": end}
+    if start > end:
+        raise HTTPException(status_code=422, detail="Start date must be on or before end date")
+
+    params = {"tid": tenant_id, "date_from": start, "date_to": end, "zone": zone}
     client_filter = ""
     if client_id:
         client_filter = " AND so.client_id = :client_id"
@@ -911,14 +935,22 @@ async def sales_fulfillment(
                 COUNT(*) FILTER (WHERE so.status IN ('DELIVERED', 'COMPLETED')) as fulfilled_orders,
                 AVG(
                     CASE WHEN so.status IN ('DELIVERED', 'COMPLETED')
-                    THEN EXTRACT(EPOCH FROM (so.updated_at - so.created_at)) / 3600.0
+                    AND delivery.delivered_at >= so.created_at
+                    THEN EXTRACT(EPOCH FROM (delivery.delivered_at - so.created_at)) / 3600.0
                     ELSE NULL END
                 ) as avg_fulfillment_hours
             FROM sales_orders so
-            LEFT JOIN clients c ON c.id = so.client_id
+            LEFT JOIN sales_clients c ON c.id = so.client_id
+                AND c.tenant_id = so.tenant_id AND NOT c.is_deleted
+            LEFT JOIN LATERAL (
+                SELECT MAX(d.delivered_at) AS delivered_at
+                FROM delivery_orders d
+                WHERE d.sales_order_id = so.id AND d.tenant_id = so.tenant_id
+                  AND NOT d.is_deleted AND UPPER(d.status) = 'DELIVERED'
+            ) delivery ON true
             WHERE so.tenant_id = :tid
-              AND so.created_at >= :date_from
-              AND so.created_at <= :date_to
+              AND so.created_at >= (CAST(:date_from AS timestamp) AT TIME ZONE :zone)
+              AND so.created_at < ((CAST(:date_to AS timestamp) + INTERVAL '1 day') AT TIME ZONE :zone)
               AND so.is_deleted = false
               {client_filter}
             GROUP BY so.client_id, c.name
@@ -929,14 +961,14 @@ async def sales_fulfillment(
 
     entries = []
     for row in result.mappings():
-        avg_hours = float(row["avg_fulfillment_hours"]) if row["avg_fulfillment_hours"] else None
+        avg_hours = float(row["avg_fulfillment_hours"]) if row["avg_fulfillment_hours"] is not None else None
         entries.append({
             "client_id": str(row["client_id"]) if row["client_id"] else None,
             "client_name": row["client_name"] or "Unknown",
             "total_orders": int(row["total_orders"]),
             "fulfilled_orders": int(row["fulfilled_orders"]),
-            "avg_fulfillment_hours": round(avg_hours, 2) if avg_hours else None,
-            "avg_fulfillment_days": round(avg_hours / 24, 1) if avg_hours else None,
+            "avg_fulfillment_hours": round(avg_hours, 2) if avg_hours is not None else None,
+            "avg_fulfillment_days": round(avg_hours / 24, 1) if avg_hours is not None else None,
             "fulfillment_rate": round(
                 int(row["fulfilled_orders"]) / int(row["total_orders"]) * 100, 1
             ) if int(row["total_orders"]) > 0 else 0.0,
@@ -945,11 +977,13 @@ async def sales_fulfillment(
     return {
         "date_range": {"start_date": start.isoformat(), "end_date": end.isoformat()},
         "entries": entries,
+        "timezone": zone,
+        "timing_basis": "Order created to last recorded delivery on a fulfilled order",
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
-@router.get("/production/material-variance")
+@router.get("/production/material-variance", dependencies=[Depends(require_permission("manufacturing:read"))])
 async def production_material_variance(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -993,11 +1027,11 @@ async def production_material_variance(
                 COALESCE(SUM(mcr.variance_quantity), 0) as total_variance,
                 COUNT(DISTINCT mcr.work_order_id) as work_order_count
             FROM material_consumption_records mcr
-            INNER JOIN materials m ON m.id = mcr.material_id
-            INNER JOIN work_orders wo ON wo.id = mcr.work_order_id
+            INNER JOIN materials m ON m.id = mcr.material_id AND m.tenant_id = mcr.tenant_id AND NOT m.is_deleted
+            INNER JOIN work_orders wo ON wo.id = mcr.work_order_id AND wo.tenant_id = mcr.tenant_id AND NOT wo.is_deleted
             WHERE mcr.tenant_id = :tid
               AND mcr.recorded_at >= :date_from
-              AND mcr.recorded_at <= :date_to
+              AND mcr.recorded_at < CAST(:date_to AS date) + INTERVAL '1 day'
               {wo_filter}{product_filter}
             GROUP BY mcr.material_id, m.name, m.code
             ORDER BY total_variance DESC
@@ -1026,3 +1060,51 @@ async def production_material_variance(
         "entries": entries,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def _load_bom_cost_analysis(session: AsyncSession, tenant_id: uuid.UUID, bom_id: uuid.UUID) -> dict:
+    from types import SimpleNamespace
+    from backend.app.application.bom.handlers.bom_advanced_handlers import BOMAdvancedHandlers
+    from backend.app.infrastructure.persistence.repositories.bom_repository import BOMRepository
+
+    handler = BOMAdvancedHandlers(SimpleNamespace(_session=session), BOMRepository(session))
+    try:
+        return await handler.handle_cost_analysis(tenant_id, bom_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OverflowError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+
+@router.get("/bom-cost/{bom_id}", dependencies=[Depends(require_permission("manufacturing:read"))])
+async def bom_cost_analysis(
+    bom_id: uuid.UUID,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    session: AsyncSession = Depends(_get_db_session),
+):
+    from decimal import Decimal
+    from fastapi.encoders import jsonable_encoder
+
+    report = await _load_bom_cost_analysis(session, tenant_id, bom_id)
+    return jsonable_encoder(report, custom_encoder={Decimal: lambda value: format(value, "f")})
+
+
+@router.get("/bom-cost/{bom_id}/export/xlsx", dependencies=[Depends(require_permission("manufacturing:read"))])
+async def bom_cost_analysis_xlsx(
+    bom_id: uuid.UUID,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    session: AsyncSession = Depends(_get_db_session),
+):
+    from fastapi.responses import Response
+    from starlette.concurrency import run_in_threadpool
+    from backend.app.infrastructure.services.export_service import ReportExporter
+
+    report = await _load_bom_cost_analysis(session, tenant_id, bom_id)
+    try:
+        content = await run_in_threadpool(ReportExporter.export_bom_cost_analysis, report)
+    except OverflowError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    return Response(
+        content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="bom-cost-{bom_id}.xlsx"'},
+    )

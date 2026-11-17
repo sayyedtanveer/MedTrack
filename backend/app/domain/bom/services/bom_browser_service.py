@@ -2,6 +2,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Protocol
 
 from backend.app.domain.bom.entities.bom import BillOfMaterial
+from backend.app.domain.bom.services.cost_rollup_service import CostRollupService
 
 
 class BOMProvider(Protocol):
@@ -22,16 +23,21 @@ class ComponentDetailProvider(Protocol):
 
 
 class BOMBrowserService:
-    def __init__(self, bom_provider: BOMProvider, details_provider: ComponentDetailProvider):
+    def __init__(self, bom_provider: BOMProvider, details_provider: ComponentDetailProvider,
+                 cost_rollup: Optional[CostRollupService] = None):
         self._bom_provider = bom_provider
         self._details = details_provider
+        self._cost_rollup = cost_rollup
 
     async def build_tree(self, tenant_id: uuid.UUID, bom: BillOfMaterial, max_depth: int = 20) -> Dict[str, Any]:
         """
         Builds a nested JSON tree of the BOM up to max_depth.
         Tracks visited BOM IDs to prevent circular references.
         """
-        visited_bom_ids: set[uuid.UUID] = set()
+        if self._cost_rollup is not None:
+            result = await self._cost_rollup.calculate_standard_cost(tenant_id, bom, max_depth)
+            return result["tree"]
+        visited_bom_ids: set[uuid.UUID] = {bom.id}
         return await self._build_recursive(tenant_id, bom, depth=1, max_depth=max_depth, qty_multiplier=1.0, visited_bom_ids=visited_bom_ids)
 
     async def _build_recursive(
@@ -48,6 +54,8 @@ class BOMBrowserService:
 
                 details = await self._details.get_component_details(tenant_id, is_material, component_id) # type: ignore
                 
+                # Material cost for this node = unit cost × total quantity (incl. scrap)
+                unit_cost = details.get("current_cost", 0) if is_material else 0
                 child_node = {
                     "id": str(component_id),
                     "name": details.get("name", "Unknown"),
@@ -55,6 +63,7 @@ class BOMBrowserService:
                     "type": "material" if is_material else "variant" if line.variant_id else "template",
                     "quantity": qty,
                     "unit": details.get("unit_name", "pcs"),
+                    "cost": unit_cost * qty,
                     "children": []
                 }
                 

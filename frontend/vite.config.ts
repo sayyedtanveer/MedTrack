@@ -98,8 +98,10 @@ export default defineConfig(({ mode }) => {
       dedupe: ["react", "react-dom"],
     },
     server: {
-      host: '0.0.0.0',
-      port: 5000,
+      middlewareMode: false,
+      host: process.env.VITE_HOST || '0.0.0.0',
+      port: parseInt(process.env.VITE_PORT || '5173'),
+      strictPort: false,
       allowedHosts: true,
       proxy: {
         '/api': {
