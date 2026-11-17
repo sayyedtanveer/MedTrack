@@ -91,7 +91,11 @@ async def test_shared_login_requires_matching_workspace_and_credentials(workspac
     ambiguous = await sign_in(case, "shared@example.com", "First1")
     unknown = await sign_in(case, "missing@example.com", "First1")
     assert ambiguous.status_code == unknown.status_code == 401
-    assert ambiguous.json() == unknown.json()
+    assert ambiguous.json()["detail"]["code"] == "WORKSPACE_REQUIRED"
+    assert "access_token" not in ambiguous.json()
+    wrong_password = await sign_in(case, "shared@example.com", "Wrong")
+    assert wrong_password.status_code == 401
+    assert wrong_password.json() == unknown.json()
     response = await sign_in(case, "shared@example.com", "Second1", workspace_slug="second")
     assert response.status_code == 200
     assert case.jwt.decode_token(response.json()["access_token"])["tid"] == str(case.second)
@@ -110,6 +114,7 @@ async def test_identical_credentials_still_require_explicit_workspace(workspace_
     email, password = "same-password@example.com", "Shared1"
     response = await sign_in(case, email, password)
     assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "WORKSPACE_REQUIRED"
     assert "access_token" not in response.json()
     for slug, expected_tenant in (("first", case.first), ("second", case.second)):
         response = await sign_in(case, email, password, workspace_slug=slug)

@@ -31,11 +31,14 @@ export default function LoginPage() {
     login({ ...data, workspace_slug: data.workspace_slug || undefined }, {
       onError: (error) => {
         if (!isAxiosError(error) || error.response?.status !== 401) return
-        setShowWorkspace(true)
+        const workspaceRequired = error.response.data?.detail?.code === "WORKSPACE_REQUIRED"
+        if (workspaceRequired) setShowWorkspace(true)
         form.setError("root.login", {
-          message: data.workspace_slug
-            ? "Couldn’t sign in. Check your email, password, and workspace slug."
-            : "Couldn’t sign in. Check your email and password. If you use this email in more than one workspace, enter your workspace slug and try again.",
+          message: workspaceRequired
+            ? "This email is used in multiple workspaces. Enter your workspace slug to sign in."
+            : data.workspace_slug
+              ? "Couldn’t sign in. Check your email, password, and workspace slug."
+              : "Couldn’t sign in. Check your email and password.",
         })
       },
     })

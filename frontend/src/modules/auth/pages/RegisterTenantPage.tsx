@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react"
-import { useForm } from "react-hook-form"
+import { useState } from "react"
+import { useController, useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Link } from "react-router-dom"
 import { type RegisterTenantFormValues, registerTenantSchema } from "@/lib/validations"
@@ -41,14 +41,16 @@ export default function RegisterTenantPage() {
     mode: "onBlur",
   })
 
-  const companyName = form.watch("name")
-
-  useEffect(() => {
-    if (!slugManuallyEdited) {
-      const autoSlug = generateSlug(companyName)
-      form.setValue("slug", autoSlug, { shouldValidate: Boolean(companyName) || form.getFieldState("slug").invalid })
-    }
-  }, [companyName, slugManuallyEdited, form])
+  const { field: slugField } = useController({ name: "slug", control: form.control })
+  const companyField = form.register("name", {
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (slugManuallyEdited) return
+      const name = event.target.value
+      form.setValue("slug", generateSlug(name), {
+        shouldValidate: Boolean(name) || form.getFieldState("slug").invalid,
+      })
+    },
+  })
 
   const validateStep1 = async () => {
     const isValid = await form.trigger(["name", "slug"])
@@ -75,7 +77,7 @@ export default function RegisterTenantPage() {
               <Input
                 id="name"
                 placeholder="Acme Corp"
-                {...form.register("name")}
+                {...companyField}
                 autoFocus
               />
               {form.formState.errors.name && (
@@ -89,9 +91,11 @@ export default function RegisterTenantPage() {
                 id="slug"
                 maxLength={100}
                 placeholder="acme-corp"
-                {...form.register("slug", {
-                  onChange: () => setSlugManuallyEdited(true)
-                })}
+                {...slugField}
+                onChange={(event) => {
+                  setSlugManuallyEdited(event.target.value !== "")
+                  slugField.onChange(event)
+                }}
               />
               <p className="text-xs text-muted-foreground">
                 Filled from the company name when possible. You can enter a different slug.

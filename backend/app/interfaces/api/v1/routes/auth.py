@@ -132,7 +132,19 @@ async def login(body: LoginRequest, request: Request):
                 raise HTTPException(status_code=401, detail="Invalid email or password")
             tenant_id = workspace.id
         elif tenant_id is None:
-            tenant_id = await user_repo.resolve_unique_workspace(email)
+            workspaces = await user_repo.find_workspace_memberships(email)
+            if len(workspaces) == 1:
+                tenant_id = workspaces[0]
+            elif workspaces:
+                password_hashes = await user_repo.get_active_workspace_password_hashes(email)
+                if any(container.password_hasher.verify(body.password, hashed) for hashed in password_hashes):
+                    raise HTTPException(
+                        status_code=401,
+                        detail={
+                            "code": "WORKSPACE_REQUIRED",
+                            "message": "This email is used in multiple workspaces. Enter your workspace slug to sign in.",
+                        },
+                    )
         if tenant_id is None:
             raise HTTPException(status_code=401, detail="Invalid email or password")
 

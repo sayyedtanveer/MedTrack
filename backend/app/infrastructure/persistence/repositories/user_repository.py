@@ -117,7 +117,11 @@ class UserRepository(BaseRepository[User, UserModel], IUserRepository):
         return self._to_entity(model) if model else None
 
     async def resolve_unique_workspace(self, email: Email) -> uuid.UUID | None:
-        """Resolve a workspace only when the normalized email has one membership."""
+        matches = await self.find_workspace_memberships(email)
+        return matches[0] if len(matches) == 1 else None
+
+    async def find_workspace_memberships(self, email: Email) -> list[uuid.UUID]:
+        """Find up to two memberships to distinguish a unique match from ambiguity."""
         stmt = (
             select(UserModel.tenant_id)
             .join(TenantModel, TenantModel.id == UserModel.tenant_id)
@@ -129,5 +133,22 @@ class UserRepository(BaseRepository[User, UserModel], IUserRepository):
             .distinct()
             .limit(2)
         )
-        matches = (await self._session.scalars(stmt)).all()
-        return matches[0] if len(matches) == 1 else None
+        return list((await self._session.scalars(stmt)).all())
+
+    async def get_active_workspace_password_hashes(self, email: Email) -> list[str]:
+        """Bound password verification work on a request without a workspace selector."""
+        stmt = (
+            select(UserModel.hashed_password)
+            .join(TenantModel, TenantModel.id == UserModel.tenant_id)
+            .where(
+                func.lower(UserModel.email) == str(email),
+                UserModel.is_deleted.is_(False),
+                UserModel.is_active.is_(True),
+                TenantModel.is_deleted.is_(False),
+                TenantModel.is_active.is_(True),
+                TenantModel.status == "active",
+            )
+            .order_by(UserModel.tenant_id, UserModel.id)
+            .limit(5)
+        )
+        return list((await self._session.scalars(stmt)).all())
