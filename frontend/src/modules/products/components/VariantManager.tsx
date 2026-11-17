@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Box, Plus, Loader2, Pencil, Check, X, Link2, Link2Off, GitBranch } from "lucide-react"
 import { productService, CreateVariantInput, UpdateVariantInput } from "@/services/product.service"
 import { materialService } from "@/services/material.service"
@@ -19,6 +19,7 @@ interface VariantManagerProps {
   template: ItemTemplate
   canEdit: boolean
   startAdding?: boolean
+  onCreateFormClose?: () => void
 }
 
 // ── Inline Edit Form ──────────────────────────────────────────────────────────
@@ -183,7 +184,7 @@ function EditRow({ variant, fgMaterials, onSave, onCancel, isSaving }: EditRowPr
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function VariantManager({ template, canEdit, startAdding = false }: VariantManagerProps) {
+export function VariantManager({ template, canEdit, startAdding = false, onCreateFormClose }: VariantManagerProps) {
   const qc = useQueryClient()
   const navigate = useNavigate()
 
@@ -193,6 +194,9 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
   const [standardCost, setStandardCost] = useState("0")
   const [sellingPrice, setSellingPrice] = useState("")
   const [materialId, setMaterialId] = useState(NO_MATERIAL)
+  const defaultOutputType = template.code.startsWith("SFG-") ? "semi_finished" : "finished"
+  const [outputType, setOutputType] = useState<"finished" | "semi_finished">(defaultOutputType)
+  const isSemiFinished = outputType === "semi_finished"
 
   // Edit state — tracks which variant is being edited
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -203,6 +207,19 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
     queryKey: ["materials", "all-for-variant-link"],
     queryFn: () => materialService.getMaterials({ page: 1, page_size: 500 }),
     staleTime: 30_000,
+  })
+
+  const semiFinishedQuery = useQuery({
+    queryKey: ["materials", "active-semi-finished-for-variant-link"],
+    queryFn: () => materialService.getMaterials({
+      material_type: "semi_finished",
+      is_active: true,
+      page: 1,
+      page_size: 500,
+    }),
+    enabled: canEdit && isAdding && isSemiFinished,
+    staleTime: 30_000,
+    refetchOnWindowFocus: "always",
   })
 
   const { data: variants, isLoading } = useQuery({
@@ -222,6 +239,7 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
       setStandardCost("0")
       setSellingPrice("")
       setMaterialId(NO_MATERIAL)
+      setOutputType(defaultOutputType)
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.detail || "Failed to create variant")
@@ -242,6 +260,10 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
   })
 
   const handleCreate = () => {
+    if (isSemiFinished && !selectedMaterial) {
+      toast.error("Select an active semi-finished inventory material")
+      return
+    }
     for (const attr of template.attributes) {
       if (!newValues[attr.key]?.trim()) {
         toast.error(`Value for ${attr.label} is required`)
@@ -259,7 +281,7 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
       selling_price: sellingPrice ? parseFloat(sellingPrice) : undefined,
       material_id: materialId !== NO_MATERIAL ? materialId : undefined,
     }
-    addMutation.mutate(payload)
+    addMutation.mutate(payload, { onSuccess: onCreateFormClose })
   }
 
   // Fix 5: also reset materialId on cancel
@@ -269,6 +291,8 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
     setStandardCost("0")
     setSellingPrice("")
     setMaterialId(NO_MATERIAL)
+    setOutputType(defaultOutputType)
+    onCreateFormClose?.()
   }
 
   const handleSaveEdit = (id: string, payload: UpdateVariantInput) => {
@@ -278,11 +302,20 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
   const setVal = (k: string, v: string) => setNewValues(prev => ({ ...prev, [k]: v }))
 
   const fgList = fgMaterials?.items ?? []
+  const linkOptions = isSemiFinished
+    ? (semiFinishedQuery.data?.items ?? []).filter(material =>
+        material.material_type === "semi_finished" && material.is_active,
+      )
+    : fgList.filter(material => {
+        const type = String(material.material_type || "").toLowerCase()
+        return (type.includes("finish") && !type.includes("semi")) || type === "fg"
+      })
+  const selectedMaterial = linkOptions.find(material => material.id === materialId)
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex justify-between items-center mb-4 border-b pb-2">
+      {!onCreateFormClose && <div className="flex justify-between items-center mb-4 border-b pb-2">
         <h2 className="text-base font-medium flex items-center gap-2">
           <Box className="w-4 h-4" /> Variants ({variants?.total || 0})
         </h2>
@@ -291,7 +324,7 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
             <Plus className="w-4 h-4 mr-1" /> Add Variant
           </Button>
         )}
-      </div>
+      </div>}
 
       {/* Create Variant Form */}
       {isAdding && canEdit && (
@@ -299,7 +332,7 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
           <h4 className="text-sm font-medium">Create New Variant</h4>
           {template.attributes.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              This template has no dynamic attributes. The variant will act as a standard standalone SKU.
+              This product has no options such as size or color. Save it as a standard variant.
             </p>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -339,8 +372,9 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
 
           <div className="grid grid-cols-2 gap-3 pt-2">
             <div className="space-y-1.5">
-              <Label className="text-xs">Standard Cost (Required)</Label>
+              <Label htmlFor="new-variant-cost" className="text-xs">Standard cost (required)</Label>
               <Input
+                id="new-variant-cost"
                 type="number"
                 min="0"
                 step="0.01"
@@ -349,8 +383,9 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Selling Price (Optional)</Label>
+              <Label htmlFor="new-variant-price" className="text-xs">Selling price (optional)</Label>
               <Input
+                id="new-variant-price"
                 type="number"
                 min="0"
                 step="0.01"
@@ -360,90 +395,90 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
             </div>
           </div>
 
-          <div className="rounded-lg border bg-background p-3 space-y-2">
-            <p className="text-xs text-muted-foreground">
-              For subcontracting, select the existing Semi-Finished output material. Create it in Inventory → Materials if needed.
-            </p>
+          <fieldset className="space-y-3 rounded-lg border bg-background px-3 pb-3">
+            <legend className="px-1 text-sm font-medium">Inventory item for this variant</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {([
+                { value: "finished", label: "Finished good" },
+                { value: "semi_finished", label: "Semi-finished (subcontracting)" },
+              ] as const).map(option => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={outputType === option.value ? "secondary" : "outline"}
+                  aria-pressed={outputType === option.value}
+                  className="h-auto min-h-9 whitespace-normal text-left"
+                  disabled={addMutation.isPending}
+                  onClick={() => {
+                    if (outputType === option.value) return
+                    setOutputType(option.value)
+                    setMaterialId(NO_MATERIAL)
+                  }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="variant-inventory-material" className="text-xs font-medium">
-                Link to Existing Material (Optional)
+                {isSemiFinished ? "Semi-finished item (required)" : "Finished good inventory material"}
               </Label>
-              <Select value={materialId} onValueChange={setMaterialId}>
-                <SelectTrigger id="variant-inventory-material" className={materialId === NO_MATERIAL ? "" : "border-primary"}>
-                  <SelectValue placeholder="Select material or leave blank to auto-create..." />
+              <Select
+                value={materialId === NO_MATERIAL && isSemiFinished ? "" : materialId}
+                onValueChange={setMaterialId}
+                disabled={addMutation.isPending || (isSemiFinished && linkOptions.length === 0)}
+              >
+                <SelectTrigger id="variant-inventory-material" aria-describedby="variant-inventory-help">
+                  <SelectValue placeholder="Select a semi-finished item" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NO_MATERIAL}>— Auto-create new FG material —</SelectItem>
-                  {/* Finished Goods Section */}
-                  {fgList.filter(m => {
-                    const t = String(m.material_type || "").toLowerCase()
-                    return (t.includes("finish") && !t.includes("semi")) || t === "fg"
-                  }).length > 0 && (
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
-                      Finished Goods
-                    </div>
-                  )}
-                  {fgList.filter(m => {
-                    const t = String(m.material_type || "").toLowerCase()
-                    return (t.includes("finish") && !t.includes("semi")) || t === "fg"
-                  }).map(m => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.code} — {m.name}
-                    </SelectItem>
-                  ))}
-                  {/* Semi-Finished Section */}
-                  {fgList.filter(m => {
-                    const t = String(m.material_type || "").toLowerCase()
-                    return t.includes("semi") || t === "sf"
-                  }).length > 0 && (
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t mt-1 pt-1">
-                      Semi-Finished
-                    </div>
-                  )}
-                  {fgList.filter(m => {
-                    const t = String(m.material_type || "").toLowerCase()
-                    return t.includes("semi") || t === "sf"
-                  }).map(m => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.code} — {m.name}{" "}
-                      <span className="text-xs text-purple-600 font-semibold">🟣 SF</span>
-                    </SelectItem>
-                  ))}
-                  {/* Other Materials Section */}
-                  {fgList.filter(m => {
-                    const t = String(m.material_type || "").toLowerCase()
-                    return !t.includes("finish") && t !== "fg" && !t.includes("semi") && t !== "sf"
-                  }).length > 0 && (
-                    <div className="px-2 py-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-t mt-1 pt-1">
-                      Other Materials
-                    </div>
-                  )}
-                  {fgList.filter(m => {
-                    const t = String(m.material_type || "").toLowerCase()
-                    return !t.includes("finish") && t !== "fg" && !t.includes("semi") && t !== "sf"
-                  }).map(m => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.code} — {m.name}{" "}
-                      <span className="text-xs text-muted-foreground">({m.material_type})</span>
+                  {!isSemiFinished && <SelectItem value={NO_MATERIAL}>Auto-create a finished good</SelectItem>}
+                  {linkOptions.map(material => (
+                    <SelectItem key={material.id} value={material.id}>
+                      {material.code} — {material.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {materialId === NO_MATERIAL ? (
-                <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1 mt-1">
-                  ✓ A new Finished Good inventory material will be auto-created and linked when saved.
-                </p>
-              ) : (
-                <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1 mt-1">
-                  ✓ This variant will be linked to the selected material: <span className="font-semibold">{fgList.find(m => m.id === materialId)?.code}</span>
-                </p>
-              )}
+              <div id="variant-inventory-help" className="space-y-1.5 text-xs leading-relaxed text-muted-foreground">
+                {isSemiFinished ? (
+                  <>
+                    {semiFinishedQuery.isPending ? (
+                      <p role="status">Loading semi-finished materials…</p>
+                    ) : semiFinishedQuery.isError ? (
+                      <p role="alert">
+                        Could not load semi-finished materials.{" "}
+                        <button type="button" className="font-medium text-primary underline" onClick={() => void semiFinishedQuery.refetch()}>Retry</button>
+                      </p>
+                    ) : linkOptions.length === 0 ? (
+                      <p>No active semi-finished materials found.</p>
+                    ) : null}
+                    <p>
+                      Select the item you’ll receive after the supplier finishes the work. For example, if you send wooden boards to be cut into chair seats, select Wooden chair seat.
+                    </p>
+                    <p>Use the same stock unit for both the item and this variant, such as pieces.</p>
+                    <p>
+                      Item missing?{" "}
+                      <Link to="/inventory/materials" target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline">
+                        Add a semi-finished item in Materials (opens in a new tab)
+                      </Link>
+                      . Then return here and select it.
+                    </p>
+                    {!template.is_active && (
+                      <p>Activate this product template before using the variant on a subcontract order.</p>
+                    )}
+                  </>
+                ) : (
+                  <p>{materialId === NO_MATERIAL ? "Saving will create and link a finished good in Inventory." : "Saving will link the selected finished good."}</p>
+                )}
+              </div>
             </div>
-          </div>
+          </fieldset>
 
           {/* Real-time Variant Summary */}
           <div className="bg-primary/5 rounded-lg p-3 border border-primary/20 text-sm mt-4">
-            <h5 className="font-semibold mb-2">Variant Summary</h5>
+            <h5 className="font-semibold mb-2">Review before saving</h5>
             <div className="grid grid-cols-[1fr_2fr] sm:grid-cols-[150px_1fr] gap-y-1 gap-x-4">
               <div className="text-muted-foreground">Product:</div>
               <div className="font-medium">{template.name}</div>
@@ -455,11 +490,8 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
                   : "Standard"}
               </div>
 
-              <div>
-                <Label htmlFor="variant-item-code" className="text-xs text-muted-foreground">SKU / Code</Label>
-                <Input id="variant-item-code" readOnly value="" placeholder="Auto-generated on save" className="mt-1" />
-                <p className="mt-1 text-xs text-muted-foreground">Generated from the template code and variant options.</p>
-              </div>
+              <div className="text-muted-foreground">Variant code (SKU):</div>
+              <div>Assigned automatically when you save</div>
 
               <div className="text-muted-foreground">Standard Cost:</div>
               <div className="font-medium">{formatCurrency(parseFloat(standardCost) || 0)}</div>
@@ -469,28 +501,19 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
 
               <div className="text-muted-foreground">Inventory Item:</div>
               <div className="font-medium">
-                {materialId === NO_MATERIAL ? (
-                  <span className="text-green-700">Auto-create on save</span>
-                ) : (
-                  <span className="text-primary">
-                    {fgList.find(m => m.id === materialId)?.code || "Selected"}
-                    {fgList.find(m => m.id === materialId)?.material_type?.toLowerCase().includes("semi") && (
-                      <span className="ml-1 text-xs text-purple-600">🟣 Semi-Finished</span>
-                    )}
-                  </span>
-                )}
+                {selectedMaterial
+                  ? `${selectedMaterial.name} (${selectedMaterial.code})`
+                  : isSemiFinished ? "Choose a semi-finished item above" : "A finished good will be created on save"}
               </div>
               
-              <div className="text-muted-foreground">Status:</div>
-              <div className="font-medium text-green-700">Active</div>
             </div>
           </div>
 
           <div className="flex gap-2 justify-end pt-2">
-            <Button variant="ghost" size="sm" onClick={handleCancelCreate}>
+            <Button variant="ghost" size="sm" onClick={handleCancelCreate} disabled={addMutation.isPending}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleCreate} disabled={addMutation.isPending}>
+            <Button size="sm" onClick={handleCreate} disabled={addMutation.isPending || (isSemiFinished && !selectedMaterial)}>
               {addMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
               Create
             </Button>
@@ -499,7 +522,7 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
       )}
 
       {/* Variants List */}
-      {isLoading ? (
+      {!onCreateFormClose && (isLoading ? (
         <div className="text-center py-6 text-muted-foreground">
           <Loader2 className="w-5 h-5 animate-spin mx-auto" />
         </div>
@@ -595,7 +618,7 @@ export function VariantManager({ template, canEdit, startAdding = false }: Varia
             )
           )}
         </div>
-      )}
+      ))}
     </div>
   )
 }

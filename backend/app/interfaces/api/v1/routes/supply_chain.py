@@ -13,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.domain.manufacturing.exceptions import InsufficientStockError
@@ -2150,6 +2150,7 @@ async def get_boms_for_subcontract_material(
     Returns link_type="explicit" or "code_match" so the UI can show guidance.
     """
     from backend.app.infrastructure.persistence.models.bom_model import BOMModel, BOMLineModel
+    from backend.app.infrastructure.persistence.models.item_template_model import ItemTemplateModel
     from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
 
     async def _boms_for_variants(session, tenant_id, variants, seen, link_type):
@@ -2161,13 +2162,20 @@ async def get_boms_for_subcontract_material(
                 # template-level BOM (only if variant has a template)
                 *([(BOMModel.template_id == variant.template_id,)] if variant.template_id else []),
             ]:
-                bom_stmt = select(BOMModel).where(
+                bom_stmt = select(BOMModel, ItemTemplateModel.name, ItemTemplateModel.code).outerjoin(
+                    ItemTemplateModel,
+                    and_(
+                        ItemTemplateModel.id == BOMModel.template_id,
+                        ItemTemplateModel.tenant_id == tenant_id,
+                        ItemTemplateModel.is_deleted.is_(False),
+                    ),
+                ).where(
                     BOMModel.tenant_id == tenant_id,
                     BOMModel.is_deleted.is_(False),
                     BOMModel.is_active.is_(True),
                     *bom_stmt_filter,
                 ).order_by(BOMModel.valid_from.desc())
-                for bom in (await session.execute(bom_stmt)).scalars().all():
+                for bom, template_name, template_code in (await session.execute(bom_stmt)).all():
                     bid = str(bom.id)
                     if bid in seen:
                         continue
@@ -2184,6 +2192,9 @@ async def get_boms_for_subcontract_material(
                         "line_count": line_count,
                         "variant_id": str(variant.id),
                         "variant_name": variant.name,
+                        "target_type": "variant" if bom.variant_id else "template",
+                        "target_name": variant.name if bom.variant_id else template_name,
+                        "target_code": variant.code if bom.variant_id else template_code,
                         "link_type": link_type,
                     })
         return results
@@ -2568,11 +2579,48 @@ async def get_subcontract_order(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
 ):
+    from backend.app.infrastructure.persistence.models.bom_model import BOMModel
+    from backend.app.infrastructure.persistence.models.item_variant_model import ItemVariantModel
+
     container = get_container(request)
     async with container.session_factory() as session:
         o = await session.get(SubcontractOrderModel, order_id)
         if not o or o.tenant_id != tenant_id or o.is_deleted:
             raise HTTPException(status_code=404, detail="Subcontract order not found")
+        output_material_id = o.product_id if o.product_type == "material" else None
+        if o.product_type == "variant":
+            output_material_id = await session.scalar(select(ItemVariantModel.material_id).where(
+                ItemVariantModel.id == o.product_id,
+                ItemVariantModel.tenant_id == tenant_id,
+                ItemVariantModel.is_deleted.is_(False),
+            ))
+        output = None
+        if output_material_id is not None:
+            output = (await session.execute(select(MaterialModel.name, MaterialModel.code).where(
+                MaterialModel.id == output_material_id,
+                MaterialModel.tenant_id == tenant_id,
+                MaterialModel.is_deleted.is_(False),
+            ))).one_or_none()
+
+        bom = None
+        if o.bom_id is not None:
+            bom = (await session.execute(
+                select(
+                    BOMModel.version,
+                    BOMModel.is_active,
+                    func.coalesce(BOMModel.template_id, ItemVariantModel.template_id).label("product_template_id"),
+                )
+                .outerjoin(ItemVariantModel, and_(
+                    ItemVariantModel.id == BOMModel.variant_id,
+                    ItemVariantModel.tenant_id == tenant_id,
+                    ItemVariantModel.is_deleted.is_(False),
+                ))
+                .where(
+                    BOMModel.id == o.bom_id,
+                    BOMModel.tenant_id == tenant_id,
+                    BOMModel.is_deleted.is_(False),
+                )
+            )).one_or_none()
         issues = (await session.execute(
             select(SubcontractMaterialIssueModel).where(
                 SubcontractMaterialIssueModel.subcontract_order_id == order_id,
@@ -2586,6 +2634,11 @@ async def get_subcontract_order(
             )
         )).scalars().all()
     result = _sco_to_dict(o, issues=issues, lines=lines)
+    result["output_material_name"] = output.name if output else None
+    result["output_material_code"] = output.code if output else None
+    result["bom_version"] = bom.version if bom else None
+    result["bom_is_active"] = bom.is_active if bom else None
+    result["bom_product_template_id"] = str(bom.product_template_id) if bom and bom.product_template_id else None
     result["output_fulfilled"] = Decimal(str(o.received_quantity or 0)) >= Decimal(str(o.quantity))
     exceptions = _subcontract_material_exceptions(issues, lines)
     if o.bom_id and not lines:

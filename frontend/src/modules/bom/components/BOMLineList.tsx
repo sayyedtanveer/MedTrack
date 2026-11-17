@@ -5,6 +5,7 @@ import { bomService } from "@/services/bom.service"
 import { BOM, BOMLine, BOMLineInput } from "@/types/bom.types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { materialService } from "@/services/material.service"
 import { productService } from "@/services/product.service"
 
@@ -30,11 +31,12 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editQty, setEditQty] = useState("")
   const [editScrap, setEditScrap] = useState("")
+  const [editUnitId, setEditUnitId] = useState("")
 
   const unitsQuery = useQuery({
     queryKey: ["units"],
     queryFn: () => materialService.getUnits(),
-    enabled: bom.lines.some((line) => Boolean(line.unit_id)),
+    enabled: editingId !== null || bom.lines.some((line) => Boolean(line.unit_id)),
   })
   const unitsById = new Map(unitsQuery.data?.map((unit) => [unit.id, unit.code]))
 
@@ -104,12 +106,14 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
     setEditingId(line.id)
     setEditQty(line.quantity.toString())
     setEditScrap((line.scrap_percentage || 0).toString())
+    setEditUnitId(line.unit_id ?? "")
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setEditQty("")
     setEditScrap("")
+    setEditUnitId("")
   }
 
   const saveEdit = async (index: number) => {
@@ -123,6 +127,7 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
     const newLines = getLinesInput()
     newLines[index].quantity = q
     newLines[index].scrap_percentage = isNaN(s) ? 0 : s
+    newLines[index].unit_id = editUnitId || undefined
 
     await updateMutation.mutateAsync(newLines)
     setEditingId(null)
@@ -170,8 +175,8 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
         <div className="rounded-md border overflow-hidden">
           {(() => {
             const linesWithIndex = bom.lines.map((line, idx) => ({ line, idx }))
-            const rawLines = linesWithIndex.filter(item => item.line.material_id)
-            const semiFinishedLines = linesWithIndex.filter(item => item.line.template_id || item.line.variant_id)
+            const inventoryLines = linesWithIndex.filter(item => item.line.material_id)
+            const productReferenceLines = linesWithIndex.filter(item => item.line.template_id || item.line.variant_id)
 
             const renderTableSection = (title: string, items: typeof linesWithIndex) => {
               if (items.length === 0) return null
@@ -235,7 +240,21 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
                               </td>
                               <td className="p-3 whitespace-nowrap">
                                 <span className="sm:hidden mr-1 text-xs text-muted-foreground">UOM:</span>
-                                {!line.unit_id
+                                {isEditing ? (
+                                  <Select value={editUnitId} onValueChange={setEditUnitId} disabled={!unitsQuery.data?.length}>
+                                    <SelectTrigger aria-label="Unit of measure" className="h-8 min-w-24">
+                                      <SelectValue placeholder={unitsQuery.isLoading ? "Loading…" : unitsQuery.isError ? "Units unavailable" : "Select a unit"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {line.unit_id && !unitsById.has(line.unit_id) && (
+                                        <SelectItem value={line.unit_id} disabled>Existing unit</SelectItem>
+                                      )}
+                                      {unitsQuery.data?.filter(unit => unit.is_active || unit.id === line.unit_id).map(unit => (
+                                        <SelectItem key={unit.id} value={unit.id}>{unit.code} — {unit.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                ) : !line.unit_id
                                   ? <span className="text-muted-foreground">Not set</span>
                                   : unitsById.get(line.unit_id) ?? (
                                     unitsQuery.isLoading ? "Loading…" : unitsQuery.isError ? "Unavailable" : "Unknown unit"
@@ -329,8 +348,8 @@ export function BOMLineList({ bom, canEdit }: BOMLineListProps) {
 
             return (
               <>
-                {renderTableSection("Raw Materials", rawLines)}
-                {renderTableSection("Semi-Finished / Sub-Assemblies", semiFinishedLines)}
+                {renderTableSection("Inventory Materials", inventoryLines)}
+                {renderTableSection("Product BOM References", productReferenceLines)}
               </>
             )
           })()}

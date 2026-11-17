@@ -76,6 +76,8 @@ class CreateItemTemplateHandler:
     async def handle(self, cmd: CreateItemTemplateCommand) -> ItemTemplateResult:
         if cmd.category_id is None:
             raise ValueError("Category is required for item code generation.")
+        if cmd.product_type == "semi_finished" and (cmd.code or self._item_code_service is None):
+            raise ValueError("Semi-finished templates require an ERP-generated item code.")
         code = (
             await self._item_code_service.validate_manual_code(
                 tenant_id=cmd.tenant_id,
@@ -85,7 +87,7 @@ class CreateItemTemplateHandler:
             if self._item_code_service is not None and cmd.code
             else await self._item_code_service.generate(
                 tenant_id=cmd.tenant_id,
-                item_type="finished",
+                item_type=cmd.product_type,
                 category_id=cmd.category_id,
                 target="product",
             )

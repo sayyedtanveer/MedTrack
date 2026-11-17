@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useSearchParams } from "react-router-dom"
 import { bomService } from "@/services/bom.service"
 import { Layers, Plus } from "lucide-react"
+import { usePermissions } from "@/hooks/usePermissions"
+import { VariantManager } from "../components/VariantManager"
 
 interface BulkImportError {
   row_number: number
@@ -22,10 +24,15 @@ export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const { hasRole } = usePermissions()
+  const canEdit = hasRole(["ADMIN", "MANAGER"])
 
   const [searchParams, setSearchParams] = useSearchParams()
   const currentTab = searchParams.get("tab") || "overview"
   const setTab = (tab: string) => setSearchParams({ tab })
+  const showVariantForm = canEdit && currentTab === "variants" && searchParams.get("addVariant") === "1"
+  const openVariantForm = () => setSearchParams({ tab: "variants", addVariant: "1" })
+  const closeVariantForm = () => setSearchParams({ tab: "variants" }, { replace: true })
 
   const [showImport, setShowImport] = useState(false)
   const [csvContent, setCsvContent] = useState("")
@@ -139,10 +146,10 @@ export default function ProductDetailPage() {
             <Edit2 className="w-4 h-4 mr-1" />
             Edit Product
           </Button>
-          <Button variant="outline" onClick={() => navigate(`/products/${id}/edit?addVariant=1`)} size="sm">
+          {canEdit && !showVariantForm && <Button variant="outline" onClick={openVariantForm} size="sm">
             <Plus className="w-4 h-4 mr-1" />
             {variants?.total === 0 ? "Create First Variant" : "Add Variant"}
-          </Button>
+          </Button>}
           <Button onClick={() => navigate(`/bom/new?template_id=${id}`)} size="sm">
             <Layers className="w-4 h-4 mr-1" />
             Create BOM
@@ -197,6 +204,9 @@ export default function ProductDetailPage() {
         </TabsContent>
 
         <TabsContent value="variants" className="space-y-6 mt-0">
+          {showVariantForm && (
+            <VariantManager key={product.id} template={product} canEdit={canEdit} startAdding onCreateFormClose={closeVariantForm} />
+          )}
           <div className="rounded-lg border bg-card p-6">
             <div className="flex gap-2 mb-4">
               <h2 className="text-lg font-semibold flex-1">Variants ({variants?.total})</h2>
@@ -244,10 +254,10 @@ export default function ProductDetailPage() {
                       <td colSpan={7} className="py-10 text-center text-muted-foreground">
                         <div className="space-y-3">
                           <p>No variants yet. Create one standard SKU or import variant rows before using this product in sales and production.</p>
-                          <Button variant="outline" size="sm" onClick={() => navigate(`/products/${id}/edit?addVariant=1`)}>
+                          {canEdit && !showVariantForm && <Button variant="outline" size="sm" onClick={openVariantForm}>
                             <Plus className="w-4 h-4 mr-1" />
                             Create First Variant
-                          </Button>
+                          </Button>}
                         </div>
                       </td>
                     </tr>

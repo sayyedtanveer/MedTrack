@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
-import { supplyChainApi, type SubcontractOrderSummary, type Supplier } from "@/services/supply-chain.service"
+import { supplyChainApi, type SubcontractBOMOption, type SubcontractOrderSummary, type Supplier } from "@/services/supply-chain.service"
 import { SubcontractMaterialSelector } from "../components/SubcontractMaterialSelector"
+import { SubcontractFlowGuide } from "../components/SubcontractFlowGuide"
 import type { Material } from "@/types/material.types"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,12 +31,9 @@ function statusColor(s: string): "default" | "secondary" | "outline" | "destruct
   }
 }
 
-type BOMOption = {
-  id: string
-  version: string
-  line_count: number
-  valid_from: string | null
-  link_type: "explicit" | "code_match"
+function bomOptionLabel(bom: SubcontractBOMOption): string {
+  const version = /^v/i.test(bom.version) ? bom.version : `v${bom.version}`
+  return `${bom.target_name || bom.target_code || "BOM"} · ${version}`
 }
 
 type BOMLine = {
@@ -58,7 +56,7 @@ export default function SubcontractListPage() {
   const [supplierId, setSupplierId] = useState("")
   const [outputMaterialId, setOutputMaterialId] = useState("")
   const [outputMaterial, setOutputMaterial] = useState<Material | null>(null)
-  const [bomOptions, setBomOptions] = useState<BOMOption[]>([])
+  const [bomOptions, setBomOptions] = useState<SubcontractBOMOption[]>([])
   const [bomId, setBomId] = useState("")
   const [bomLoading, setBomLoading] = useState(false)
   const [bomLinkType, setBomLinkType] = useState<"explicit" | "code_match" | null>(null)
@@ -191,6 +189,8 @@ export default function SubcontractListPage() {
     }
   }
 
+  const selectedBom = bomOptions.find(option => option.id === bomId)
+
   return (
     <div className="space-y-6 p-4 sm:p-6">
       {/* ── Header ── */}
@@ -206,11 +206,14 @@ export default function SubcontractListPage() {
         </div>
 
         <Dialog open={open} onOpenChange={(v) => { if (!v) resetForm(); setOpen(v) }}>
-          <DialogTrigger asChild>
-            <Button className="w-full sm:w-auto flex-shrink-0">
-              <Plus className="mr-2 h-4 w-4" />New order
-            </Button>
-          </DialogTrigger>
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            <SubcontractFlowGuide />
+            <DialogTrigger asChild>
+              <Button className="w-full sm:w-auto flex-shrink-0">
+                <Plus className="mr-2 h-4 w-4" />New order
+              </Button>
+            </DialogTrigger>
+          </div>
           <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>New subcontract order</DialogTitle>
@@ -273,14 +276,21 @@ export default function SubcontractListPage() {
                   {bomOptions.length > 0 && (
                     <>
                       <Select value={bomId} onValueChange={handleBomChange}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select BOM version…" />
+                        <SelectTrigger aria-label="BOM">
+                          <SelectValue placeholder="Select a BOM…">
+                            {selectedBom && bomOptionLabel(selectedBom)}
+                          </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent position="popper" className="w-[var(--radix-select-trigger-width)]">
                           {bomOptions.map((b) => (
-                            <SelectItem key={b.id} value={b.id}>
-                              v{b.version} · {b.line_count} components
-                              {b.valid_from && ` · From ${b.valid_from.slice(0, 10)}`}
+                            <SelectItem key={b.id} value={b.id} textValue={bomOptionLabel(b)} className="whitespace-normal">
+                              <span className="block break-words font-medium">{bomOptionLabel(b)}</span>
+                              <span className="block break-words text-xs text-muted-foreground">
+                                {b.target_type && (b.target_type === "template" ? "Template · " : "Variant · ")}
+                                {b.target_code && b.target_code !== b.target_name && `${b.target_code} · `}
+                                {b.line_count} {b.line_count === 1 ? "component" : "components"}
+                                {b.valid_from && ` · From ${b.valid_from.slice(0, 10)}`}
+                              </span>
                             </SelectItem>
                           ))}
                         </SelectContent>

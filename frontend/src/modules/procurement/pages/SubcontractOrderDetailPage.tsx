@@ -401,22 +401,52 @@ export default function SubcontractOrderDetailPage() {
         </div>
       </div>
 
+      <dl className="grid gap-4 rounded-lg border p-4 text-sm sm:grid-cols-2">
+        <div className="min-w-0">
+          <dt className="font-medium">Semi-finished item to receive</dt>
+          <dd className="mt-1 break-words">
+            {order.output_material_name ?? "Material details unavailable"}
+            {order.output_material_code && (
+              <span className="ml-2 font-mono text-xs text-muted-foreground">{order.output_material_code}</span>
+            )}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="font-medium">Bill of materials (BOM)</dt>
+          <dd className="mt-1 flex flex-wrap items-center gap-2">
+            {order.bom_id ? (
+              <>
+                <Link to={`/bom/${order.bom_id}`} className="font-medium text-primary underline underline-offset-4">
+                  {order.bom_version ? `Version ${order.bom_version}` : "View selected BOM"}
+                </Link>
+                {order.bom_is_active === false && <Badge variant="secondary">Inactive</Badge>}
+              </>
+            ) : "No BOM selected · manual order"}
+          </dd>
+        </div>
+      </dl>
+
       {/* ── Draft status info - What will happen on approval ──────────── */}
       {canApprove && order.bom_id && (
         <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 space-y-2">
           <div className="flex items-start gap-2">
             <CheckCircle className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <h3 className="font-medium text-blue-900">Ready for Approval</h3>
+              <h3 className="font-medium text-blue-900">Before you approve</h3>
               <p className="text-sm text-blue-800 mt-1">
-                When you approve this order, the system will:
+                In Products, check that the BOM’s variant is active and linked to the exact semi-finished item shown above. The product template and BOM must also be active.
               </p>
-              <ul className="text-sm text-blue-800 mt-2 space-y-1 list-disc list-inside">
-                <li>Snapshot the BOM components as order lines below</li>
-                <li>Calculate required quantities based on order quantity ({order.quantity} units)</li>
-                <li>Apply scrap percentages from the BOM</li>
-                <li>Enable material issuing to the vendor</li>
-              </ul>
+              {order.bom_product_template_id && (
+                <Link
+                  to={`/products/${order.bom_product_template_id}?tab=variants`}
+                  className="mt-2 inline-block text-sm font-medium text-blue-900 underline underline-offset-4"
+                >
+                  Open product variants
+                </Link>
+              )}
+              <p className="mt-2 text-sm text-blue-800">
+                Approval saves the required quantities, including scrap, and lets you issue materials to the supplier.
+              </p>
             </div>
           </div>
         </div>

@@ -167,7 +167,7 @@ export const bomService = {
 
   async getMaterials(params: {
     query?: string;
-    material_type?: "raw" | "finished";
+    material_type?: "raw" | "finished" | "semi_finished";
     page?: number;
     page_size?: number;
   }): Promise<{ items: Material[]; total: number }> {

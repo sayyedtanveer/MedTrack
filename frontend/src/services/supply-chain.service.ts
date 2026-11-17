@@ -113,6 +113,21 @@ export type SubcontractOrderSummary = {
   output_batch_id?: string | null
 }
 
+export type SubcontractBOMOption = {
+  id: string
+  version: string
+  is_active: boolean
+  valid_from: string | null
+  valid_to: string | null
+  line_count: number
+  variant_id: string
+  variant_name: string
+  target_type?: "template" | "variant"
+  target_name?: string | null
+  target_code?: string | null
+  link_type: "explicit" | "code_match"
+}
+
 export type SubcontractOrderLine = {
   id: string
   material_id: string
@@ -134,6 +149,11 @@ export type SubcontractIssueRecord = {
 }
 
 export type SubcontractOrderDetail = SubcontractOrderSummary & {
+  output_material_name?: string | null
+  output_material_code?: string | null
+  bom_version?: string | null
+  bom_is_active?: boolean | null
+  bom_product_template_id?: string | null
   output_fulfilled?: boolean
   materials_reconciled?: boolean
   reconciliation_exceptions?: Array<{
@@ -304,17 +324,7 @@ export const supplyChainApi = {
       material_code: string
       material_name: string
       material_type: string
-      boms: Array<{
-        id: string
-        version: string
-        is_active: boolean
-        valid_from: string | null
-        valid_to: string | null
-        line_count: number
-        variant_id: string
-        variant_name: string
-        link_type: "explicit" | "code_match"
-      }>
+      boms: SubcontractBOMOption[]
     }>(`${BASE}/subcontract/boms-for-material/${materialId}`),
 
   getBOMLines: (bomId: string) =>

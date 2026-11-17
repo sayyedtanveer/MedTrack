@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useParams, useNavigate, useSearchParams } from "react-router-dom"
+import { Navigate, useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Save, Plus, Trash2 } from "lucide-react"
 import { productService, CreateTemplateInput, UpdateTemplateInput } from "@/services/product.service"
@@ -87,12 +87,13 @@ export default function ProductTemplateFormPage() {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [categoryId, setCategoryId] = useState("")
+  const [productType, setProductType] = useState<NonNullable<CreateTemplateInput["product_type"]>>("finished")
   const [baseUnitId, setBaseUnitId] = useState("")
   const [isActive, setIsActive] = useState(true)
   const [attributes, setAttributes] = useState<{ key: string; label: string; values?: string[]; _isNew?: boolean }[]>([])
 
   // Load existing data if edit mode
-  const { data: templateData, isSuccess, isError } = useQuery({
+  const { data: templateData, isSuccess } = useQuery({
     queryKey: ["products", "template", id],
     queryFn: () => productService.getTemplate(id!),
     enabled: !isNew,
@@ -120,7 +121,7 @@ export default function ProductTemplateFormPage() {
       qc.invalidateQueries({ queryKey: ["products", "templates"] })
       toast.success(isNew ? "Template created" : "Template updated")
       mutation.reset()
-      navigate(`/products/${data.id}${isNew ? "?tab=variants" : ""}`, { replace: true })
+      navigate(`/products/${data.id}${isNew ? "?tab=variants&addVariant=1" : ""}`, { replace: true })
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.detail || "Failed to save template")
@@ -185,6 +186,7 @@ export default function ProductTemplateFormPage() {
       }),
     }
     payload.category_id = categoryId
+    if (isNew) payload.product_type = productType
     if (baseUnitId) payload.base_unit_id = baseUnitId
     if (!isNew && templateData) {
       const originalIsActive = templateData.is_active ?? true
@@ -212,23 +214,7 @@ export default function ProductTemplateFormPage() {
   const removeAttr = (i: number) => setAttributes(attributes.filter((_, idx) => idx !== i))
 
   if (addVariant) {
-    return (
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(`/products/${id}?tab=variants`)} aria-label="Back to product variants">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <h1 className="text-xl font-semibold">{templateData?.name ?? "Product variants"}</h1>
-        </div>
-        {templateData ? (
-          <div className="rounded-xl border bg-card p-5">
-            <VariantManager key={templateData.id} template={templateData} canEdit={canEdit} startAdding />
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">{isError ? "Could not load the product template." : "Loading product template…"}</p>
-        )}
-      </div>
-    )
+    return <Navigate to={`/products/${id}?tab=variants&addVariant=1`} replace />
   }
 
   return (
@@ -255,17 +241,40 @@ export default function ProductTemplateFormPage() {
               <p className="text-xs text-muted-foreground">Automatically generated from ERP settings.</p>
             </div>
             <div className="space-y-2">
-              <Label>Name</Label>
-              <Input value={name} onChange={e => setName(e.target.value)} disabled={!canEdit} placeholder="Widget V1" />
+              <Label htmlFor="template-name">Name</Label>
+              <Input id="template-name" value={name} onChange={e => setName(e.target.value)} disabled={!canEdit} placeholder="Widget V1" />
             </div>
             <div className="col-span-2 space-y-2">
               <Label>Description</Label>
               <Textarea value={description} onChange={e => setDescription(e.target.value)} disabled={!canEdit} rows={2} />
             </div>
+            {isNew && (
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="template-product-type">Product type</Label>
+                <Select
+                  value={productType}
+                  onValueChange={(value) => setProductType(value === "semi_finished" ? "semi_finished" : "finished")}
+                  disabled={!canEdit}
+                >
+                  <SelectTrigger id="template-product-type" aria-describedby="template-product-type-help">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="finished">Finished Good (FG)</SelectItem>
+                    <SelectItem value="semi_finished">Semi-Finished Good (SFG)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p id="template-product-type-help" className="text-xs text-muted-foreground">
+                  {productType === "semi_finished"
+                    ? "For items used to make another product, such as a wooden chair seat. The template code starts with SFG."
+                    : "For completed items, such as a finished chair. The template code starts with FG."}
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
-              <Label>Category</Label>
+              <Label htmlFor="template-category">Category</Label>
               <Select value={categoryId} onValueChange={setCategoryId} disabled={!canEdit}>
-                <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                <SelectTrigger id="template-category"><SelectValue placeholder="Select..." /></SelectTrigger>
                 <SelectContent>
                   {categories?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                 </SelectContent>

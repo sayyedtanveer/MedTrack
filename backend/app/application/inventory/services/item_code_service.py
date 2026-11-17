@@ -307,7 +307,10 @@ class ItemCodeService:
         if category is None:
             raise ValueError("Category is required for item code generation.")
 
-        type_prefix = normalize_item_type(item_type)
+        type_prefix = (
+            "SFG" if target == "product" and item_type == "semi_finished"
+            else normalize_item_type(item_type)
+        )
         category_prefix = normalize_category_prefix(category.code_prefix, fallback_name=category.name)
         if category.code_prefix != category_prefix:
             category.code_prefix = category_prefix

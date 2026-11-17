@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 import uuid
 
 from pydantic import BaseModel, Field
@@ -16,6 +16,7 @@ class AttributeDefinition(BaseModel):
 
 
 class CreateItemTemplateRequest(BaseModel):
+    product_type: Literal["finished", "semi_finished"] = "finished"
     code: Optional[str] = Field(None, min_length=1, max_length=50)
     item_code: Optional[str] = Field(None, min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=255)

@@ -8,6 +8,7 @@ import {
 } from "@/types/bom.types";
 
 export interface CreateTemplateInput {
+  product_type?: "finished" | "semi_finished";
   code?: string | null;
   item_code?: string | null;
   name: string;

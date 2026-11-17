@@ -1,14 +1,27 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BOMCostBreakdown } from './BOMCostBreakdown'
 import { BOMTreeView } from './BOMTreeView'
+import { BOMLineForm } from './BOMLineForm'
 import type { BOM, BOMCostResponse, BOMTreeNode } from '@/modules/bom/types/bom.types'
 
 const mocks = vi.hoisted(() => ({ cost: vi.fn(), tree: vi.fn() }))
 vi.mock('@/services/bom.service', () => ({ bomService: {
   getBOMCost: mocks.cost, getBOMTree: mocks.tree,
   getOperations: vi.fn().mockResolvedValue([]), getWorkstations: vi.fn().mockResolvedValue([]),
+  getMaterials: vi.fn().mockResolvedValue({
+    items: [
+      { id: 'board', name: 'Wooden board', code: 'RM-001', material_type: 'raw', base_unit_id: 'pcs' },
+      { id: 'seat', name: 'Wooden chair seat', code: 'SF-001', material_type: 'semi_finished', base_unit_id: 'pcs' },
+    ],
+  }),
+} }))
+vi.mock('@/services/material.service', () => ({ materialService: {
+  getUnits: vi.fn().mockResolvedValue([
+    { id: 'pcs', code: 'PCS', name: 'Pieces', is_active: true },
+    { id: 'box', code: 'BOX', name: 'Box', is_active: false },
+  ]),
 } }))
 
 const bom: BOM = {
@@ -43,6 +56,35 @@ function show(element: React.ReactNode) {
 }
 beforeEach(() => { mocks.cost.mockResolvedValue(cost); mocks.tree.mockResolvedValue(tree) })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
+
+it('requires an explicit active unit even when the component has a stock unit', async () => {
+  HTMLElement.prototype.scrollIntoView ??= vi.fn()
+  const onAdd = vi.fn()
+  show(<BOMLineForm onAdd={onAdd} onCancel={vi.fn()} />)
+  fireEvent.change(screen.getByPlaceholderText('Search raw material by name or code...'), { target: { value: 'board' } })
+  fireEvent.click(await screen.findByRole('button', { name: /Wooden board/ }))
+
+  const addLine = screen.getByRole('button', { name: 'Add Line' })
+  expect(addLine).toBeDisabled()
+  expect(await screen.findByText('Stock unit for this component: PCS')).toBeVisible()
+  const unit = screen.getByRole('combobox', { name: 'Unit of measure (required)' })
+  await waitFor(() => expect(unit).toBeEnabled())
+  expect(unit).toHaveTextContent('Select a unit')
+  fireEvent.keyDown(unit, { key: 'Enter' })
+  expect(screen.getAllByRole('option')).toHaveLength(1)
+  fireEvent.click(screen.getByRole('option', { name: 'PCS — Pieces' }))
+  fireEvent.click(addLine)
+  expect(onAdd).toHaveBeenCalledWith({ material_id: 'board', unit_id: 'pcs', quantity: 1, scrap_percentage: 0 })
+
+  fireEvent.click(screen.getByRole('radio', { name: 'Semi-finished item' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search semi-finished items' }), { target: { value: 'wooden' } })
+  fireEvent.click(await screen.findByRole('button', { name: /Wooden chair seat/ }))
+  expect(addLine).toBeDisabled()
+  fireEvent.keyDown(unit, { key: 'Enter' })
+  fireEvent.click(await screen.findByRole('option', { name: 'PCS — Pieces' }))
+  fireEvent.click(addLine)
+  expect(onAdd).toHaveBeenLastCalledWith({ material_id: 'seat', unit_id: 'pcs', quantity: 1, scrap_percentage: 0 })
+})
 
 describe('BOM cost and explanatory tree', () => {
   it('shows one component contribution per branch, reconciling 300 + 12 = 312', async () => {

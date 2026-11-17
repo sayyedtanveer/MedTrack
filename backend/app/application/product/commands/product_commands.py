@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 import uuid
 
 from backend.app.domain.product.value_objects.product_status import ProductStatus
@@ -21,6 +21,7 @@ class CreateItemTemplateCommand:
     base_unit_id: Optional[uuid.UUID] = None
     attributes: List[Dict[str, Any]] = field(default_factory=list)
     status: ProductStatus = ProductStatus.DRAFT
+    product_type: Literal["finished", "semi_finished"] = "finished"
 
 
 @dataclass(frozen=True)

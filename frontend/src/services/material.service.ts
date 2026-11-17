@@ -25,7 +25,7 @@ export const materialService = {
   async getMaterials(params: {
     query?: string;
     category?: string;
-    material_type?: "raw" | "finished";
+    material_type?: "raw" | "finished" | "semi_finished";
     is_active?: boolean;
     page: number;
     page_size: number;

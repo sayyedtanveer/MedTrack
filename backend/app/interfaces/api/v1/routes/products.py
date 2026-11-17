@@ -266,6 +266,7 @@ async def create_template(
                     tenant_id=tenant_id,
                     created_by=user_id,
                     code=body.item_code or body.code,
+                    product_type=body.product_type,
                     name=body.name,
                     description=body.description,
                     category_id=body.category_id,
