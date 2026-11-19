@@ -31,9 +31,9 @@ async def get_dispatch_queue(
     request: Request,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
 ):
-    """Get orders ready for dispatch (Gap #5).
+    """Get orders with allocated stock left to dispatch, including partial orders.
 
-    Returns sales orders in READY_FOR_DISPATCH status filtered by tenant_id.
+    Returns active sales orders filtered by tenant_id.
     Each item includes: id, order_number, customer_name, grand_total, ready_at timestamp.
 
     Requirements: 33 — Gap #5
@@ -46,13 +46,16 @@ async def get_dispatch_queue(
             SalesOrderLineModel,
         )
 
-        # Query sales orders in READY_FOR_DISPATCH, filtered by tenant_id
+        # Partial production can supply dispatchable stock before the whole order is ready.
         stmt = (
             select(SalesOrderModel)
             .where(
                 and_(
                     SalesOrderModel.tenant_id == tenant_id,
-                    SalesOrderModel.status == "READY_FOR_DISPATCH",
+                    SalesOrderModel.status.in_([
+                        "CONFIRMED", "PROCESSING", "PRODUCTION", "READY",
+                        "READY_FOR_DISPATCH", "SHIPPED",
+                    ]),
                     SalesOrderModel.is_deleted.is_(False),
                 )
             )
@@ -69,6 +72,7 @@ async def get_dispatch_queue(
             # Only include if there is something left to dispatch
             has_remaining = any(
                 float(line.allocated_quantity or 0) > float(line.dispatched_quantity or 0)
+                and line.line_status not in ("SHORT_CLOSED", "CANCELLED")
                 for line in so.lines
             )
 
@@ -80,6 +84,11 @@ async def get_dispatch_queue(
                 "order_number": so.order_number,
                 "customer_name": customer_name,
                 "grand_total": float(so.grand_total),
+                "ready_product_count": sum(
+                    1 for line in so.lines
+                    if line.line_status not in ("SHORT_CLOSED", "CANCELLED")
+                    and float(line.allocated_quantity or 0) > float(line.dispatched_quantity or 0)
+                ),
                 "ready_at": so.updated_at.isoformat() if so.updated_at else None,
             })
 

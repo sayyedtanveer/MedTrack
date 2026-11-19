@@ -57,6 +57,8 @@ from backend.app.interfaces.api.sales.schemas import (
     OrderStatusResponse,
 )
 from backend.app.application.sales.commands import _PRICE_LIST_UNSET
+from backend.app.application.manufacturing.services.order_completion_service import OrderCompletionService
+from backend.app.interfaces.api.sales.schemas import ProductionCompletionItem, ProductionCompletionResponse
 from backend.app.application.sales import (
     # Commands
     CreateClientCommand,
@@ -1086,6 +1088,42 @@ async def submit_order_for_approval(
             import traceback
             tb = traceback.format_exc()
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Approval submission failed: {str(e)} - {tb}")
+
+
+@router.get("/orders/{order_id}/production-completion", response_model=ProductionCompletionResponse,
+            dependencies=[Depends(require_permission("sales:read"))])
+async def production_completion(
+    order_id: UUID, request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+) -> ProductionCompletionResponse:
+    container = get_container(request)
+    async with container.session_factory() as session:
+        try:
+            work_orders = await OrderCompletionService(session).work_orders(tenant_id, order_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return ProductionCompletionResponse(items=[
+            ProductionCompletionItem.model_validate(wo, from_attributes=True) for wo in work_orders
+        ])
+
+
+@router.post("/orders/{order_id}/complete-production", response_model=ProductionCompletionResponse,
+             dependencies=[Depends(require_permission("manufacturing:write"))])
+async def complete_order_production(
+    order_id: UUID, request: Request,
+    tenant_id: UUID = Depends(get_current_tenant_id),
+) -> ProductionCompletionResponse:
+    container = get_container(request)
+    async with container.session_factory() as session:
+        uow = SQLAlchemyUnitOfWork(session=session, event_dispatcher=container.event_dispatcher)
+        try:
+            work_orders = await OrderCompletionService(session).complete_ready(tenant_id, order_id, uow)
+            return ProductionCompletionResponse(items=[
+                ProductionCompletionItem.model_validate(wo, from_attributes=True) for wo in work_orders
+            ])
+        except ValueError as exc:
+            await uow.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(

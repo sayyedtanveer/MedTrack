@@ -557,6 +557,7 @@ export default function WorkOrderDetailPage() {
   
   // Filter actions based on roles
   actions = actions.filter((action) => {
+    if (action.actionKey === 'complete' && wo.status === 'FG_RECEIVED' && wo.sales_order_id) return false;
     if (isAdmin()) return true; // Admin can do everything
 
     // QC specific actions
@@ -644,6 +645,12 @@ export default function WorkOrderDetailPage() {
             )}
           </div>
           <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+            {wo.status === 'FG_RECEIVED' && wo.sales_order_id && (
+              <button onClick={() => navigate(`/sales/orders/${wo.sales_order_id}`)}
+                className="rounded-lg px-4 py-2 text-sm font-medium bg-teal-600 text-white hover:bg-teal-700">
+                Complete Products on Sales Order
+              </button>
+            )}
             <button
               onClick={handlePrintPDF}
               disabled={documentLoading}

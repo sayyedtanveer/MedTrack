@@ -158,7 +158,10 @@ class DeliveryService:
             sales_line.status = "shipped" if Decimal(str(sales_line.shipped_quantity)) >= allocated else sales_line.status
             sales_line.updated_at = datetime.now(timezone.utc)
 
-        if all(Decimal(str(line.shipped_quantity or 0)) >= Decimal(str(line.allocated_quantity or 0)) for line in order.lines):
+        if all(
+            Decimal(str(line.shipped_quantity or 0)) >= Decimal(str(line.quantity or 0))
+            for line in order.lines if line.line_status not in ("SHORT_CLOSED", "CANCELLED")
+        ):
             order.status = "SHIPPED"
         order.updated_at = datetime.now(timezone.utc)
         delivery.status = "SHIPPED"
@@ -188,8 +191,17 @@ class DeliveryService:
         delivery.updated_at = datetime.now(timezone.utc)
 
         should_invoice = all(
-            Decimal(str(line.shipped_quantity or 0)) >= Decimal(str(line.quantity or 0)) for line in order.lines
+            Decimal(str(line.shipped_quantity or 0)) >= Decimal(str(line.quantity or 0))
+            for line in order.lines if line.line_status not in ("SHORT_CLOSED", "CANCELLED")
         )
+        other_undelivered = await self.session.scalar(select(DeliveryOrderModel.id).where(
+            DeliveryOrderModel.tenant_id == tenant_id,
+            DeliveryOrderModel.sales_order_id == order.id,
+            DeliveryOrderModel.id != delivery.id,
+            DeliveryOrderModel.is_deleted.is_(False),
+            DeliveryOrderModel.status.in_(["DRAFT", "PACKING", "SHIPPED"]),
+        ).limit(1))
+        should_invoice = should_invoice and other_undelivered is None
         if should_invoice:
             order.status = "DELIVERED"
             order.updated_at = datetime.now(timezone.utc)
@@ -396,6 +408,7 @@ class DeliveryService:
                     SalesOrderModel.tenant_id == tenant_id,
                     SalesOrderModel.is_deleted.is_(False),
                 )
+                .with_for_update(of=SalesOrderModel)
             )
         ).scalar_one_or_none()
         if order is None:

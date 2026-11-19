@@ -33,6 +33,7 @@ interface DispatchQueueItem {
   client_name?: string | null    // alias for display
   grand_total: number
   total_quantity?: number
+  ready_product_count?: number
   ready_at: string | null
   due_date?: string | null
 }
@@ -74,6 +75,9 @@ export default function DeliveryDashboardPage() {
   // Fetch dispatch queue (orders ready for dispatch)
   const { data: dispatchQueue, isLoading: dispatchLoading } = useQuery<DispatchQueueItem[]>({
     queryKey: ["delivery-dispatch-queue"],
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 30000,
     queryFn: async () => {
       const response = await apiClient.get("/delivery/dispatch-queue")
       return response.data
@@ -102,6 +106,7 @@ export default function DeliveryDashboardPage() {
         description: "Delivery marked as shipped",
       })
       queryClient.invalidateQueries({ queryKey: ["active-deliveries"] })
+      queryClient.invalidateQueries({ queryKey: ["delivery-dispatch-queue"] })
     },
     onError: (error: any) => {
       toast({
@@ -202,6 +207,7 @@ export default function DeliveryDashboardPage() {
                 <TableRow>
                   <TableHead>Order Number</TableHead>
                   <TableHead>Client</TableHead>
+                  <TableHead>Ready products</TableHead>
                   <TableHead className="text-right">Grand Total</TableHead>
                   <TableHead>Ready Since</TableHead>
                   <TableHead className="text-right">Action</TableHead>
@@ -218,6 +224,7 @@ export default function DeliveryDashboardPage() {
                     <TableRow key={item.id}>
                       <TableCell className="font-mono font-medium">{item.order_number}</TableCell>
                       <TableCell>{item.customer_name ?? item.client_name ?? "—"}</TableCell>
+                      <TableCell>{item.ready_product_count ?? '—'}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {item.grand_total !== undefined
                           ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(item.grand_total)

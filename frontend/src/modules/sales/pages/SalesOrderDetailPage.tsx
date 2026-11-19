@@ -19,6 +19,7 @@ import { formatCurrency } from '@/utils/currency';
 import { REALTIME_EVENT_NAME } from '@/components/notifications/RealtimeNotificationsBridge';
 import SalesWorkflowTimeline from '@/modules/sales/components/SalesWorkflowTimeline';
 import SalesOrderActionPanel from '@/modules/sales/components/SalesOrderActionPanel';
+import { OrderProductionCompletion } from '../components/OrderProductionCompletion';
 import DispatchPanel from '@/modules/sales/components/DispatchPanel';
 import { SO_STATUS_COLOR_MAP } from '@/modules/sales/components/SalesOrderStatusConfig';
 import { financeService, type Invoice } from '@/services/finance.service';
@@ -373,6 +374,9 @@ export default function SalesOrderDetailPage() {
           {error}
         </div>
       )}
+
+      <OrderProductionCompletion orderId={order.id} products={order.lines}
+        onCompleted={() => navigate('/delivery/dashboard')} />
 
       {/* Workflow Progress Timeline (Req 4.1–4.7) */}
       {id && (

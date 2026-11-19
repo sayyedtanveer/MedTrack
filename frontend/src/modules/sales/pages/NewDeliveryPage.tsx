@@ -23,9 +23,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { ArrowLeft, Loader2, Truck } from "lucide-react"
 import { toast } from "sonner"
 import { formatCurrency } from "@/utils/currency"
+import { productionCompletion } from '../services/productionCompletion'
+import { OrderProductionCompletion } from '../components/OrderProductionCompletion'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
-// Max dispatchable qty for a line = allocated - already shipped
+// Dispatch only allocated stock, including partially ready orders.
 function maxDispatchable(line: SalesOrderLine): number {
+  if (['SHORT_CLOSED', 'CANCELLED'].includes(line.line_status)) return 0
   return Math.max(0, Number(line.allocated_qty ?? 0) - Number(line.shipped_qty ?? 0))
 }
 
@@ -46,6 +50,7 @@ export default function NewDeliveryPage() {
   // Per-line qty state: lineId → quantity
   const [lineQtys, setLineQtys] = useState<Record<string, number>>({})
   const [qtyErrors, setQtyErrors] = useState<Record<string, string>>({})
+  const [completionOpen, setCompletionOpen] = useState(false)
 
   // Carrier / tracking (optional)
   const [carrier, setCarrier] = useState("")
@@ -75,7 +80,7 @@ export default function NewDeliveryPage() {
 
   const handleQtyChange = (lineId: string, raw: string, line: SalesOrderLine) => {
     const max = maxDispatchable(line)
-    const val = parseInt(raw, 10)
+    const val = Number(raw)
     const errors = { ...qtyErrors }
     if (isNaN(val) || val < 0) {
       errors[lineId] = "Enter a valid quantity"
@@ -88,7 +93,7 @@ export default function NewDeliveryPage() {
     setLineQtys((prev) => ({ ...prev, [lineId]: isNaN(val) ? 0 : val }))
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (productionCompleted = false) => {
     if (!order) return
     const lines = order.lines
       .filter((l) => (lineQtys[l.id] ?? 0) > 0)
@@ -109,6 +114,13 @@ export default function NewDeliveryPage() {
 
     setSubmitting(true)
     try {
+      if (!productionCompleted) {
+        const production = await productionCompletion.get(order.id)
+        if (production.items.some(item => item.status === 'FG_RECEIVED')) {
+          setCompletionOpen(true)
+          return
+        }
+      }
       const payload = {
         sales_order_id: order.id,
         lines,
@@ -153,6 +165,18 @@ export default function NewDeliveryPage() {
 
   return (
     <div className="space-y-6 p-6 max-w-3xl mx-auto">
+      <Dialog open={completionOpen} onOpenChange={setCompletionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Complete ready products before delivery</DialogTitle>
+            <DialogDescription>Complete the ready work orders together to continue. Products awaiting production or QC stay pending.</DialogDescription>
+          </DialogHeader>
+          <OrderProductionCompletion orderId={order.id} products={order.lines} onCompleted={() => {
+            setCompletionOpen(false)
+            void handleSubmit(true)
+          }} />
+        </DialogContent>
+      </Dialog>
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
@@ -271,7 +295,7 @@ export default function NewDeliveryPage() {
               Cancel
             </Button>
             <Button
-              onClick={handleSubmit}
+              onClick={() => void handleSubmit()}
               disabled={submitting || dispatchableLines.length === 0}
               className="bg-teal-600 hover:bg-teal-700"
             >

@@ -10,6 +10,17 @@ from pydantic import BaseModel, Field, validator
 
 # ==================== CLIENT SCHEMAS ====================
 
+class ProductionCompletionItem(BaseModel):
+    id: UUID
+    wo_number: str
+    product_id: UUID
+    status: str
+
+
+class ProductionCompletionResponse(BaseModel):
+    items: list[ProductionCompletionItem]
+
+
 class ClientCreateRequest(BaseModel):
     """Request to create a client."""
     code: Optional[str] = Field(None, max_length=50, description="Unique client code")
