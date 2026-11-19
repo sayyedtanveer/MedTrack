@@ -399,7 +399,21 @@ class MaterialOnboardingService:
         repo=MaterialRepository(self.session); uow=SQLAlchemyUnitOfWork(session=self.session,event_dispatcher=None)
         std_cost = Decimal(str(d["standard_cost"])) if d.get("standard_cost") else None
         if mat is None:
-            result=await CreateMaterialHandler(repo,uow,ItemCodeService(self.session)).handle(CreateMaterialCommand(tenant_id=tenant_id,created_by=user_id,code=d.get("item_code") or None,name=d["material_name"],material_type=d.get("material_type") or "raw",category_id=cat.id,base_unit_id=unit.id,reorder_level=Decimal(str(d["reorder_level"])) if d.get("reorder_level") else None,location_id=location.id if location else None,is_batch_tracked=as_bool(d.get("batch_tracking_enabled"))))
+            result = await CreateMaterialHandler(repo, uow, ItemCodeService(self.session)).handle(
+                CreateMaterialCommand(
+                    tenant_id=tenant_id,
+                    created_by=user_id,
+                    code=d.get("item_code") or None,
+                    name=d["material_name"],
+                    material_type=d.get("material_type") or "raw",
+                    category_id=cat.id,
+                    base_unit_id=unit.id,
+                    reorder_level=Decimal(str(d["reorder_level"])) if d.get("reorder_level") else None,
+                    location_id=location.id if location else None,
+                    is_batch_tracked=as_bool(d.get("batch_tracking_enabled")),
+                    opening_stock=Decimal(str(d.get("opening_stock") or 0)),
+                )
+            )
             mat=await self.session.get(MaterialModel,result.id); row.classification="create"
             # Apply standard_cost after create (CreateMaterialCommand doesn't carry it yet)
             if std_cost is not None:

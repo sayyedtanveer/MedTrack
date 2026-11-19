@@ -63,7 +63,7 @@ export type TransactionType = "in" | "out" | "transfer" | "adjustment";
 export interface InventoryTransaction {
   id: string;
   material_id: string;
-  transaction_type: TransactionType;
+  transaction_type: TransactionType | 'LOCATION_ASSIGNMENT';
   quantity: number;
   unit_id: string | null;
   from_location_id: string | null;

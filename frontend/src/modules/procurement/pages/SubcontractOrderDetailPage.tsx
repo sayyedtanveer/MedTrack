@@ -157,11 +157,10 @@ export default function SubcontractOrderDetailPage() {
       // Fetch stock for each material
       const stockPromises = materialIds.map(async (materialId) => {
         try {
-          const stockInfo = await materialService.getMaterialStock(materialId)
-          // Use available_stock from the API response (current_stock - reserved_stock)
+          const stockInfo = await materialService.getMaterialStockByLocation(materialId)
           return {
             materialId,
-            available: Number(stockInfo.available_stock || 0)
+            available: Number(stockInfo.location_available_stock || 0)
           }
         } catch {
           return { materialId, available: 0 }
@@ -496,7 +495,7 @@ export default function SubcontractOrderDetailPage() {
                   <TableHead className="text-right">Consumed</TableHead>
                   <TableHead className="text-right">Returned</TableHead>
                   <TableHead className="text-right">At Subcontractor</TableHead>
-                  <TableHead className="text-right">Available Stock</TableHead>
+                  <TableHead className="text-right">Available in storage</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
@@ -610,7 +609,7 @@ export default function SubcontractOrderDetailPage() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-xs pt-2 border-t">
-                    <span className="text-muted-foreground">Available Stock:</span>
+                    <span className="text-muted-foreground">Available in storage:</span>
                     {loadingStock ? (
                       <span className="text-muted-foreground">Loading...</span>
                     ) : hasEnoughStock ? (

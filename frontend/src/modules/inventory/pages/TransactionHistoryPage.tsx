@@ -46,6 +46,7 @@ export default function TransactionHistoryPage() {
         let label = type.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
         if (type === "in") label = "Stock In";
         if (type === "out") label = "Stock Out";
+        if (type === "LOCATION_ASSIGNMENT") return <span className="inline-flex items-center text-blue-600 bg-blue-50 px-2 py-1 rounded text-xs font-semibold">Location Assignment</span>;
         
         if (inTypes.includes(type) || releaseTypes.includes(type)) return <span className="inline-flex items-center text-green-600 bg-green-50 px-2 py-1 rounded text-xs font-semibold"><ArrowDownToLine className="w-3 h-3 mr-1"/> {label}</span>;
         if (outTypes.includes(type)) return <span className="inline-flex items-center text-red-600 bg-red-50 px-2 py-1 rounded text-xs font-semibold"><ArrowUpToLine className="w-3 h-3 mr-1"/> {label}</span>;

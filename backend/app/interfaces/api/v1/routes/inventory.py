@@ -43,6 +43,8 @@ from backend.app.interfaces.api.v1.dependencies.auth import (
 )
 from backend.app.interfaces.api.v1.dependencies.permissions import require_permission
 from backend.app.interfaces.api.v1.schemas.inventory_schemas import (
+    AssignExistingStockRequest,
+    AssignExistingStockResponse,
     AdjustStockRequest,
     CreateMaterialRequest,
     MaterialListResponse,
@@ -583,17 +585,51 @@ async def get_stock_by_location(
             
             locations.append(location_data)
         
+        from backend.app.application.manufacturing.services.inventory_service import InventoryService
+
+        inventory = InventoryService(session)
+        located_stock = await inventory._sum_all_stock_levels(tenant_id, material_id)
+        internal_available = await inventory._sum_available_internal(tenant_id, material_id)
         return {
             "material_id": str(material_id),
             "material_code": material.code,
             "material_name": material.name,
             "total_stock": float(material.current_stock),
+            "located_stock": float(located_stock),
+            "unlocated_stock": float(max(0, material.current_stock - located_stock)),
+            "location_available_stock": float(max(0, internal_available - material.reserved_stock)),
             "warehouse_stock": warehouse_total,
             "subcontractor_stock": subcontractor_total,
             "reserved_stock": float(material.reserved_stock),
             "available_stock": float(material.current_stock - material.reserved_stock),
             "locations": locations,
         }
+
+
+@router.post(
+    "/materials/{material_id}/assign-existing-stock",
+    response_model=AssignExistingStockResponse,
+    dependencies=[Depends(require_permission("inventory:write"))],
+)
+async def assign_existing_stock(
+    material_id: uuid.UUID, body: AssignExistingStockRequest, request: Request,
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+) -> AssignExistingStockResponse:
+    from backend.app.application.manufacturing.services.inventory_service import InventoryService
+
+    container = get_container(request)
+    async with container.session_factory() as session:
+        try:
+            quantity = await InventoryService(session).assign_unlocated_stock(
+                tenant_id=tenant_id, material_id=material_id,
+                location_id=body.location_id, created_by=user_id, remarks=body.remarks,
+            )
+            await session.commit()
+            return AssignExistingStockResponse(material_id=material_id, assigned_quantity=quantity)
+        except ValueError as exc:
+            await session.rollback()
+            raise HTTPException(status_code=_material_error_status(str(exc)), detail=str(exc)) from exc
 
 
 # ── Transactions ───────────────────────────────────────────────────────────────

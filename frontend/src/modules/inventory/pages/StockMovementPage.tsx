@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react"
+import { useSearchParams } from 'react-router-dom'
+import { AssignExistingStock } from '../components/AssignExistingStock'
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -30,8 +32,11 @@ const emptyDraft: MovementDraft = {
 }
 
 export default function StockMovementPage() {
+  const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const [activeType, setActiveType] = useState<TransactionType>("in")
+  const [activeType, setActiveType] = useState<TransactionType | 'location_assignment'>(
+    searchParams.get('action') === 'assign-location' ? 'location_assignment' : 'in'
+  )
   const [draft, setDraft] = useState<MovementDraft>(emptyDraft)
 
   const { data: materialsData, isLoading: isLoadingMaterials } = useQuery({
@@ -52,6 +57,7 @@ export default function StockMovementPage() {
 
   const mutation = useMutation({
     mutationFn: () => {
+      if (activeType === 'location_assignment') throw new Error('Use the location assignment form')
       const quantity = Number(draft.quantity)
       return materialService.createTransaction({
         material_id: draft.material_id,
@@ -208,12 +214,13 @@ export default function StockMovementPage() {
       <Tabs
         value={activeType}
         onValueChange={(value) => {
-          setActiveType(value as TransactionType)
+          setActiveType(value as TransactionType | 'location_assignment')
           setDraft(emptyDraft)
         }}
         className="w-full"
       >
-        <TabsList className="mb-8 grid w-full max-w-2xl grid-cols-4">
+        <TabsList className="mb-8 flex h-auto w-full flex-wrap justify-start">
+          <TabsTrigger value="location_assignment">Assign Existing Stock</TabsTrigger>
           <TabsTrigger value="in">
             <ArrowDownToLine className="mr-2 h-4 w-4" />
             Receive
@@ -236,6 +243,9 @@ export default function StockMovementPage() {
         <TabsContent value="out">{renderForm("out")}</TabsContent>
         <TabsContent value="transfer">{renderForm("transfer")}</TabsContent>
         <TabsContent value="adjustment">{renderForm("adjustment")}</TabsContent>
+        <TabsContent value="location_assignment">
+          <AssignExistingStock initialMaterialId={searchParams.get('materialId') ?? ''} />
+        </TabsContent>
       </Tabs>
     </div>
   )

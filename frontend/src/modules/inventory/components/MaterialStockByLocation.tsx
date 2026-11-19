@@ -32,6 +32,8 @@ interface StockByLocationData {
   subcontractor_stock: number
   reserved_stock: number
   available_stock: number
+  unlocated_stock: number
+  location_available_stock: number
   locations: StockLocation[]
 }
 
@@ -100,11 +102,19 @@ export function MaterialStockByLocation({ materialId }: MaterialStockByLocationP
               <div className="text-2xl font-bold text-amber-600">{data.subcontractor_stock.toFixed(2)}</div>
             </div>
             <div>
-              <div className="text-sm text-muted-foreground mb-1">Available</div>
-              <div className="text-2xl font-bold text-blue-600">{data.available_stock.toFixed(2)}</div>
+              <div className="text-sm text-muted-foreground mb-1">Available in storage</div>
+              <div className="text-2xl font-bold text-blue-600">{data.location_available_stock.toFixed(2)}</div>
             </div>
           </div>
           
+          {data.unlocated_stock > 0 && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+              <p>{data.unlocated_stock.toFixed(2)} existing units have no location balance.</p>
+              <Link className="font-medium underline" to={`/inventory/movements?action=assign-location&materialId=${materialId}`}>
+                Assign existing stock to a location
+              </Link>
+            </div>
+          )}
           {data.subcontractor_stock > 0 && (
             <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
               <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />

@@ -186,6 +186,8 @@ class InventoryService:
                 StockLevelModel.stock_status == _ST_AVAILABLE,
                 StockLevelModel.is_deleted.is_(False),
                 LocationModel.type.in_(_INTERNAL_ISSUE_LOCATION_TYPES),
+                LocationModel.tenant_id == tenant_id,
+                LocationModel.is_active.is_(True),
                 LocationModel.is_deleted.is_(False),
             )
         )
@@ -465,6 +467,79 @@ class InventoryService:
 
     # ── Public API ──────────────────────────────────────────────────────────────
 
+    async def _internal_stock_location(
+        self, tenant_id: uuid.UUID, location_id: Optional[uuid.UUID],
+    ) -> uuid.UUID:
+        location_id = location_id or await self._default_warehouse_location(tenant_id)
+        location = await self._session.scalar(select(LocationModel).where(
+            LocationModel.id == location_id,
+            LocationModel.tenant_id == tenant_id,
+            LocationModel.is_active.is_(True),
+            LocationModel.is_deleted.is_(False),
+            LocationModel.type.in_(_INTERNAL_ISSUE_LOCATION_TYPES),
+        ).with_for_update())
+        if location is None:
+            raise ValueError("Select an active internal storage location for this stock")
+        return location.id
+
+    async def receive_opening_stock(
+        self, *, tenant_id: uuid.UUID, material_id: uuid.UUID,
+        quantity: Decimal, created_by: uuid.UUID,
+        location_id: Optional[uuid.UUID] = None,
+        remarks: str = "Opening balance",
+    ) -> None:
+        model = await self._lock_material(tenant_id, material_id)
+        location = await self._internal_stock_location(tenant_id, location_id or model.location_id)
+        if Decimal(str(model.current_stock)) != 0 or await self._has_stock_levels(tenant_id, material_id):
+            raise ValueError("Opening stock can only be recorded for an item without existing stock")
+        await self.add_stock(
+            tenant_id=tenant_id, material_id=material_id, quantity=quantity,
+            unit_id=model.base_unit_id, created_by=created_by, to_location_id=location,
+            reference_type="opening_balance", remarks=remarks,
+        )
+        model.location_id = location
+
+    async def assign_unlocated_stock(
+        self, *, tenant_id: uuid.UUID, material_id: uuid.UUID,
+        location_id: uuid.UUID, created_by: uuid.UUID, remarks: str,
+    ) -> Decimal:
+        """Locate existing stock without recording a receipt or changing total stock."""
+        model = await self._lock_material(tenant_id, material_id)
+        if model.is_deleted or not model.is_active:
+            raise ValueError("Material is inactive or deleted")
+        location = await self._internal_stock_location(tenant_id, location_id)
+        total = Decimal(str(model.current_stock))
+        located = await self._sum_all_stock_levels(tenant_id, material_id)
+        missing = total - located
+        if missing < 0:
+            raise ValueError("Location balances exceed total stock; review the existing balances first")
+        if missing == 0:
+            return Decimal("0")
+        stock_status = _ST_PENDING if model.inspection_required else _ST_AVAILABLE
+        await self._add_bucket_quantity(
+            tenant_id=tenant_id, material_id=material_id, location_id=location,
+            stock_status=stock_status, quantity=missing,
+        )
+        await self._session.flush()
+        if await self._sum_all_stock_levels(tenant_id, material_id) != total:
+            raise ValueError("Location assignment did not balance with total stock")
+        if model.location_id is None:
+            model.location_id = location
+        await self._log_transaction(
+            tenant_id=tenant_id, material_id=material_id,
+            transaction_type="LOCATION_ASSIGNMENT", quantity=missing,
+            unit_id=model.base_unit_id, created_by=created_by,
+            to_location_id=location, reference_type="location_reconciliation",
+            reference_id=material_id,
+            remarks=f"Existing stock assigned to location; total unchanged ({total}). {remarks}",
+        )
+        await self._log_ledger(
+            tenant_id=tenant_id, material_id=material_id, location_id=location,
+            transaction_type="LOCATION_ASSIGNMENT", quantity_change=Decimal("0"),
+            reference_type="location_reconciliation", reference_id=material_id,
+        )
+        return missing
+
     async def add_stock(
         self,
         *,
@@ -484,18 +559,17 @@ class InventoryService:
         if quantity <= 0:
             raise ValueError("quantity must be positive")
         model = await self._lock_material(tenant_id, material_id)
-        loc = to_location_id or await self._default_warehouse_location(tenant_id)
-        if loc:
-            await self._add_bucket_quantity(
-                tenant_id=tenant_id,
-                material_id=material_id,
-                location_id=loc,
-                stock_status=_ST_AVAILABLE,
-                quantity=quantity,
-            )
-            await self._sync_material_total_from_buckets(model)
-        else:
-            model.current_stock = float(Decimal(str(model.current_stock)) + quantity)
+        located = await self._sum_all_stock_levels(tenant_id, material_id)
+        if Decimal(str(model.current_stock)) > located:
+            raise ValueError("Assign existing unlocated stock to a location before receiving additional stock")
+        if Decimal(str(model.current_stock)) < located:
+            raise ValueError("Location balances exceed total stock; review the existing balances first")
+        loc = await self._internal_stock_location(tenant_id, to_location_id or model.location_id)
+        await self._add_bucket_quantity(
+            tenant_id=tenant_id, material_id=material_id, location_id=loc,
+            stock_status=_ST_AVAILABLE, quantity=quantity,
+        )
+        await self._sync_material_total_from_buckets(model)
 
         await self._log_transaction(
             tenant_id=tenant_id,

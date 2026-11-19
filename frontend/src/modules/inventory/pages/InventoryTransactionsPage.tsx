@@ -67,6 +67,7 @@ interface TransactionFilters {
 }
 
 const TRANSACTION_TYPE_COLORS: Record<string, string> = {
+  LOCATION_ASSIGNMENT: "bg-cyan-100 text-cyan-700",
   RESERVATION: "bg-indigo-100 text-indigo-700",
   DISPATCH: "bg-teal-100 text-teal-700",
   FG_RECEIPT: "bg-green-100 text-green-700",
@@ -83,6 +84,7 @@ const TRANSACTION_TYPE_COLORS: Record<string, string> = {
 }
 
 const TRANSACTION_TYPES = [
+  "LOCATION_ASSIGNMENT",
   "RESERVATION",
   "DISPATCH",
   "FG_RECEIPT",

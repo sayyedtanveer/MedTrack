@@ -17,11 +17,6 @@ from backend.app.application.inventory.commands.inventory_commands import (
     AdjustStockCommand,
 )
 from backend.app.domain.inventory.entities.material import Material
-from backend.app.domain.inventory.entities.inventory_transaction import (
-    InventoryTransaction,
-    TransactionType,
-    ReferenceType,
-)
 from backend.app.infrastructure.persistence.repositories.material_repository import MaterialRepository
 from backend.app.infrastructure.persistence.repositories.transaction_repository import TransactionRepository
 from backend.app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
@@ -240,20 +235,15 @@ class CreateMaterialHandler:
         # Opening stock: if provided and > 0, increase stock and record transaction atomically
         opening_stock = cmd.opening_stock
         if opening_stock is not None and opening_stock > Decimal("0"):
-            material.increase_stock(opening_stock)
-            await self._repo.save(material)
-
-            tx = InventoryTransaction(
-                tenant_id=cmd.tenant_id,
-                material_id=material.id,
-                transaction_type=TransactionType.IN,
-                quantity=opening_stock,
-                reference_type=ReferenceType.OPENING_BALANCE,
-                remarks="Opening balance",
-                created_by=cmd.created_by,
+            await InventoryService(self._uow.session).receive_opening_stock(
+                tenant_id=cmd.tenant_id, material_id=material.id,
+                quantity=opening_stock, created_by=cmd.created_by,
+                location_id=cmd.location_id,
             )
-            tx_repo = TransactionRepository(self._uow.session)
-            await tx_repo.save(tx)
+            updated_material = await self._repo.get_by_id(material.id, cmd.tenant_id)
+            if updated_material is None:
+                raise ValueError("Material not found after recording opening stock")
+            material = updated_material
 
         await self._uow.commit()
         return _to_result(material)

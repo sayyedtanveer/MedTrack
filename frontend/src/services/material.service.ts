@@ -20,6 +20,36 @@ export interface PaginatedMaterialsResponse {
   page_size: number;
 }
 
+export interface StockByLocationInfo {
+  material_id: string;
+  material_code: string;
+  material_name: string;
+  total_stock: number;
+  located_stock: number;
+  unlocated_stock: number;
+  location_available_stock: number;
+  warehouse_stock: number;
+  subcontractor_stock: number;
+  reserved_stock: number;
+  available_stock: number;
+  locations: {
+    location_id: string;
+    location_name: string;
+    location_type: string;
+    location_code?: string;
+    quantity: number;
+    stock_status: string;
+    vendor_name?: string;
+    subcontract_orders?: {
+      order_id: string;
+      order_number: string;
+      supplier_name: string;
+      issued_date: string;
+      status: string;
+    }[];
+  }[];
+}
+
 export const materialService = {
   // ── Materials ───────────────────────────────────────────────────────────
   async getMaterials(params: {
@@ -64,8 +94,15 @@ export const materialService = {
     return data;
   },
 
-  async getMaterialStockByLocation(materialId: string): Promise<any> {
+  async getMaterialStockByLocation(materialId: string): Promise<StockByLocationInfo> {
     const { data } = await apiClient.get(`/inventory/materials/${materialId}/stock-by-location`);
+    return data;
+  },
+
+  async assignExistingStock(materialId: string, locationId: string, remarks: string): Promise<{ assigned_quantity: string }> {
+    const { data } = await apiClient.post(`/inventory/materials/${materialId}/assign-existing-stock`, {
+      location_id: locationId, remarks,
+    });
     return data;
   },
 

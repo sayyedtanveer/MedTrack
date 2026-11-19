@@ -14,6 +14,7 @@ class TransactionType(str, Enum):
     OUT = "out"
     TRANSFER = "transfer"
     ADJUSTMENT = "adjustment"
+    LOCATION_ASSIGNMENT = "LOCATION_ASSIGNMENT"
     # Extended transaction types for full traceability (Requirement 31.1, 31.2)
     OPENING_STOCK = "OPENING_STOCK"
     PURCHASE_RECEIPT = "PURCHASE_RECEIPT"
@@ -36,6 +37,7 @@ class ReferenceType(str, Enum):
     SALES_ORDER = "sales_order"
     WORK_ORDER = "work_order"
     OPENING_BALANCE = "opening_balance"
+    LOCATION_RECONCILIATION = "location_reconciliation"
     SALES_ORDER_LINE = "sales_order_line"
     PURCHASE_RECEIPT = "purchase_receipt"
     PURCHASE_RECEIPT_REVERSAL = "purchase_receipt_reversal"

@@ -21,8 +21,6 @@ from sqlalchemy import and_, or_, select, func
 from backend.app.infrastructure.persistence.models.material_model import MaterialModel
 from backend.app.infrastructure.persistence.models.unit_of_measure_model import UnitOfMeasureModel
 from backend.app.infrastructure.persistence.models.material_category_model import MaterialCategoryModel
-from backend.app.infrastructure.persistence.models.inventory_transaction_model import InventoryTransactionModel
-from backend.app.infrastructure.persistence.models.stock_level_model import StockLevelModel
 from backend.app.infrastructure.persistence.models.location_model import LocationModel
 from backend.app.infrastructure.persistence.models.supplier_model import SupplierModel
 from backend.app.application.inventory.services.item_code_service import ItemCodeService
@@ -1722,7 +1720,7 @@ async def execute_session(
                             length_uom=_f("length_uom"),
                             supplier_item_code=_f("supplier_item_code"),
                             current_cost=0,
-                            current_stock=opening_stock_value,
+                            current_stock=0,
                             reserved_stock=0,
                             is_active=True,
                             is_deleted=False,
@@ -1735,40 +1733,16 @@ async def execute_session(
                         # Flush to ensure material exists in DB before creating dependent transaction
                         await db.flush()
 
-                        # If opening_stock > 0, create Stock In transaction + StockLevelModel entry
                         if opening_stock_value > 0:
-                            # Get default warehouse location
+                            from backend.app.application.manufacturing.services.inventory_service import InventoryService
+
                             warehouse_location_id = await _get_default_warehouse_location(db, tenant_id)
-
-                            # Create the transaction record
-                            tx = InventoryTransactionModel(
-                                id=uuid.uuid4(),
-                                tenant_id=tenant_id,
-                                material_id=mat.id,
-                                transaction_type="in",
-                                quantity=opening_stock_value,
-                                reference_type="onboarding_opening_balance",
+                            await InventoryService(db).receive_opening_stock(
+                                tenant_id=tenant_id, material_id=mat.id,
+                                quantity=Decimal(str(opening_stock_value)), created_by=user_id,
+                                location_id=warehouse_location_id,
                                 remarks="Opening balance via onboarding import",
-                                created_by=user_id,
-                                created_at=datetime.now(timezone.utc),
-                                updated_at=datetime.now(timezone.utc),
                             )
-                            db.add(tx)
-
-                            # Create StockLevelModel entry at warehouse location (critical for stock-by-location visibility)
-                            if warehouse_location_id:
-                                stock_level = StockLevelModel(
-                                    id=uuid.uuid4(),
-                                    tenant_id=tenant_id,
-                                    material_id=mat.id,
-                                    location_id=warehouse_location_id,
-                                    stock_status="available",
-                                    quantity=opening_stock_value,
-                                    is_deleted=False,
-                                    created_at=datetime.now(timezone.utc),
-                                    updated_at=datetime.now(timezone.utc),
-                                )
-                                db.add(stock_level)
 
                         created += 1
                     else:

@@ -60,6 +60,16 @@ class UpdateMaterialRequest(BaseModel):
 
 
 # ── Transaction Request Schemas ───────────────────────────────────────────
+
+class AssignExistingStockRequest(BaseModel):
+    location_id: uuid.UUID
+    remarks: str = Field("Opening stock location reconciliation", min_length=3, max_length=2000)
+
+
+class AssignExistingStockResponse(BaseModel):
+    material_id: uuid.UUID
+    assigned_quantity: Decimal
+
 class AddStockRequest(BaseModel):
     material_id: uuid.UUID
     quantity: Decimal = Field(..., gt=0, description="Quantity to add (must be positive)")
